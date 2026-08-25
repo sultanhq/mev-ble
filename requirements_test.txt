@@ -1,0 +1,5 @@
+homeassistant==2026.8.3
+pytest
+pytest-homeassistant-custom-component
+ruff
+

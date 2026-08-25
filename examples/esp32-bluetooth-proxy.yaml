@@ -1,0 +1,39 @@
+substitutions:
+  name: ventaxia-bluetooth-proxy
+  friendly_name: Vent-Axia Bluetooth Proxy
+
+esphome:
+  name: ${name}
+  friendly_name: ${friendly_name}
+  name_add_mac_suffix: true
+
+# Original ESP32 / ESP32-WROOM-32. For another BLE-capable variant, use
+# esp32s3, esp32c3, or esp32c6 as appropriate for the board.
+esp32:
+  variant: esp32
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+  encryption:
+    key: !secret esphome_api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret esphome_ota_password
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+
+bluetooth_proxy:
+  active: true
+  cache_services: true
+  connection_slots: 3
+

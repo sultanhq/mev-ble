@@ -1,0 +1,31 @@
+{
+  "domain": "ventaxia_multihome",
+  "name": "Vent-Axia Multihome",
+  "bluetooth": [
+    {
+      "connectable": true,
+      "local_name": "MEV"
+    },
+    {
+      "connectable": true,
+      "local_name": "Multihome"
+    },
+    {
+      "connectable": true,
+      "service_uuid": "e6834e4b-7b3a-48e6-91e4-f1d005f564d3"
+    },
+    {
+      "connectable": true,
+      "service_uuid": "e6ec2fd8-e888-4eb2-9680-e78ed6ea89e1"
+    }
+  ],
+  "codeowners": ["@robadams"],
+  "config_flow": true,
+  "dependencies": ["bluetooth_adapters"],
+  "documentation": "https://github.com/robadams/mev-ble",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/robadams/mev-ble/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

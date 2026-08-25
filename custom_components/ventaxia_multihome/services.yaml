@@ -1,0 +1,31 @@
+set_timed_override:
+  name: Set timed override
+  description: Set a documented airflow preset for an explicit duration.
+  target:
+    entity:
+      integration: ventaxia_multihome
+      domain: fan
+  fields:
+    preset:
+      name: Preset
+      description: Airflow preset to apply.
+      required: true
+      selector:
+        select:
+          options:
+            - low
+            - normal
+            - boost
+            - purge
+    duration:
+      name: Duration
+      description: Override duration in seconds (maximum eight hours).
+      required: true
+      selector:
+        number:
+          min: 1
+          max: 28800
+          step: 1
+          unit_of_measurement: s
+          mode: box
+

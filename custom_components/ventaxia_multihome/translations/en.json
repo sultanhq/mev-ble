@@ -1,0 +1,52 @@
+{
+  "title": "Vent-Axia Multihome",
+  "config": {
+    "step": {
+      "user": {"title": "Select a Vent-Axia Multihome", "data": {"address": "Device"}},
+      "setup_code": {"title": "Enter setup code", "description": "Put {name} into Bluetooth pairing/setup mode, then enter the numeric code presented or required by the unit.", "data": {"setup_code": "Setup code"}},
+      "reauth_confirm": {"title": "Update setup code", "description": "Put the unit into Bluetooth pairing/setup mode and enter its setup code.", "data": {"setup_code": "Setup code"}}
+    },
+    "error": {
+      "cannot_connect": "Could not connect or complete Bluetooth communication.",
+      "device_unavailable": "The device is not currently reachable through a connectable Home Assistant Bluetooth adapter or proxy.",
+      "not_supported": "The device does not expose the documented Multihome protocol.",
+      "setup_code_rejected": "The setup code was rejected. Confirm the code and that the unit is in pairing/setup mode.",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "no_devices_found": "No unconfigured MEV or Multihome device was found.",
+      "not_supported": "The discovered device name is not MEV or Multihome."
+    }
+  },
+  "options": {"step": {"init": {"title": "Fan override options", "data": {"override_duration": "Default override duration"}}}},
+  "entity": {
+    "sensor": {
+      "temperature": {"name": "Temperature"},
+      "relative_humidity": {"name": "Relative humidity"},
+      "co2": {"name": "CO₂"},
+      "fan_rpm": {"name": "Fan RPM"},
+      "fan_level": {"name": "Fan level"},
+      "fan_state": {"name": "Fan state"},
+      "override_remaining": {"name": "Override remaining"}
+    },
+    "fan": {"ventilation": {"name": "Ventilation", "state_attributes": {"preset_mode": {"state": {"low": "Low", "normal": "Normal", "boost": "Boost", "purge": "Purge"}}}}},
+    "button": {"cancel_override": {"name": "Cancel override"}},
+    "binary_sensor": {
+      "motor_not_running": {"name": "Motor not running"},
+      "internal_temperature_sensor_fault": {"name": "Internal temperature sensor fault"},
+      "internal_co2_sensor_fault": {"name": "Internal CO₂ sensor fault"},
+      "external_temperature_sensor_offline": {"name": "External temperature sensor offline"},
+      "external_co2_sensor_offline": {"name": "External CO₂ sensor offline"},
+      "speed_switch_unit_offline": {"name": "Speed switch unit offline"},
+      "alarm_triggered": {"name": "Alarm"},
+      "device_lost": {"name": "Device lost"},
+      "firmware_update_failed": {"name": "Firmware update failed"},
+      "battery_critical": {"name": "Battery critical"},
+      "filter_timeout": {"name": "Filter timeout"},
+      "service_timeout": {"name": "Service timeout"}
+    }
+  },
+  "services": {"set_timed_override": {"name": "Set timed override", "description": "Set an airflow preset for an explicit duration.", "fields": {"preset": {"name": "Preset", "description": "Airflow preset to apply."}, "duration": {"name": "Duration", "description": "Override duration in seconds."}}}}
+}
+

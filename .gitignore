@@ -1,0 +1,29 @@
+# Python and test output
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+
+# Local reverse-engineering inputs and generated output
+.apktool-framework/
+androguard.log
+apks/
+apktool/
+hermes/
+jadx/
+findings/
+*.apk
+*.xapk
+scripts/extract_protocol_enums.py
+scripts/extract_uuids.py
+scripts/list_gatt_references.py
+

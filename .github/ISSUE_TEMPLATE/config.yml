@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Troubleshooting guide
+    url: https://github.com/robadams/mev-ble/blob/main/docs/troubleshooting.md
+    about: Check setup, proxy, connection-slot, and logging guidance first.

@@ -1,0 +1,62 @@
+name: Bug report
+description: Report a connection, telemetry, control, or compatibility problem.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include the Vent-Axia setup code, ESPHome secrets, or unredacted private data.
+  - type: input
+    id: home_assistant
+    attributes:
+      label: Home Assistant version
+      placeholder: "2026.8.3"
+    validations:
+      required: true
+  - type: input
+    id: integration
+    attributes:
+      label: Integration version
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Vent-Axia model and firmware
+      placeholder: "Model and firmware shown in Home Assistant, if available"
+    validations:
+      required: true
+  - type: input
+    id: bluetooth
+    attributes:
+      label: Bluetooth path
+      placeholder: "Local adapter or exact ESP32 board and ESPHome version"
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Explain the expected result, actual result, and repeatable steps.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Redacted diagnostics and logs
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checklist
+      options:
+        - label: I removed setup codes, passwords, API keys, and other secrets.
+          required: true
+        - label: I closed the official mobile app while reproducing the issue.
+          required: true
+        - label: I read the troubleshooting guide.
+          required: true
+

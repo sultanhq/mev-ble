@@ -1,0 +1,24 @@
+name: Feature request
+description: Suggest a safe new entity, control, or compatibility improvement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: Describe the user-visible problem and desired outcome.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Device and protocol evidence
+      description: Include model/firmware details and non-secret evidence for any proposed write command.
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety considerations
+      description: Explain any impact on required ventilation, installer settings, calibration, or resets.
+
