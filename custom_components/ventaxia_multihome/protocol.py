@@ -354,6 +354,21 @@ def encode_cancel_override() -> bytes:
     return encode_user_override(AirflowPreset.LOW, 0, command=MevCommand.CANCEL)
 
 
+def encode_ventilation_mode(mode: VentilationMode | int) -> bytes:
+    """Encode a ventilation-mode command independently of a speed override."""
+
+    try:
+        ventilation_mode = VentilationMode(mode)
+    except ValueError as err:
+        raise ProtocolError(f"unsupported ventilation mode {int(mode)}") from err
+    return encode_user_override(
+        AirflowPreset.LOW,
+        0,
+        command=MevCommand.NONE,
+        ventilation_mode=ventilation_mode,
+    )
+
+
 def fragment_packet(packet: bytes, *, channel: int = 0) -> list[bytes]:
     """Split a packet into documented 20-byte legacy frames."""
 

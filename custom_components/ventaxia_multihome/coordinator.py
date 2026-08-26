@@ -28,7 +28,7 @@ from .device import (
     MultihomeDevice,
     SetupCodeRejectedError,
 )
-from .protocol import AirflowPreset, ProtocolError
+from .protocol import AirflowPreset, ProtocolError, VentilationMode
 
 if TYPE_CHECKING:
     from bleak.backends.device import BLEDevice
@@ -129,6 +129,24 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             await self.device.disconnect()
             raise HomeAssistantError(
                 f"Unable to cancel Multihome override: {err}"
+            ) from err
+        await self.async_request_refresh()
+
+    async def async_set_ventilation_mode(self, mode: VentilationMode) -> None:
+        """Set a model-supported ventilation mode and request fresh state."""
+
+        try:
+            await self.device.set_ventilation_mode(self._ble_device(), mode)
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            await self.device.disconnect()
+            raise HomeAssistantError(
+                f"Unable to set Multihome ventilation mode {mode.name.lower()}: {err}"
             ) from err
         await self.async_request_refresh()
 

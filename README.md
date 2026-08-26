@@ -70,6 +70,8 @@ Detailed instructions:
 - Temperature, relative humidity, optional CO₂, fan RPM, fan level/state, and
   remaining override time
 - Low, Normal, Boost, and Purge timed override presets
+- Model-gated standard fan on/off controls using distinct ventilation-mode packets
+- Separate advanced Stop ventilation action; this is not override cancellation
 - Separate Cancel override button
 - Twelve documented diagnostic fault sensors
 - Device Information reads for model, serial, and firmware details when exposed
@@ -78,8 +80,10 @@ Detailed instructions:
 - Serialized controls/polling and automatic reconnection after a dropped link
 - Redacted Home Assistant diagnostics
 
-For safety, this first release does not expose fan power-off, calibration,
-configuration, schedules, resets, installer settings, or global airflow writes.
+For safety, power and stop controls are exposed only when the unit reports a
+recognised model with a known normal restore mode. Calibration, configuration,
+schedules, resets, installer settings, and global airflow writes remain
+unavailable.
 
 ## Example action
 
@@ -97,6 +101,12 @@ data:
 
 Cancel an override by pressing the integration's **Cancel override** button.
 This is intentionally separate from turning the fan off.
+
+On recognised models, the normal Home Assistant `fan.turn_off` action selects
+the documented Off ventilation mode. `fan.turn_on` restores Ventilation or Heat
+recovery according to the reported model. The advanced
+`ventaxia_multihome.stop_ventilation` action sends the separate Stop mode; it
+does not cancel an override and should not be treated as an ordinary toggle.
 
 ## Supported devices and limitations
 

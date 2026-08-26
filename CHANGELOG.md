@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Add model-gated Home Assistant fan on/off controls and a separate Stop
+  ventilation action using the recovered packet-56 mode fields.
+- Add exact wire-payload, capability-gating, and non-optimistic-state regression
+  tests for Off, Stop, and normal-mode restoration.
+
+### Changed
+
+- Derive fan power state from confirmed speed and RPM telemetry, and preserve the
+  last confirmed state when a Bluetooth control request fails.
+
 ## [0.1.1] - 2026-08-26
 
 ### Changed

@@ -29,3 +29,12 @@ set_timed_override:
           unit_of_measurement: s
           mode: box
 
+stop_ventilation:
+  name: Stop ventilation
+  description: >-
+    Send the distinct protocol stop command. This is not the same as turning
+    the fan off or cancelling a timed override.
+  target:
+    entity:
+      integration: ventaxia_multihome
+      domain: fan

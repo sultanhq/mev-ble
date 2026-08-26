@@ -289,6 +289,17 @@ def serialize_cancel_override() -> bytes:
     return serialize_user_override(AirflowPreset.LOW, 0, command=MevCommand.CANCEL)
 
 
+def serialize_ventilation_mode(mode: VentilationMode | int) -> bytes:
+    """Serialize a mode change separately from speed override and cancellation."""
+
+    return serialize_user_override(
+        AirflowPreset.LOW,
+        0,
+        command=MevCommand.NO_TYPE,
+        ventilation_mode=VentilationMode(mode),
+    )
+
+
 def serialize_index_param(index: int) -> bytes:
     if not 0 <= index <= 0xFF:
         raise ValueError("index must fit uint8")
@@ -448,6 +459,12 @@ def _self_test() -> None:
     obj = deserialize_data_object_array(override)
     assert obj.object_type == DataObjectArrayType.RAW
     assert obj.payload == struct.pack("<BBBBI", 1, 3, 0, 3, 1800)
+    assert deserialize_data_object_array(
+        serialize_ventilation_mode(VentilationMode.OFF)
+    ).payload == struct.pack("<BBBBI", 0, 1, 0, 3, 0)
+    assert deserialize_data_object_array(
+        serialize_ventilation_mode(VentilationMode.STOP)
+    ).payload == struct.pack("<BBBBI", 0, 1, 0, 4, 0)
     packet = serialize_protocol_v2(
         PacketType.USER_OVERRIDE,
         Operation.DATA_REQUEST,
@@ -495,6 +512,18 @@ def _build_parser() -> argparse.ArgumentParser:
     override.add_argument("seconds", type=int)
     override.add_argument("--timestamp", type=int)
     override.add_argument("--fragments", action="store_true")
+
+    mode = subparsers.add_parser(
+        "ventilation-mode", help="build a complete ventilation-mode command"
+    )
+    mode.add_argument(
+        "mode",
+        choices={
+            name.lower().replace("_", "-") for name in VentilationMode.__members__
+        },
+    )
+    mode.add_argument("--timestamp", type=int)
+    mode.add_argument("--fragments", action="store_true")
     return parser
 
 
@@ -512,6 +541,19 @@ def main() -> None:
     elif args.command == "user-override":
         preset = AirflowPreset[args.preset.upper()]
         payload = serialize_user_override(preset, args.seconds)
+        packet = serialize_protocol_v2(
+            PacketType.USER_OVERRIDE,
+            Operation.DATA_REQUEST,
+            payload,
+            timestamp=args.timestamp,
+        )
+        print(f"whole_packet={packet.hex()}")
+        if args.fragments:
+            for index, frame in enumerate(fragment_packet(packet), 1):
+                print(f"fragment_{index}={frame.hex()}")
+    elif args.command == "ventilation-mode":
+        mode = VentilationMode[args.mode.upper().replace("-", "_")]
+        payload = serialize_ventilation_mode(mode)
         packet = serialize_protocol_v2(
             PacketType.USER_OVERRIDE,
             Operation.DATA_REQUEST,

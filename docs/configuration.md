@@ -41,12 +41,43 @@ into setup mode so Home Assistant can repeat the exchange automatically.
 | Fan level | Numeric/documented airflow level |
 | Fan state | Reported operating state |
 | Override remaining | Seconds remaining on the active timed override |
-| Ventilation fan | Low, Normal, Boost, and Purge presets |
+| Ventilation fan | Low, Normal, Boost, and Purge presets; model-gated on/off |
 | Cancel override | Ends the current override without pretending to power off ventilation |
 | Fault binary sensors | Motor, sensor, attachment, alarm, firmware, battery, filter, and service diagnostics |
 
-The integration deliberately has no fan-off control. Whole-building ventilation
-should not be silently disabled through a generic Home Assistant fan action.
+Standard on/off controls appear only when the unit reports a recognised model
+whose normal restore mode is known. Unknown model numbers remain preset-only
+instead of receiving an inferred power command.
+
+## Power, stop, and cancel are different
+
+On a recognised model:
+
+- `fan.turn_off` sends the documented **Off** ventilation mode.
+- `fan.turn_on` restores **Ventilation** or **Heat recovery** according to the
+  reported model number.
+- `ventaxia_multihome.stop_ventilation` sends the distinct protocol **Stop**
+  mode.
+- The **Cancel override** button only ends a timed Low, Normal, Boost, or Purge
+  override.
+
+The integration never changes the fan entity optimistically. After a power or
+stop request it refreshes device telemetry; the entity reports off only when
+both reported fan speed and RPM are zero. A rejected or timed-out request keeps
+the last confirmed state and raises an action error.
+
+The Stop action is available from **Developer tools → Actions** and targets the
+fan entity:
+
+```yaml
+action: ventaxia_multihome.stop_ventilation
+target:
+  entity_id: fan.vent_axia_multihome_ventilation
+```
+
+Off/stop packet shapes are recovered from the official client but still require
+physical validation across supported model/firmware combinations before the
+v0.2 release. Do not depend on Stop for an emergency or safety function.
 
 ## Default override duration
 

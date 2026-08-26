@@ -97,6 +97,10 @@
         "preset": {"name": "Preset", "description": "Airflow preset to apply."},
         "duration": {"name": "Duration", "description": "Override duration in seconds."}
       }
+    },
+    "stop_ventilation": {
+      "name": "Stop ventilation",
+      "description": "Send the distinct protocol stop command. This does not cancel a timed override."
     }
   }
 }
