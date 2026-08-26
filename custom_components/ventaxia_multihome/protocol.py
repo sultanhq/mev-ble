@@ -453,6 +453,7 @@ def decode_zone_telemetry(data: bytes) -> ZoneTelemetry:
     co2_supported, fan_level, fan_state, fan_rpm = struct.unpack_from("<BBBH", data)
     temperature, relative_humidity, co2_value = struct.unpack_from("<fff", data, 5)
     fault_mask = struct.unpack_from("<I", data, 17)[0]
+    co2_is_valid = co2_supported and math.isfinite(co2_value) and co2_value > 0
     return ZoneTelemetry(
         co2_supported=bool(co2_supported),
         fan_level=fan_level,
@@ -460,7 +461,7 @@ def decode_zone_telemetry(data: bytes) -> ZoneTelemetry:
         fan_rpm=fan_rpm,
         temperature=temperature,
         relative_humidity=relative_humidity,
-        co2=co2_value if co2_supported else None,
+        co2=co2_value if co2_is_valid else None,
         fault_mask=fault_mask,
     )
 

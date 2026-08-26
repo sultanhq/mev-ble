@@ -70,8 +70,8 @@ class DeviceClient:
         return True
 
 
-def _responses() -> list[bytes]:
-    zone = struct.pack("<BBBHfffI", 1, 3, 2, 1200, 22.0, 55.0, 800.0, 0)
+def _responses(*, co2: float = 800.0) -> list[bytes]:
+    zone = struct.pack("<BBBHfffI", 1, 3, 2, 1200, 22.0, 55.0, co2, 0)
     status = encode_data_object_array(DataObjectType.RAW, struct.pack("<BHI", 3, 60, 0))
     return [
         encode_packet(PacketType.ZONE_VIEW_ROW, Operation.RESPONSE, zone, timestamp=1),
@@ -221,6 +221,36 @@ async def test_reconnects_with_fresh_client_after_disconnect() -> None:
     # Assert - a new client connected and repeated application authentication.
     assert len(created) == 2
     assert any(write[0] == PIN_CHARACTERISTIC_UUID for write in created[1].writes)
+
+
+@pytest.mark.asyncio
+async def test_reconnect_zero_co2_is_unavailable_until_valid_reading() -> None:
+    """A transient zero after reconnect never becomes a CO2 measurement."""
+
+    # Arrange - return a valid reading, then zero and recovery after reconnect.
+    first = DeviceClient(_responses(co2=800.0))
+    second = DeviceClient([*_responses(co2=0.0), *_responses(co2=775.0)])
+    clients = deque([first, second])
+
+    async def factory(ble_device, name, callback):
+        client = clients.popleft()
+        client.callback = callback
+        return client
+
+    device = MultihomeDevice("AA", "MEV", 1234, client_factory=factory)
+    initial = await device.update(object())
+    assert first.callback is not None
+    first.is_connected = False
+    first.callback(first)
+
+    # Act - poll once with the transient zero and again after sensor recovery.
+    transient = await device.update(object())
+    recovered = await device.update(object())
+
+    # Assert - zero is unavailable while both genuine readings are preserved.
+    assert initial.zone.co2 == pytest.approx(800.0)
+    assert transient.zone.co2 is None
+    assert recovered.zone.co2 == pytest.approx(775.0)
 
 
 @pytest.mark.asyncio

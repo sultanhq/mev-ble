@@ -214,6 +214,24 @@ def test_unsupported_co2_is_unavailable_not_zero() -> None:
     assert result.co2 is None
 
 
+@pytest.mark.parametrize(
+    "invalid_co2",
+    [0.0, -1.0, float("nan"), float("inf"), float("-inf")],
+)
+def test_invalid_supported_co2_is_unavailable(invalid_co2: float) -> None:
+    """Invalid readings from a supported CO2 sensor are unavailable."""
+
+    # Arrange - report CO2 support with a value that cannot be a real reading.
+    record = struct.pack("<BBBHfffI", 1, 2, 8, 900, 20.0, 50.0, invalid_co2, 0)
+
+    # Act - decode the otherwise complete and valid telemetry response.
+    result = decode_zone_telemetry(record)
+
+    # Assert - the invalid value cannot become a Home Assistant measurement.
+    assert result.co2_supported is True
+    assert result.co2 is None
+
+
 def test_system_status_and_fault_decoding() -> None:
     """System status uses the Raw wrapper and documented B/H/I layout."""
 
