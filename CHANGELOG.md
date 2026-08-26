@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-08-26
+
+### Fixed
+
+- Treat zero, negative, and non-finite CO₂ telemetry as unavailable so a
+  transient invalid reading after reconnect cannot create a false zero spike in
+  Home Assistant history.
+
 ## [0.1.1] - 2026-08-26
 
 ### Changed
@@ -43,6 +51,7 @@ All notable changes to this project are documented here. The format follows
 - Low, Normal, Boost, and Purge timed overrides plus independent cancellation.
 - ESPHome Wi-Fi and Ethernet Bluetooth proxy examples and end-user guides.
 
-[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/sultanhq/mev-ble/releases/tag/v0.1.2
 [0.1.1]: https://github.com/sultanhq/mev-ble/releases/tag/v0.1.1
 [0.1.0]: https://github.com/sultanhq/mev-ble/commit/42bd8ee
