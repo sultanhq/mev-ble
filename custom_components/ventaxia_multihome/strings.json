@@ -12,19 +12,13 @@
           "address": "Device"
         }
       },
-      "setup_code": {
-        "title": "Enter setup code",
-        "description": "Keep {name} in pairing mode (the LED should be flashing blue), then enter the numeric setup code presented or required by the unit.",
-        "data": {
-          "setup_code": "Setup code"
-        }
+      "pair": {
+        "title": "Pair with {name}",
+        "description": "On the unit, press the Mode button once to wake the display. Press and hold Mode until the LED lights solid blue, then release it. While the LED is flashing blue, select Submit. Home Assistant will retrieve the unit-generated setup code automatically."
       },
       "reauth_confirm": {
-        "title": "Update setup code",
-        "description": "Press Mode once to wake the display. Hold Mode until the LED lights solid blue, then release it. When the LED flashes blue, enter the unit's setup code.",
-        "data": {
-          "setup_code": "Setup code"
-        }
+        "title": "Pair with the unit again",
+        "description": "Press Mode once to wake the display. Hold Mode until the LED lights solid blue, then release it. While the LED is flashing blue, select Submit. Home Assistant will retrieve a new setup code automatically."
       }
     },
     "error": {
@@ -32,11 +26,12 @@
       "device_unavailable": "The device is not currently reachable through a connectable Home Assistant Bluetooth adapter or proxy.",
       "no_devices_found": "No unconfigured MEV or Multihome device was found. Confirm that the LED is flashing blue, then try again.",
       "not_supported": "The device does not expose the documented Multihome protocol.",
-      "setup_code_rejected": "The setup code was rejected. Confirm the code and that the unit is in pairing/setup mode.",
+      "pairing_failed": "The unit did not provide a setup code. Confirm that its LED is flashing blue, then try again.",
       "unknown": "Unexpected error"
     },
     "abort": {
       "already_configured": "This device is already configured.",
+      "already_in_progress": "Setup for this device is already in progress. Close this window and continue the existing Vent-Axia setup flow.",
       "no_devices_found": "No unconfigured MEV or Multihome device was found.",
       "not_supported": "The discovered device name is not MEV or Multihome."
     }
@@ -105,4 +100,3 @@
     }
   }
 }
-

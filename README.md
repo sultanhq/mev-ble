@@ -20,8 +20,9 @@ cloud account.
 - A connectable Bluetooth route from Home Assistant to the unit:
   - a supported local Bluetooth adapter; or
   - an **active** ESPHome Bluetooth proxy near the ventilation controller.
-- The unit's numeric application setup code and access to its pairing/setup
-  mode. Bluetooth itself remains OS-pairing/PIN-less; see
+- Access to the unit's physical pairing/setup mode. The integration retrieves
+  the unit-generated application code automatically; Bluetooth itself remains
+  OS-pairing/PIN-less. See
   [Setup code versus Bluetooth PIN](docs/configuration.md#setup-code-versus-bluetooth-pin).
 
 An original ESP32/ESP32-WROOM-32 development board is the safest inexpensive
@@ -43,7 +44,8 @@ and the ready-to-copy [Wi-Fi proxy example](examples/esp32-bluetooth-proxy.yaml)
 5. In Home Assistant, open **Settings → Devices & services** and configure the
    discovered **Vent-Axia Multihome** device. If it is not shown, choose
    **Add integration** and search for the same name.
-6. Enter the numeric setup code shown or required by the unit.
+6. Select **Submit** while the blue LED is flashing. The integration retrieves
+   and securely stores the unit-generated setup code automatically.
 
 HACS calls this repository type an *Integration*. There is no dashboard plugin
 or ESP32-specific Vent-Axia firmware to install.
@@ -66,7 +68,7 @@ Detailed instructions:
 - Twelve documented diagnostic fault sensors
 - Device Information reads for model, serial, and firmware details when exposed
 - Preferred whole-packet transport with legacy 20-byte fragmented fallback
-- Setup-code reauthentication without an OS Bluetooth bond
+- Automatic setup-code pairing and reauthentication without an OS Bluetooth bond
 - Redacted Home Assistant diagnostics
 
 For safety, this first release does not expose fan power-off, calibration,
@@ -121,4 +123,3 @@ generated decompilation output are deliberately excluded from this repository.
 Project code and documentation are available under the [MIT License](LICENSE).
 Vent-Axia and related marks and artwork belong to their respective owners. This
 project is independent and is not endorsed by Vent-Axia or Volution Group.
-
