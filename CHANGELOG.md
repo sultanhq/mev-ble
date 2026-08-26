@@ -18,6 +18,12 @@ All notable changes to this project are documented here. The format follows
 - Derive fan power state from confirmed speed and RPM telemetry, and preserve the
   last confirmed state when a Bluetooth control request fails.
 
+### Fixed
+
+- Treat zero, negative, and non-finite CO₂ telemetry as unavailable so a
+  transient invalid reading after reconnect cannot create a false zero spike in
+  Home Assistant history.
+
 ## [0.1.1] - 2026-08-26
 
 ### Changed
