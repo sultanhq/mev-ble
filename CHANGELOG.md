@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Complete MEV pairing automatically by reading and confirming the internal
+  application code exposed while the physical unit is in pairing mode.
+- Remove the incorrect user-facing PIN field and show pairing instructions for
+  both manual setup and automatic Bluetooth discovery.
+- Show a readable message when another setup flow for the device is active.
+
 ## [0.1.0] - 2026-08-25
 
 ### Added
@@ -20,4 +28,3 @@ All notable changes to this project are documented here. The format follows
 
 [Unreleased]: https://github.com/robadams/mev-ble/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/robadams/mev-ble/releases/tag/v0.1.0
-

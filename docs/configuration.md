@@ -8,11 +8,11 @@
 4. Configure the discovered **Vent-Axia Multihome** device. If no discovery card
    appears, choose **Add integration**, search for **Vent-Axia Multihome**, and
    select the discovered `MEV` or `Multihome` device.
-5. Enter the unit's numeric setup code.
+5. Select **Submit** while the blue LED is flashing. No PIN is required.
 
 Each BLE address can be configured once. The integration stores the address and
-setup code in the Home Assistant config entry, redacts the code from diagnostic
-downloads, and never writes it to its own logs.
+internal application code in the Home Assistant config entry, redacts the code
+from diagnostic downloads, and never writes it to its own logs.
 
 ## Setup code versus Bluetooth PIN
 
@@ -20,15 +20,15 @@ The connection is PIN-less at the operating-system Bluetooth layer: Home
 Assistant does not pair or bond the ESP32/host with the Vent-Axia unit and no OS
 pairing dialog should appear.
 
-The Vent-Axia application protocol still has a numeric setup-code exchange.
-While the unit is in setup mode, the integration writes that number as a
-four-byte little-endian value to the documented GATT characteristic and reads a
-confirmation characteristic. The internal config key is therefore named
-`setup_code` to distinguish it from an OS Bluetooth PIN.
+The Vent-Axia application protocol still exchanges a four-byte code internally,
+but the MEV does not ask the user to enter a PIN. While the unit is in physical
+pairing mode, the integration reads the code exposed by its documented GATT
+characteristic, writes the same value back, and checks the confirmation
+characteristic. The internal config key is named `setup_code` only to
+distinguish this stored value from an OS Bluetooth PIN.
 
-If the code is rejected, put the unit back into setup mode and confirm the
-number shown by or supplied with the unit. Reauthentication in Home Assistant
-will prompt for a replacement code if the stored one stops being accepted.
+If the stored value is rejected, reauthentication asks you to put the unit back
+into setup mode so Home Assistant can repeat the exchange automatically.
 
 ## Entities
 
@@ -107,4 +107,3 @@ this integration.
 
 Only one transaction is sent to a unit at a time, so polling and user actions
 cannot overlap at protocol level.
-

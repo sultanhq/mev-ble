@@ -33,14 +33,13 @@
 - Confirm no operating-system Bluetooth pairing is being attempted. This
   integration uses an application setup code, not an OS Bluetooth bond.
 
-## The setup code is rejected
+## Automatic pairing fails
 
 - Confirm the unit is still in pairing/setup mode; that mode may time out.
-- Re-enter the numeric code presented or required by the unit.
-- Do not use an ESPHome API/OTA password or a Bluetooth pairing PIN. Those are
-  unrelated credentials.
-- If an existing entry requests reauthentication, supply the unit's current
-  application setup code.
+- Do not enter or guess a PIN. The integration completes the internal MEV
+  application-code exchange automatically.
+- If an existing entry requests reauthentication, put the unit into pairing
+  mode again and select **Submit**.
 
 ## Entities are intermittently unavailable
 
@@ -87,4 +86,3 @@ Open an issue at <https://github.com/robadams/mev-ble/issues> and include:
 - ESPHome version and relevant proxy YAML (with secrets removed)
 - Whether discovery, setup-code confirmation, reads, or writes fail
 - Redacted diagnostics and the relevant debug-log section
-

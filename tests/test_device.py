@@ -134,6 +134,64 @@ async def test_setup_code_rejected() -> None:
 
 
 @pytest.mark.asyncio
+async def test_pair_reads_and_confirms_internal_code() -> None:
+    """Physical pairing reads the MEV code and writes the same bytes back."""
+
+    # Arrange - expose a nonzero little-endian code from the pairing characteristic.
+    client = DeviceClient([])
+    original_read = client.read_gatt_char
+
+    async def read(uuid: str) -> bytearray:
+        if uuid == PIN_CHARACTERISTIC_UUID:
+            return bytearray(bytes.fromhex("78563412"))
+        return await original_read(uuid)
+
+    client.read_gatt_char = read
+
+    async def factory(ble_device, name, callback):
+        return client
+
+    device = MultihomeDevice("AA", "MEV", 0, client_factory=factory)
+
+    # Act - pair while the unit is in physical pairing mode.
+    setup_code = await device.pair(object())
+
+    # Assert - the hidden value is confirmed unchanged and returned internally.
+    assert (
+        PIN_CHARACTERISTIC_UUID,
+        bytes.fromhex("78563412"),
+        True,
+    ) in client.writes
+    assert setup_code == 0x12345678
+
+
+@pytest.mark.asyncio
+async def test_pair_rejects_zero_internal_code() -> None:
+    """A zero value indicates that the MEV is not in physical pairing mode."""
+
+    # Arrange - expose the zero value returned outside pairing mode.
+    client = DeviceClient([])
+    original_read = client.read_gatt_char
+
+    async def read(uuid: str) -> bytearray:
+        if uuid == PIN_CHARACTERISTIC_UUID:
+            return bytearray(bytes(4))
+        return await original_read(uuid)
+
+    client.read_gatt_char = read
+
+    async def factory(ble_device, name, callback):
+        return client
+
+    device = MultihomeDevice("AA", "MEV", 0, client_factory=factory)
+
+    # Act / Assert - no exposed code is reported as pairing-mode failure.
+    with pytest.raises(SetupCodeRejectedError):
+        await device.pair(object())
+    assert client.is_connected is False
+
+
+@pytest.mark.asyncio
 async def test_reconnects_with_fresh_client_after_disconnect() -> None:
     """A proxy/device disconnect causes the next update to establish a new client."""
 

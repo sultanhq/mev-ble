@@ -165,9 +165,55 @@ class MultihomeDevice:
         )
         if not confirmation or confirmation[0] == 0:
             raise SetupCodeRejectedError(
-                "setup code rejected; confirm pairing/setup mode and the displayed code"
+                "stored setup code was rejected; pair the unit again"
             )
         self._authenticated = True
+
+    async def pair(self, ble_device: BLEDevice) -> int:
+        """Read and confirm the code exposed during physical pairing mode."""
+
+        async with self._connection_lock:
+            await self._disconnect_unlocked()
+            _LOGGER.debug("Pairing with discovered Multihome device %s", self.address)
+            client = await self._client_factory(
+                ble_device, self.name, self._handle_disconnect
+            )
+            self._client = client
+            try:
+                self._transport = self._select_transport(client)
+                raw_code = bytes(
+                    await client.read_gatt_char(PIN_CHARACTERISTIC_UUID)
+                )
+                if len(raw_code) != 4:
+                    raise DeviceError(
+                        "pairing returned an invalid application-code payload"
+                    )
+                setup_code = int.from_bytes(raw_code, "little")
+                if not setup_code:
+                    raise SetupCodeRejectedError(
+                        "the unit did not expose an application code; "
+                        "confirm physical pairing mode"
+                    )
+                # Confirm the device-provided value; never log this payload.
+                await client.write_gatt_char(
+                    PIN_CHARACTERISTIC_UUID,
+                    raw_code,
+                    response=True,
+                )
+                confirmation = bytes(
+                    await client.read_gatt_char(PIN_CONFIRM_CHARACTERISTIC_UUID)
+                )
+                if not confirmation or confirmation[0] == 0:
+                    raise SetupCodeRejectedError(
+                        "the unit rejected its application code"
+                    )
+                self._setup_code = setup_code
+                self._authenticated = True
+                self.device_info = await self.read_device_information()
+                return setup_code
+            except BaseException:
+                await self._disconnect_unlocked()
+                raise
 
     async def read_device_information(self) -> MultihomeDeviceInfo:
         """Read all available standard Device Information characteristics."""
