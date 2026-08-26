@@ -1,7 +1,7 @@
 # Vent-Axia Multihome for Home Assistant
 
-[![HACS validation](https://github.com/robadams/mev-ble/actions/workflows/validate.yml/badge.svg)](https://github.com/robadams/mev-ble/actions/workflows/validate.yml)
-[![Tests](https://github.com/robadams/mev-ble/actions/workflows/tests.yml/badge.svg)](https://github.com/robadams/mev-ble/actions/workflows/tests.yml)
+[![HACS validation](https://github.com/sultanhq/mev-ble/actions/workflows/validate.yml/badge.svg)](https://github.com/sultanhq/mev-ble/actions/workflows/validate.yml)
+[![Tests](https://github.com/sultanhq/mev-ble/actions/workflows/tests.yml/badge.svg)](https://github.com/sultanhq/mev-ble/actions/workflows/tests.yml)
 
 A local Home Assistant custom integration for the documented Bluetooth Low
 Energy interface used by Vent-Axia MEV/Multihome ventilation units. It exposes
@@ -36,7 +36,7 @@ and the ready-to-copy [Wi-Fi proxy example](examples/esp32-bluetooth-proxy.yaml)
 1. If Home Assistant is not within BLE range, flash and add an
    [active ESPHome Bluetooth proxy](docs/esphome-bluetooth-proxy.md).
 2. In HACS, open the top-right menu, choose **Custom repositories**, add
-   `https://github.com/robadams/mev-ble`, and select **Integration** as the type.
+   `https://github.com/sultanhq/mev-ble`, and select **Integration** as the type.
 3. Open the new **Vent-Axia Multihome** repository in HACS, choose **Download**,
    and restart Home Assistant.
 4. Put the Vent-Axia unit into Bluetooth pairing/setup mode.
