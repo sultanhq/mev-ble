@@ -1,5 +1,6 @@
 homeassistant==2026.8.3
+aiousbwatcher==1.1.2
+serialx==1.8.2
 pytest
 pytest-homeassistant-custom-component
 ruff
-
