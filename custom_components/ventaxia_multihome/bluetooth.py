@@ -77,7 +77,7 @@ class TransactionTimeoutError(TransportError):
 
 
 class ProtocolTransport:
-    """Abstract request/response transport."""
+    """Abstract protocol transport."""
 
     name = "unknown"
 
@@ -97,6 +97,11 @@ class ProtocolTransport:
 
         raise NotImplementedError
 
+    async def send(self, packet: bytes) -> None:
+        """Send one packet without waiting for a protocol response."""
+
+        raise NotImplementedError
+
 
 class WholePacketTransport(ProtocolTransport):
     """Preferred whole-packet request/read/acknowledge transport."""
@@ -107,9 +112,7 @@ class WholePacketTransport(ProtocolTransport):
         """Perform one whole-packet transaction."""
 
         deadline = monotonic() + self.timeout
-        await self.client.write_gatt_char(
-            WHOLE_PACKET_CHARACTERISTIC_UUID, packet, response=False
-        )
+        await self.send(packet)
         while monotonic() < deadline:
             value = bytes(
                 await self.client.read_gatt_char(WHOLE_PACKET_CHARACTERISTIC_UUID)
@@ -133,6 +136,13 @@ class WholePacketTransport(ProtocolTransport):
 
         await self._cancel()
         raise TransactionTimeoutError("whole-packet transaction timed out")
+
+    async def send(self, packet: bytes) -> None:
+        """Write one complete packet without requiring a protocol response."""
+
+        await self.client.write_gatt_char(
+            WHOLE_PACKET_CHARACTERISTIC_UUID, packet, response=False
+        )
 
     async def _cancel(self) -> None:
         """Cancel an in-progress whole-packet transaction."""
@@ -166,36 +176,11 @@ class FragmentedTransport(ProtocolTransport):
 
         deadline = monotonic() + self.timeout
         response_frames: dict[int, bytes] = {}
-        response_total: int | None = None
-
-        for sequence, frame in enumerate(fragment_packet(packet), 1):
-            await self.client.write_gatt_char(
-                FRAGMENT_CHARACTERISTIC_UUID, frame, response=False
-            )
-            if self.write_delay:
-                await asyncio.sleep(self.write_delay)
-            while monotonic() < deadline:
-                value = bytes(
-                    await self.client.read_gatt_char(FRAGMENT_CHARACTERISTIC_UUID)
-                )
-                if not value or not any(value):
-                    await asyncio.sleep(self.poll_interval)
-                    continue
-                if self._is_ack(value, sequence):
-                    break
-                consumed = await self._consume_response_frame(
-                    value, response_frames, response_total
-                )
-                if consumed is not None:
-                    response_total = consumed
-                    # A response frame proves the request has been accepted.
-                    break
-                await asyncio.sleep(self.poll_interval)
-            else:
-                await self._cancel()
-                raise TransactionTimeoutError(
-                    f"fragment {sequence} acknowledgement timed out"
-                )
+        response_total = await self._send_frames(
+            packet,
+            deadline,
+            response_frames=response_frames,
+        )
 
         while monotonic() < deadline:
             if response_total is not None and len(response_frames) == response_total:
@@ -228,6 +213,52 @@ class FragmentedTransport(ProtocolTransport):
 
         await self._cancel()
         raise TransactionTimeoutError("fragmented transaction timed out")
+
+    async def send(self, packet: bytes) -> None:
+        """Send all fragments and require only their per-frame acknowledgements."""
+
+        await self._send_frames(packet, monotonic() + self.timeout)
+
+    async def _send_frames(
+        self,
+        packet: bytes,
+        deadline: float,
+        *,
+        response_frames: dict[int, bytes] | None = None,
+    ) -> int | None:
+        """Write request frames and wait for each documented acknowledgement."""
+
+        response_total: int | None = None
+        for sequence, frame in enumerate(fragment_packet(packet), 1):
+            await self.client.write_gatt_char(
+                FRAGMENT_CHARACTERISTIC_UUID, frame, response=False
+            )
+            if self.write_delay:
+                await asyncio.sleep(self.write_delay)
+            while monotonic() < deadline:
+                value = bytes(
+                    await self.client.read_gatt_char(FRAGMENT_CHARACTERISTIC_UUID)
+                )
+                if not value or not any(value):
+                    await asyncio.sleep(self.poll_interval)
+                    continue
+                if self._is_ack(value, sequence):
+                    break
+                if response_frames is not None:
+                    consumed = await self._consume_response_frame(
+                        value, response_frames, response_total
+                    )
+                    if consumed is not None:
+                        response_total = consumed
+                        # A response frame proves the request has been accepted.
+                        break
+                await asyncio.sleep(self.poll_interval)
+            else:
+                await self._cancel()
+                raise TransactionTimeoutError(
+                    f"fragment {sequence} acknowledgement timed out"
+                )
+        return response_total
 
     @staticmethod
     def _is_ack(value: bytes, expected_sequence: int) -> bool:

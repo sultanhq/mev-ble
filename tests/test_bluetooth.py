@@ -73,6 +73,25 @@ async def test_whole_packet_zero_then_response() -> None:
 
 
 @pytest.mark.asyncio
+async def test_whole_packet_send_does_not_poll_for_response() -> None:
+    """A send-only whole packet completes immediately after its GATT write."""
+
+    # Arrange - create a command and a client with no queued reads.
+    command = encode_packet(
+        PacketType.USER_OVERRIDE, Operation.DATA_REQUEST, bytes(range(12)), timestamp=1
+    )
+    client = FakeClient([])
+
+    # Act - send the command without requesting a protocol response.
+    await WholePacketTransport(client).send(command)
+
+    # Assert - only the command was written and no read was required.
+    assert client.writes == [
+        (WHOLE_PACKET_CHARACTERISTIC_UUID, command, False),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_whole_packet_malformed_then_valid() -> None:
     """A malformed nonzero whole packet is acknowledged and polling continues."""
 
@@ -145,6 +164,48 @@ async def test_fragmented_transport_round_trip() -> None:
         fragment_ack(1),
         fragment_ack(2),
     ]
+
+
+@pytest.mark.asyncio
+async def test_fragmented_send_waits_only_for_frame_acknowledgements() -> None:
+    """A send-only fragmented command completes after all request ACKs."""
+
+    # Arrange - create a two-frame command and queue its two acknowledgements.
+    command = encode_packet(
+        PacketType.USER_OVERRIDE, Operation.DATA_REQUEST, bytes(range(12)), timestamp=1
+    )
+    command_frames = fragment_packet(command)
+    client = FakeClient([fragment_ack(1), fragment_ack(2)])
+    transport = FragmentedTransport(client, timeout=0.1, poll_interval=0, write_delay=0)
+
+    # Act - send the command without waiting for a packet-level response.
+    await transport.send(command)
+
+    # Assert - both request frames were written and individually acknowledged.
+    assert len(command_frames) == 2
+    assert [write[1] for write in client.writes] == command_frames
+
+
+@pytest.mark.asyncio
+async def test_fragmented_send_missing_acknowledgement_cancels() -> None:
+    """A send-only fragmented command still requires every request ACK."""
+
+    # Arrange - create a command with no queued acknowledgement.
+    command = encode_packet(
+        PacketType.USER_OVERRIDE, Operation.DATA_REQUEST, timestamp=1
+    )
+    client = FakeClient([])
+
+    # Act / Assert - timeout sends the documented fragmented cancellation.
+    with pytest.raises(TransactionTimeoutError):
+        await FragmentedTransport(
+            client, timeout=0.005, poll_interval=0.001, write_delay=0
+        ).send(command)
+    assert client.writes[-1] == (
+        FRAGMENT_CHARACTERISTIC_UUID,
+        FRAGMENT_CANCEL,
+        False,
+    )
 
 
 @pytest.mark.asyncio

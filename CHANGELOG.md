@@ -15,6 +15,10 @@ All notable changes to this project are documented here. The format follows
 - Show a readable message when another setup flow for the device is active.
 - Serialize connection checks with complete poll/control operations so a failed
   transaction cannot leave a concurrent refresh using cleared connection state.
+- Complete packet-56 fan controls after their documented transport
+  acknowledgements, then confirm the new state through the normal telemetry poll.
+- Retain the last known proxy/device route so a dropped long-lived connection can
+  reconnect after its advertisement has expired from the Bluetooth scanner cache.
 
 ## [0.1.0] - 2026-08-25
 

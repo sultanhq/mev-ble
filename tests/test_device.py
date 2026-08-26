@@ -222,7 +222,7 @@ async def test_reconnects_with_fresh_client_after_disconnect() -> None:
 
 @pytest.mark.asyncio
 async def test_transactions_are_serialized() -> None:
-    """Concurrent controls never overlap protocol requests."""
+    """Concurrent controls never overlap protocol sends."""
 
     # Arrange - install a transport that detects concurrent entry.
     client = DeviceClient([])
@@ -232,15 +232,12 @@ async def test_transactions_are_serialized() -> None:
     class SlowTransport:
         name = "test"
 
-        async def request(self, packet: bytes) -> bytes:
+        async def send(self, packet: bytes) -> None:
             nonlocal active, maximum_active
             active += 1
             maximum_active = max(maximum_active, active)
             await asyncio.sleep(0)
             active -= 1
-            return encode_packet(
-                PacketType.USER_OVERRIDE, Operation.RESPONSE, timestamp=1
-            )
 
     device = MultihomeDevice("AA", "MEV", 1234)
     device._client = client
@@ -271,13 +268,12 @@ async def test_connection_check_waits_for_active_operation() -> None:
         nonlocal connect_calls
         connect_calls += 1
 
-    async def request(packet_type, operation, payload=b""):
+    async def send(packet_type, operation, payload=b""):
         request_started.set()
         await release_request.wait()
-        return None
 
     device.connect = connect
-    device._request = request
+    device._send = send
     first = asyncio.create_task(
         device.set_override(object(), AirflowPreset.BOOST, 60)
     )

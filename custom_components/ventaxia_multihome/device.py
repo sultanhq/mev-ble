@@ -264,7 +264,7 @@ class MultihomeDevice:
 
         async with self._operation_lock:
             await self.connect(ble_device)
-            await self._request(
+            await self._send(
                 PacketType.USER_OVERRIDE,
                 Operation.DATA_REQUEST,
                 encode_user_override(preset, duration_seconds),
@@ -275,7 +275,7 @@ class MultihomeDevice:
 
         async with self._operation_lock:
             await self.connect(ble_device)
-            await self._request(
+            await self._send(
                 PacketType.USER_OVERRIDE,
                 Operation.DATA_REQUEST,
                 encode_cancel_override(),
@@ -311,6 +311,17 @@ class MultihomeDevice:
                     f"expected {int(packet_type)}"
                 )
             return response
+
+    async def _send(
+        self, packet_type: PacketType, operation: Operation, payload: bytes = b""
+    ) -> None:
+        """Serialize a command whose transport acknowledgements indicate acceptance."""
+
+        async with self._transaction_lock:
+            if not self._transport or not self.connected or not self._authenticated:
+                raise DeviceError("device is not ready for a protocol transaction")
+            _LOGGER.debug("Sending packet type %s", int(packet_type))
+            await self._transport.send(encode_packet(packet_type, operation, payload))
 
     def _select_transport(self, client: BluetoothClient) -> ProtocolTransport:
         """Prefer the readable whole-packet characteristic, then legacy framing."""

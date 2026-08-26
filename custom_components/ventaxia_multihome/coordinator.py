@@ -55,6 +55,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             config_entry=entry,
         )
         self.device = device
+        self._last_ble_device: BLEDevice | None = None
 
     @property
     def override_duration(self) -> int:
@@ -132,13 +133,20 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         await self.async_request_refresh()
 
     def _ble_device(self) -> BLEDevice:
-        """Get a currently reachable connectable device from HA Bluetooth."""
+        """Get the current or last known connectable HA Bluetooth device."""
 
         address = self.config_entry.data[CONF_ADDRESS]
         if ble_device := bluetooth.async_ble_device_from_address(
             self.hass, address, connectable=True
         ):
+            self._last_ble_device = ble_device
             return ble_device
+        if self._last_ble_device is not None:
+            _LOGGER.debug(
+                "Using the last known Bluetooth path for %s while reconnecting",
+                address,
+            )
+            return self._last_ble_device
         reason = bluetooth.async_address_reachability_diagnostics(
             self.hass, address, BluetoothReachabilityIntent.CONNECTION
         )
