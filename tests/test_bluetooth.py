@@ -16,10 +16,10 @@ from custom_components.ventaxia_multihome.const import (
     WHOLE_PACKET_CHARACTERISTIC_UUID,
 )
 from custom_components.ventaxia_multihome.protocol import (
-    AirflowPreset,
     FRAGMENT_CANCEL,
     WHOLE_PACKET_ACK,
     WHOLE_PACKET_CANCEL,
+    AirflowPreset,
     Operation,
     PacketType,
     encode_packet,
