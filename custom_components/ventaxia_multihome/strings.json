@@ -3,6 +3,10 @@
   "config": {
     "step": {
       "user": {
+        "title": "Put the Vent-Axia unit into pairing mode",
+        "description": "On the unit, press the Mode button once to wake the display. Press and hold Mode until the LED lights solid blue, then release it. The LED will flash blue while Bluetooth pairing mode is active. Select Submit to scan for the unit."
+      },
+      "select_device": {
         "title": "Select a Vent-Axia Multihome",
         "data": {
           "address": "Device"
@@ -10,14 +14,14 @@
       },
       "setup_code": {
         "title": "Enter setup code",
-        "description": "Put {name} into Bluetooth pairing/setup mode, then enter the numeric code presented or required by the unit.",
+        "description": "Keep {name} in pairing mode (the LED should be flashing blue), then enter the numeric setup code presented or required by the unit.",
         "data": {
           "setup_code": "Setup code"
         }
       },
       "reauth_confirm": {
         "title": "Update setup code",
-        "description": "Put the unit into Bluetooth pairing/setup mode and enter its setup code.",
+        "description": "Press Mode once to wake the display. Hold Mode until the LED lights solid blue, then release it. When the LED flashes blue, enter the unit's setup code.",
         "data": {
           "setup_code": "Setup code"
         }
@@ -26,6 +30,7 @@
     "error": {
       "cannot_connect": "Could not connect or complete Bluetooth communication.",
       "device_unavailable": "The device is not currently reachable through a connectable Home Assistant Bluetooth adapter or proxy.",
+      "no_devices_found": "No unconfigured MEV or Multihome device was found. Confirm that the LED is flashing blue, then try again.",
       "not_supported": "The device does not expose the documented Multihome protocol.",
       "setup_code_rejected": "The setup code was rejected. Confirm the code and that the unit is in pairing/setup mode.",
       "unknown": "Unexpected error"

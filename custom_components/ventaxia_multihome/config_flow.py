@@ -93,28 +93,40 @@ class VentaxiaMultihomeConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Let a user choose a currently discovered documented device."""
+        """Explain pairing mode, then find a documented device."""
 
         if user_input is None:
-            await bluetooth.async_request_active_scan(self.hass)
-            configured = self._async_current_ids(include_ignore=False)
-            self._discovered = {
-                info.address: info
-                for info in bluetooth.async_discovered_service_info(
-                    self.hass, connectable=True
-                )
-                if is_supported_name(info.name)
-                and format_identifier(info.address) not in configured
-            }
-            if not self._discovered:
-                return self.async_abort(reason="no_devices_found")
-            if len(self._discovered) == 1:
-                self._set_discovery(next(iter(self._discovered.values())))
-                await self.async_set_unique_id(format_identifier(self._address or ""))
-                self._abort_if_unique_id_configured()
-                return await self.async_step_setup_code()
+            return self._show_pairing_instructions()
+
+        await bluetooth.async_request_active_scan(self.hass)
+        configured = self._async_current_ids(include_ignore=False)
+        self._discovered = {
+            info.address: info
+            for info in bluetooth.async_discovered_service_info(
+                self.hass, connectable=True
+            )
+            if is_supported_name(info.name)
+            and format_identifier(info.address) not in configured
+        }
+        if not self._discovered:
+            return self._show_pairing_instructions(
+                errors={"base": "no_devices_found"}
+            )
+        if len(self._discovered) == 1:
+            self._set_discovery(next(iter(self._discovered.values())))
+            await self.async_set_unique_id(format_identifier(self._address or ""))
+            self._abort_if_unique_id_configured()
+            return await self.async_step_setup_code()
+        return await self.async_step_select_device()
+
+    async def async_step_select_device(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Let the user choose a discovered documented device."""
+
+        if user_input is None:
             return self.async_show_form(
-                step_id="user",
+                step_id="select_device",
                 data_schema=vol.Schema(
                     {
                         vol.Required(CONF_ADDRESS): vol.In(
@@ -237,6 +249,17 @@ class VentaxiaMultihomeConfigFlow(ConfigFlow, domain=DOMAIN):
                 }
             ),
             errors=errors,
+        )
+
+    def _show_pairing_instructions(
+        self, errors: dict[str, str] | None = None
+    ) -> ConfigFlowResult:
+        """Show the physical pairing steps before scanning."""
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema({}),
+            errors=errors or {},
         )
 
     def _set_discovery(self, info: BluetoothServiceInfoBleak) -> None:

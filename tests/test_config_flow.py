@@ -30,6 +30,89 @@ def _discovery(name: str = "mEv") -> SimpleNamespace:
 
 
 @pytest.mark.asyncio
+async def test_user_flow_shows_pairing_instructions_before_scanning(hass) -> None:
+    """Manual setup explains physical pairing before looking for devices."""
+
+    # Arrange - track whether Home Assistant starts an active Bluetooth scan.
+    with patch(
+        "custom_components.ventaxia_multihome.config_flow.bluetooth.async_request_active_scan",
+        new=AsyncMock(),
+    ) as request_active_scan:
+        # Act - open the integration from Add integration.
+        result = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+
+    # Assert - the first screen shows instructions without starting the scan early.
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "user"
+    request_active_scan.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_user_flow_retries_when_no_device_is_found(hass) -> None:
+    """The pairing instructions remain available when a scan finds nothing."""
+
+    # Arrange - expose no unconfigured supported devices to the Bluetooth scan.
+    with (
+        patch(
+            "custom_components.ventaxia_multihome.config_flow.bluetooth.async_request_active_scan",
+            new=AsyncMock(),
+        ) as request_active_scan,
+        patch(
+            "custom_components.ventaxia_multihome.config_flow.bluetooth.async_discovered_service_info",
+            return_value=[],
+        ),
+    ):
+        initial = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+
+        # Act - submit the pairing instructions screen to scan.
+        result = await hass.config_entries.flow.async_configure(
+            initial["flow_id"], {}
+        )
+
+    # Assert - setup stays open with a useful retry error.
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "user"
+    assert result["errors"] == {"base": "no_devices_found"}
+    request_active_scan.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_user_flow_continues_after_finding_one_device(hass) -> None:
+    """A successful manual scan advances to setup-code entry."""
+
+    # Arrange - expose one supported device after the pairing instructions.
+    with (
+        patch(
+            "custom_components.ventaxia_multihome.config_flow.bluetooth.async_request_active_scan",
+            new=AsyncMock(),
+        ),
+        patch(
+            "custom_components.ventaxia_multihome.config_flow.bluetooth.async_discovered_service_info",
+            return_value=[_discovery("Multihome")],
+        ),
+    ):
+        initial = await hass.config_entries.flow.async_init(
+            DOMAIN,
+            context={"source": config_entries.SOURCE_USER},
+        )
+
+        # Act - submit the pairing instructions screen to scan.
+        result = await hass.config_entries.flow.async_configure(
+            initial["flow_id"], {}
+        )
+
+    # Assert - the discovered unit is ready for its application setup code.
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "setup_code"
+
+
+@pytest.mark.asyncio
 async def test_bluetooth_discovery_and_setup(hass) -> None:
     """Case-insensitive documented names lead to setup-code entry creation."""
 
