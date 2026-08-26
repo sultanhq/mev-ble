@@ -255,3 +255,42 @@ async def test_transactions_are_serialized() -> None:
 
     # Assert - the per-device transaction lock kept concurrency at one.
     assert maximum_active == 1
+
+
+@pytest.mark.asyncio
+async def test_connection_check_waits_for_active_operation() -> None:
+    """A poll cannot check a connection while a control is still running."""
+
+    # Arrange - pause the first control after its connection check.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    request_started = asyncio.Event()
+    release_request = asyncio.Event()
+    connect_calls = 0
+
+    async def connect(ble_device) -> None:
+        nonlocal connect_calls
+        connect_calls += 1
+
+    async def request(packet_type, operation, payload=b""):
+        request_started.set()
+        await release_request.wait()
+        return None
+
+    device.connect = connect
+    device._request = request
+    first = asyncio.create_task(
+        device.set_override(object(), AirflowPreset.BOOST, 60)
+    )
+    await request_started.wait()
+
+    # Act - start another control while the first transaction is active.
+    second = asyncio.create_task(
+        device.set_override(object(), AirflowPreset.PURGE, 60)
+    )
+    await asyncio.sleep(0)
+
+    # Assert - the second operation has not performed a stale connection check.
+    assert connect_calls == 1
+    release_request.set()
+    await asyncio.gather(first, second)
+    assert connect_calls == 2

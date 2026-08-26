@@ -13,6 +13,8 @@ All notable changes to this project are documented here. The format follows
 - Remove the incorrect user-facing PIN field and show pairing instructions for
   both manual setup and automatic Bluetooth discovery.
 - Show a readable message when another setup flow for the device is active.
+- Serialize connection checks with complete poll/control operations so a failed
+  transaction cannot leave a concurrent refresh using cleared connection state.
 
 ## [0.1.0] - 2026-08-25
 

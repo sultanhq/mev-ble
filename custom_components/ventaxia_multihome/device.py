@@ -109,6 +109,7 @@ class MultihomeDevice:
         self._client: BluetoothClient | None = None
         self._transport: ProtocolTransport | None = None
         self._authenticated = False
+        self._operation_lock = asyncio.Lock()
         self._connection_lock = asyncio.Lock()
         self._transaction_lock = asyncio.Lock()
         self.device_info = MultihomeDeviceInfo()
@@ -239,18 +240,19 @@ class MultihomeDevice:
     async def update(self, ble_device: BLEDevice) -> MultihomeData:
         """Read zone telemetry and system status."""
 
-        await self.connect(ble_device)
-        zone_packet = await self._request(
-            PacketType.ZONE_VIEW_ROW, Operation.DATA_REQUEST, b"\x00"
-        )
-        system_packet = await self._request(
-            PacketType.SYSTEM_STATUS, Operation.DATA_REQUEST
-        )
-        return MultihomeData(
-            zone=decode_zone_telemetry(zone_packet.payload),
-            system=decode_system_status(system_packet.payload),
-            last_successful_update=datetime.now(UTC),
-        )
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            zone_packet = await self._request(
+                PacketType.ZONE_VIEW_ROW, Operation.DATA_REQUEST, b"\x00"
+            )
+            system_packet = await self._request(
+                PacketType.SYSTEM_STATUS, Operation.DATA_REQUEST
+            )
+            return MultihomeData(
+                zone=decode_zone_telemetry(zone_packet.payload),
+                system=decode_system_status(system_packet.payload),
+                last_successful_update=datetime.now(UTC),
+            )
 
     async def set_override(
         self,
@@ -260,22 +262,24 @@ class MultihomeDevice:
     ) -> None:
         """Set one documented timed airflow override."""
 
-        await self.connect(ble_device)
-        await self._request(
-            PacketType.USER_OVERRIDE,
-            Operation.DATA_REQUEST,
-            encode_user_override(preset, duration_seconds),
-        )
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            await self._request(
+                PacketType.USER_OVERRIDE,
+                Operation.DATA_REQUEST,
+                encode_user_override(preset, duration_seconds),
+            )
 
     async def cancel_override(self, ble_device: BLEDevice) -> None:
         """Send the documented cancel-override command."""
 
-        await self.connect(ble_device)
-        await self._request(
-            PacketType.USER_OVERRIDE,
-            Operation.DATA_REQUEST,
-            encode_cancel_override(),
-        )
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            await self._request(
+                PacketType.USER_OVERRIDE,
+                Operation.DATA_REQUEST,
+                encode_cancel_override(),
+            )
 
     async def disconnect(self) -> None:
         """Disconnect and clear transport/authentication state."""
