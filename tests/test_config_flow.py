@@ -83,10 +83,10 @@ async def test_user_flow_retries_when_no_device_is_found(hass) -> None:
 
 
 @pytest.mark.asyncio
-async def test_user_flow_pairs_after_finding_one_device(hass) -> None:
-    """A successful manual scan retrieves the generated code and creates an entry."""
+async def test_user_flow_continues_after_finding_one_device(hass) -> None:
+    """A successful manual scan advances to setup-code entry."""
 
-    # Arrange - expose one supported device and a successful automatic pairing.
+    # Arrange - expose one supported device after the pairing instructions.
     with (
         patch(
             "custom_components.ventaxia_multihome.config_flow.bluetooth.async_request_active_scan",
@@ -95,18 +95,6 @@ async def test_user_flow_pairs_after_finding_one_device(hass) -> None:
         patch(
             "custom_components.ventaxia_multihome.config_flow.bluetooth.async_discovered_service_info",
             return_value=[_discovery("Multihome")],
-        ),
-        patch(
-            "custom_components.ventaxia_multihome.config_flow.bluetooth.async_ble_device_from_address",
-            return_value=object(),
-        ),
-        patch(
-            "custom_components.ventaxia_multihome.config_flow.MultihomeDevice.pair",
-            new=AsyncMock(return_value=123456),
-        ),
-        patch(
-            "custom_components.ventaxia_multihome.config_flow.MultihomeDevice.disconnect",
-            new=AsyncMock(),
         ),
     ):
         initial = await hass.config_entries.flow.async_init(
@@ -119,59 +107,59 @@ async def test_user_flow_pairs_after_finding_one_device(hass) -> None:
             initial["flow_id"], {}
         )
 
-    # Assert - pairing stores the code without asking the user to type it.
-    assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
-    assert result["data"][CONF_SETUP_CODE] == 123456
+    # Assert - the discovered unit is ready for its application setup code.
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "setup_code"
 
 
 @pytest.mark.asyncio
 async def test_bluetooth_discovery_and_setup(hass) -> None:
-    """Bluetooth discovery shows pairing help before automatic setup."""
+    """Case-insensitive documented names lead to setup-code entry creation."""
 
-    # Arrange - expose a connectable HA-managed BLEDevice and generated code.
+    # Arrange - expose a connectable HA-managed BLEDevice and successful auth.
     with (
         patch(
             "custom_components.ventaxia_multihome.config_flow.bluetooth.async_ble_device_from_address",
             return_value=object(),
         ),
         patch(
-            "custom_components.ventaxia_multihome.config_flow.MultihomeDevice.pair",
-            new=AsyncMock(return_value=123456),
+            "custom_components.ventaxia_multihome.config_flow.MultihomeDevice.connect",
+            new=AsyncMock(),
         ),
         patch(
             "custom_components.ventaxia_multihome.config_flow.MultihomeDevice.disconnect",
             new=AsyncMock(),
         ),
     ):
-        # Act - start from Bluetooth discovery, then submit the pairing screen.
+        # Act - start from Bluetooth discovery, then submit the setup code.
         result = await hass.config_entries.flow.async_init(
             DOMAIN,
             context={"source": config_entries.SOURCE_BLUETOOTH},
             data=_discovery(),
         )
         configured = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {}
+            result["flow_id"], {CONF_SETUP_CODE: 123456}
         )
 
-    # Assert - discovery explains pairing and stores the generated code.
+    # Assert - discovery prompts for the code and creates a config entry.
     assert result["type"] is data_entry_flow.FlowResultType.FORM
-    assert result["step_id"] == "pair"
+    assert result["step_id"] == "setup_code"
     assert configured["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     assert configured["data"][CONF_SETUP_CODE] == 123456
 
 
 @pytest.mark.asyncio
-async def test_automatic_pairing_failure(hass) -> None:
-    """A unit outside pairing mode returns a useful retry form."""
+async def test_setup_code_rejection(hass) -> None:
+    """A rejected code returns a useful form error instead of creating an entry."""
 
-    # Arrange - make automatic pairing fail to retrieve a generated code.
+    # Arrange - make authentication return the distinguishable rejection.
     with (
         patch(
             "custom_components.ventaxia_multihome.config_flow.bluetooth.async_ble_device_from_address",
             return_value=object(),
         ),
         patch(
-            "custom_components.ventaxia_multihome.config_flow.MultihomeDevice.pair",
+            "custom_components.ventaxia_multihome.config_flow.MultihomeDevice.connect",
             new=AsyncMock(side_effect=SetupCodeRejectedError),
         ),
         patch(
@@ -185,15 +173,14 @@ async def test_automatic_pairing_failure(hass) -> None:
             data=_discovery("Multihome"),
         )
 
-        # Act - submit the physical pairing instructions.
+        # Act - submit a rejected setup code.
         rejected = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {}
+            result["flow_id"], {CONF_SETUP_CODE: 1111}
         )
 
-    # Assert - the flow stays open with a specific retry error.
+    # Assert - the flow stays open with a specific non-sensitive error.
     assert rejected["type"] is data_entry_flow.FlowResultType.FORM
-    assert rejected["step_id"] == "pair"
-    assert rejected["errors"] == {"base": "pairing_failed"}
+    assert rejected["errors"] == {"base": "setup_code_rejected"}
 
 
 @pytest.mark.asyncio

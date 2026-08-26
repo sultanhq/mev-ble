@@ -6,7 +6,7 @@
 - The Home Assistant Bluetooth integration
 - A connectable local Bluetooth adapter or active ESPHome Bluetooth proxy
 - A unit advertising as `MEV` or `Multihome`
-- Access to the unit's physical pairing/setup mode
+- The unit's numeric application setup code
 
 The integration reads and writes BLE GATT characteristics. An
 advertisement-only proxy is not sufficient. If the ventilation controller is
@@ -40,11 +40,10 @@ is public, its default branch contains `hacs.json`, and
    range of the Vent-Axia controller.
 2. Put the unit into its Bluetooth pairing/setup mode.
 3. Start configuration in Home Assistant.
-4. Select **Submit** while the blue LED is flashing. Home Assistant retrieves
-   the unit-generated setup code automatically.
+4. Enter the numeric setup code presented or required by the unit.
 
-The generated code is stored and reused inside the Vent-Axia GATT protocol.
-Home Assistant does not create an operating-system Bluetooth pairing or bond. See the
+The code is written inside the Vent-Axia GATT protocol. Home Assistant does not
+create an operating-system Bluetooth pairing or bond. See the
 [configuration guide](configuration.md) for entities, options, and actions.
 
 ## Update
@@ -69,3 +68,4 @@ If HACS is unavailable, copy the entire
 `<home-assistant-config>/custom_components/ventaxia_multihome`, restart Home
 Assistant, and then add the integration from **Settings → Devices & services**.
 Manual installations do not receive HACS update notifications.
+

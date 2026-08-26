@@ -46,9 +46,6 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-PAIRING_ATTEMPTS = 5
-PAIRING_RETRY_INTERVAL = 5.0
-
 ClientFactory = Callable[
     ["BLEDevice", str, Callable[[BluetoothClient], None]],
     Awaitable[BluetoothClient],
@@ -168,52 +165,9 @@ class MultihomeDevice:
         )
         if not confirmation or confirmation[0] == 0:
             raise SetupCodeRejectedError(
-                "stored setup code was rejected; pair the unit again"
+                "setup code rejected; confirm pairing/setup mode and the displayed code"
             )
         self._authenticated = True
-
-    async def pair(self, ble_device: BLEDevice) -> int:
-        """Retrieve and store the setup code generated in physical pairing mode."""
-
-        async with self._connection_lock:
-            await self._disconnect_unlocked()
-            _LOGGER.debug("Pairing with discovered Multihome device %s", self.address)
-            client = await self._client_factory(
-                ble_device, self.name, self._handle_disconnect
-            )
-            self._client = client
-            try:
-                self._transport = self._select_transport(client)
-                for attempt in range(PAIRING_ATTEMPTS):
-                    # Writing zero requests a new device-generated application code.
-                    await client.write_gatt_char(
-                        PIN_CHARACTERISTIC_UUID,
-                        bytes(4),
-                        response=True,
-                    )
-                    # The official exchange reads confirmation before reading the code.
-                    await client.read_gatt_char(PIN_CONFIRM_CHARACTERISTIC_UUID)
-                    raw_code = bytes(
-                        await client.read_gatt_char(PIN_CHARACTERISTIC_UUID)
-                    )
-                    if len(raw_code) != 4:
-                        raise DeviceError(
-                            "pairing returned an invalid setup-code payload"
-                        )
-                    setup_code = int.from_bytes(raw_code, "little")
-                    if setup_code:
-                        self._setup_code = setup_code
-                        self._authenticated = True
-                        self.device_info = await self.read_device_information()
-                        return setup_code
-                    if attempt < PAIRING_ATTEMPTS - 1:
-                        await asyncio.sleep(PAIRING_RETRY_INTERVAL)
-                raise SetupCodeRejectedError(
-                    "pairing mode did not provide an application setup code"
-                )
-            except BaseException:
-                await self._disconnect_unlocked()
-                raise
 
     async def read_device_information(self) -> MultihomeDeviceInfo:
         """Read all available standard Device Information characteristics."""

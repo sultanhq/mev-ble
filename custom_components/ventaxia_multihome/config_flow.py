@@ -50,7 +50,7 @@ def is_supported_name(name: str | None) -> bool:
 
 
 class VentaxiaMultihomeConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle discovery, automatic pairing, and reauthentication."""
+    """Handle discovery, setup-code validation, and reauthentication."""
 
     VERSION = 1
 
@@ -87,7 +87,7 @@ class VentaxiaMultihomeConfigFlow(ConfigFlow, domain=DOMAIN):
             "name": self._name,
             "address": discovery_info.address,
         }
-        return await self.async_step_pair()
+        return await self.async_step_setup_code()
 
     @override
     async def async_step_user(
@@ -116,7 +116,7 @@ class VentaxiaMultihomeConfigFlow(ConfigFlow, domain=DOMAIN):
             self._set_discovery(next(iter(self._discovered.values())))
             await self.async_set_unique_id(format_identifier(self._address or ""))
             self._abort_if_unique_id_configured()
-            return await self.async_step_pair({})
+            return await self.async_step_setup_code()
         return await self.async_step_select_device()
 
     async def async_step_select_device(
@@ -143,20 +143,22 @@ class VentaxiaMultihomeConfigFlow(ConfigFlow, domain=DOMAIN):
         assert self._address is not None
         await self.async_set_unique_id(format_identifier(self._address))
         self._abort_if_unique_id_configured()
-        return await self.async_step_pair({})
+        return await self.async_step_setup_code()
 
-    async def async_step_pair(
+    async def async_step_setup_code(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Retrieve and store the unit-generated application setup code."""
+        """Validate and store the unit's application setup code."""
 
         errors: dict[str, str] = {}
         assert self._address is not None
         if user_input is not None:
             try:
-                setup_code, info = await self._async_pair()
+                info = await self._async_validate_setup_code(
+                    int(user_input[CONF_SETUP_CODE])
+                )
             except SetupCodeRejectedError:
-                errors["base"] = "pairing_failed"
+                errors["base"] = "setup_code_rejected"
             except MissingCharacteristicError:
                 errors["base"] = "not_supported"
             except DeviceUnavailableError:
@@ -181,7 +183,7 @@ class VentaxiaMultihomeConfigFlow(ConfigFlow, domain=DOMAIN):
                     title=title,
                     data={
                         CONF_ADDRESS: self._address,
-                        CONF_SETUP_CODE: setup_code,
+                        CONF_SETUP_CODE: int(user_input[CONF_SETUP_CODE]),
                     },
                     options={
                         CONF_OVERRIDE_DURATION: DEFAULT_OVERRIDE_DURATION,
@@ -189,14 +191,20 @@ class VentaxiaMultihomeConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
 
         return self.async_show_form(
-            step_id="pair",
-            data_schema=vol.Schema({}),
+            step_id="setup_code",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_SETUP_CODE): vol.All(
+                        vol.Coerce(int), vol.Range(min=1, max=0xFFFFFFFF)
+                    )
+                }
+            ),
             errors=errors,
             description_placeholders={"name": self._name},
         )
 
     async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
-        """Start automatic setup-code reauthentication."""
+        """Start setup-code reauthentication."""
 
         self._address = entry_data[CONF_ADDRESS]
         self._name = self._get_reauth_entry().title
@@ -205,14 +213,14 @@ class VentaxiaMultihomeConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Retrieve a replacement setup code from pairing mode."""
+        """Validate a replacement setup code."""
 
         errors: dict[str, str] = {}
         if user_input is not None:
             try:
-                setup_code, _info = await self._async_pair()
+                await self._async_validate_setup_code(int(user_input[CONF_SETUP_CODE]))
             except SetupCodeRejectedError:
-                errors["base"] = "pairing_failed"
+                errors["base"] = "setup_code_rejected"
             except DeviceUnavailableError:
                 errors["base"] = "device_unavailable"
             except (
@@ -229,11 +237,17 @@ class VentaxiaMultihomeConfigFlow(ConfigFlow, domain=DOMAIN):
             else:
                 return self.async_update_reload_and_abort(
                     self._get_reauth_entry(),
-                    data_updates={CONF_SETUP_CODE: setup_code},
+                    data_updates={CONF_SETUP_CODE: int(user_input[CONF_SETUP_CODE])},
                 )
         return self.async_show_form(
             step_id="reauth_confirm",
-            data_schema=vol.Schema({}),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_SETUP_CODE): vol.All(
+                        vol.Coerce(int), vol.Range(min=1, max=0xFFFFFFFF)
+                    )
+                }
+            ),
             errors=errors,
         )
 
@@ -252,8 +266,8 @@ class VentaxiaMultihomeConfigFlow(ConfigFlow, domain=DOMAIN):
         self._address = info.address
         self._name = info.name or NAME
 
-    async def _async_pair(self) -> tuple[int, MultihomeDeviceInfo]:
-        """Pair through HA Bluetooth without logging the generated code."""
+    async def _async_validate_setup_code(self, setup_code: int) -> MultihomeDeviceInfo:
+        """Connect through HA Bluetooth and validate without logging the code."""
 
         assert self._address is not None
         ble_device = bluetooth.async_ble_device_from_address(
@@ -264,12 +278,12 @@ class VentaxiaMultihomeConfigFlow(ConfigFlow, domain=DOMAIN):
         device = MultihomeDevice(
             self._address,
             self._name,
-            0,
+            setup_code,
             client_factory=async_establish_connection,
         )
         try:
-            setup_code = await device.pair(ble_device)
-            return setup_code, device.device_info
+            await device.connect(ble_device)
+            return device.device_info
         finally:
             await device.disconnect()
 
