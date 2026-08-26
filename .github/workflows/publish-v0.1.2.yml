@@ -1,0 +1,33 @@
+name: Publish v0.1.2
+
+on:
+  push:
+    branches:
+      - release/v0.1.2
+    paths:
+      - .github/workflows/publish-v0.1.2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    if: github.event.head_commit.message == 'ci: publish v0.1.2 release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create GitHub release and tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v0.1.2 \
+            --repo "$GITHUB_REPOSITORY" \
+            --target f41cc3accd2e3fba2685f1e26ccc85b6da2f3455 \
+            --title "Vent-Axia Multihome v0.1.2" \
+            --notes "## Fixed
+
+          - Prevent transient zero CO₂ readings after reconnect from appearing as genuine 0 ppm measurements in Home Assistant.
+          - Treat zero, negative, and non-finite CO₂ telemetry as unavailable until the unit reports a valid reading.
+
+          ## Upgrade
+
+          Update through HACS and restart Home Assistant. Existing configured devices do not need to be removed or paired again."
