@@ -8,10 +8,15 @@
 - A unit advertising as `MEV` or `Multihome`
 - Access to the unit's physical pairing/setup mode
 
-The integration reads and writes BLE GATT characteristics. An
-advertisement-only proxy is not sufficient. If the ventilation controller is
-not close to the Home Assistant host, follow the
-[ESPHome Bluetooth proxy guide](esphome-bluetooth-proxy.md) first.
+An ESP32 is not required when the Home Assistant host already has a supported
+Bluetooth adapter with a reliable connection to the MEV. The physically tested
+MEV had poor practical range, so a nearby ESPHome proxy may still be needed even
+when Home Assistant has local Bluetooth.
+
+The integration reads and writes BLE GATT characteristics. If a proxy is used,
+it must support active connections; an advertisement-only proxy is insufficient.
+See [Choosing the Bluetooth route](../README.md#choosing-the-bluetooth-route) or
+the [ESPHome Bluetooth proxy guide](esphome-bluetooth-proxy.md).
 
 ## Install with HACS
 
@@ -22,7 +27,7 @@ This is a HACS *Integration* repository, not a frontend plugin.
 2. In Home Assistant, open **HACS**.
 3. Open the three-dot menu in the top-right and select
    **Custom repositories**.
-4. Enter `https://github.com/robadams/mev-ble` as the repository URL.
+4. Enter `https://github.com/sultanhq/mev-ble` as the repository URL.
 5. Select **Integration** as the repository type and choose **Add**.
 6. Open **Vent-Axia Multihome** in HACS and choose **Download**.
 7. Restart Home Assistant when HACS prompts you.

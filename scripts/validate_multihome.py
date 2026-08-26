@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import getpass
 import json
 import sys
 from dataclasses import asdict
@@ -36,23 +35,16 @@ async def _discover(timeout: float):
     raise RuntimeError("No local-name MEV or Multihome device was discovered")
 
 
-def _read_setup_code() -> int:
-    value = getpass.getpass("Multihome setup code (input hidden): ")
-    setup_code = int(value)
-    if not 1 <= setup_code <= 0xFFFFFFFF:
-        raise ValueError("setup code must be a nonzero UInt32")
-    return setup_code
-
-
 async def _read_only(timeout: float) -> None:
     ble_device, name = await _discover(timeout)
     device = MultihomeDevice(
         ble_device.address,
         name,
-        _read_setup_code(),
+        0,
         client_factory=async_establish_connection,
     )
     try:
+        await device.pair(ble_device)
         data = await device.update(ble_device)
         print(
             json.dumps(
@@ -84,10 +76,11 @@ async def _test_override(
     device = MultihomeDevice(
         ble_device.address,
         name,
-        _read_setup_code(),
+        0,
         client_factory=async_establish_connection,
     )
     try:
+        await device.pair(ble_device)
         await device.set_override(ble_device, preset, duration)
         print(f"Applied {preset.name.lower()} override for {duration} seconds")
     finally:
@@ -96,6 +89,10 @@ async def _test_override(
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.epilog = (
+        "Put the MEV into physical Bluetooth pairing mode before running a "
+        "command. The application-code exchange is automatic; no PIN is entered."
+    )
     parser.add_argument("--scan-timeout", type=float, default=10.0)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser(

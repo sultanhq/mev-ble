@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-26
+
+### Changed
+
+- Document that a local Home Assistant Bluetooth adapter is sufficient when it
+  is in reliable range and that an ESP32 proxy is optional.
+- Add practical guidance from initial MEV hardware testing: the unit may have
+  poor Bluetooth range and can benefit from a nearby active ESPHome proxy.
+- Expand regression coverage for send-only controls, serialized operations, and
+  reconnecting after Bluetooth scanner-cache expiry.
+
 ### Fixed
 
 - Complete MEV pairing automatically by reading and confirming the internal
@@ -32,5 +43,6 @@ All notable changes to this project are documented here. The format follows
 - Low, Normal, Boost, and Purge timed overrides plus independent cancellation.
 - ESPHome Wi-Fi and Ethernet Bluetooth proxy examples and end-user guides.
 
-[Unreleased]: https://github.com/robadams/mev-ble/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/robadams/mev-ble/releases/tag/v0.1.0
+[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/sultanhq/mev-ble/releases/tag/v0.1.1
+[0.1.0]: https://github.com/sultanhq/mev-ble/commit/42bd8ee

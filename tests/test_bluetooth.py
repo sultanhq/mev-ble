@@ -16,12 +16,14 @@ from custom_components.ventaxia_multihome.const import (
     WHOLE_PACKET_CHARACTERISTIC_UUID,
 )
 from custom_components.ventaxia_multihome.protocol import (
+    AirflowPreset,
     FRAGMENT_CANCEL,
     WHOLE_PACKET_ACK,
     WHOLE_PACKET_CANCEL,
     Operation,
     PacketType,
     encode_packet,
+    encode_user_override,
     fragment_ack,
     fragment_packet,
 )
@@ -78,7 +80,10 @@ async def test_whole_packet_send_does_not_poll_for_response() -> None:
 
     # Arrange - create a command and a client with no queued reads.
     command = encode_packet(
-        PacketType.USER_OVERRIDE, Operation.DATA_REQUEST, bytes(range(12)), timestamp=1
+        PacketType.USER_OVERRIDE,
+        Operation.DATA_REQUEST,
+        encode_user_override(AirflowPreset.BOOST, 60),
+        timestamp=1,
     )
     client = FakeClient([])
 
@@ -172,7 +177,10 @@ async def test_fragmented_send_waits_only_for_frame_acknowledgements() -> None:
 
     # Arrange - create a two-frame command and queue its two acknowledgements.
     command = encode_packet(
-        PacketType.USER_OVERRIDE, Operation.DATA_REQUEST, bytes(range(12)), timestamp=1
+        PacketType.USER_OVERRIDE,
+        Operation.DATA_REQUEST,
+        encode_user_override(AirflowPreset.BOOST, 60),
+        timestamp=1,
     )
     command_frames = fragment_packet(command)
     client = FakeClient([fragment_ack(1), fragment_ack(2)])
@@ -184,6 +192,49 @@ async def test_fragmented_send_waits_only_for_frame_acknowledgements() -> None:
     # Assert - both request frames were written and individually acknowledged.
     assert len(command_frames) == 2
     assert [write[1] for write in client.writes] == command_frames
+
+
+@pytest.mark.asyncio
+async def test_fragmented_request_still_works_after_send_only_control() -> None:
+    """A control without a packet response does not poison the next telemetry read."""
+
+    # Arrange - queue two control ACKs, then a telemetry ACK and response frame.
+    command = encode_packet(
+        PacketType.USER_OVERRIDE,
+        Operation.DATA_REQUEST,
+        encode_user_override(AirflowPreset.PURGE, 90),
+        timestamp=1,
+    )
+    request = encode_packet(
+        PacketType.SYSTEM_STATUS, Operation.DATA_REQUEST, timestamp=2
+    )
+    response = encode_packet(
+        PacketType.SYSTEM_STATUS, Operation.RESPONSE, timestamp=3
+    )
+    command_frames = fragment_packet(command)
+    request_frames = fragment_packet(request)
+    response_frames = fragment_packet(response)
+    client = FakeClient(
+        [
+            fragment_ack(1),
+            fragment_ack(2),
+            fragment_ack(1),
+            *response_frames,
+        ]
+    )
+    transport = FragmentedTransport(client, timeout=0.1, poll_interval=0, write_delay=0)
+
+    # Act - send a control and immediately perform a normal telemetry request.
+    await transport.send(command)
+    result = await transport.request(request)
+
+    # Assert - the command ends at its ACKs and the following response is decoded.
+    assert result == response
+    assert [write[1] for write in client.writes] == [
+        *command_frames,
+        *request_frames,
+        fragment_ack(1),
+    ]
 
 
 @pytest.mark.asyncio

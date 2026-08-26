@@ -9,33 +9,40 @@ telemetry, faults, timed airflow presets, and override cancellation without a
 cloud account.
 
 > [!IMPORTANT]
-> The protocol implementation is covered by automated tests, but it has not yet
-> been validated against a physical unit. Treat `0.1.x` as a hardware-validation
-> release and report your unit model, firmware, and results.
+> Initial physical testing on an MEV unit has confirmed automatic pairing,
+> fragmented telemetry polling, and recovery through an ESPHome Bluetooth proxy.
+> Other models, firmware versions, and Bluetooth adapters still need wider
+> validation, so please report your unit model, firmware, and results.
 
 ## What you need
 
 - Home Assistant 2026.8.0 or newer with the Bluetooth integration enabled.
 - A Vent-Axia unit advertising as `MEV` or `Multihome`.
-- A connectable Bluetooth route from Home Assistant to the unit:
-  - a supported local Bluetooth adapter; or
-  - an **active** ESPHome Bluetooth proxy near the ventilation controller.
+- A connectable Bluetooth route from Home Assistant to the unit. Either a local
+  Bluetooth adapter or an **active** ESPHome Bluetooth proxy can provide it.
 - Access to the unit's physical pairing/setup mode. The integration completes
   the internal MEV application-code exchange automatically; Bluetooth itself
   remains OS-pairing/PIN-less. See
   [Setup code versus Bluetooth PIN](docs/configuration.md#setup-code-versus-bluetooth-pin).
 
-An original ESP32/ESP32-WROOM-32 development board is the safest inexpensive
-proxy choice. ESP32-S3 and ESP32-C3 boards also have BLE and are suitable.
-ESP32-S2 boards do **not** have Bluetooth. For the strongest link, ESPHome
-recommends an Ethernet board with an external antenna, such as the Olimex
-ESP32-PoE-ISO-EA. See the complete [ESPHome proxy guide](docs/esphome-bluetooth-proxy.md)
-and the ready-to-copy [Wi-Fi proxy example](examples/esp32-bluetooth-proxy.yaml).
+## Choosing the Bluetooth route
+
+An ESP32 is **optional**. If the Home Assistant host already has a supported
+Bluetooth adapter and the MEV is within reliable range, the integration can
+connect directly through that adapter.
+
+The physically tested MEV had poor practical Bluetooth range. If discovery is
+intermittent, setup fails, or entities become unavailable, place an active
+ESPHome Bluetooth proxy close to the ventilation controller. An original
+ESP32/ESP32-WROOM-32 development board is the safest inexpensive proxy choice.
+See the complete [ESPHome proxy guide](docs/esphome-bluetooth-proxy.md) and the
+ready-to-copy [Wi-Fi proxy example](examples/esp32-bluetooth-proxy.yaml).
 
 ## Quick start
 
-1. If Home Assistant is not within BLE range, flash and add an
-   [active ESPHome Bluetooth proxy](docs/esphome-bluetooth-proxy.md).
+1. Use Home Assistant's local Bluetooth adapter if it reaches the MEV reliably.
+   Otherwise, flash and add an
+   [active ESPHome Bluetooth proxy](docs/esphome-bluetooth-proxy.md) nearby.
 2. In HACS, open the top-right menu, choose **Custom repositories**, add
    `https://github.com/sultanhq/mev-ble`, and select **Integration** as the type.
 3. Open the new **Vent-Axia Multihome** repository in HACS, choose **Download**,
@@ -68,6 +75,7 @@ Detailed instructions:
 - Device Information reads for model, serial, and firmware details when exposed
 - Preferred whole-packet transport with legacy 20-byte fragmented fallback
 - Automatic application-code pairing and reauthentication without an OS bond
+- Serialized controls/polling and automatic reconnection after a dropped link
 - Redacted Home Assistant diagnostics
 
 For safety, this first release does not expose fan power-off, calibration,
@@ -98,10 +106,11 @@ physical model and firmware combination still needs hardware validation.
 `Multivent` is not matched because the documented Multihome protocol does not
 establish a safe discovery or control path for it.
 
-No physical unit was available during implementation. In particular, physical
-testing must confirm characteristic availability across firmware versions,
-fragmented transport fallback, post-restart setup-code behaviour, telemetry
-scaling, fan-level display mapping, and timed override behaviour.
+Initial testing has used one physical unit advertising as `MEV` through an
+ESPHome proxy. Automatic pairing, fragmented telemetry, and long-running
+connection recovery have been observed on that setup. Whole-packet transport,
+other model/firmware combinations, telemetry scaling across the full operating
+range, and broader timed-override behaviour still need more hardware reports.
 
 ## Development
 

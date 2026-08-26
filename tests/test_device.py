@@ -23,8 +23,11 @@ from custom_components.ventaxia_multihome.protocol import (
     DataObjectType,
     Operation,
     PacketType,
+    decode_packet,
+    encode_cancel_override,
     encode_data_object_array,
     encode_packet,
+    encode_user_override,
 )
 
 
@@ -221,6 +224,43 @@ async def test_reconnects_with_fresh_client_after_disconnect() -> None:
 
 
 @pytest.mark.asyncio
+async def test_override_controls_use_send_only_packets() -> None:
+    """Override and cancel commands do not request an application response."""
+
+    # Arrange - install a transport that records sends and rejects requests.
+    client = DeviceClient([])
+    sent: list[bytes] = []
+
+    class SendOnlyTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            sent.append(packet)
+
+        async def request(self, packet: bytes) -> bytes:
+            raise AssertionError("control packets must not request a response")
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device._client = client
+    device._transport = SendOnlyTransport()
+    device._authenticated = True
+
+    # Act - apply one boost and then send the independent cancel command.
+    await device.set_override(object(), AirflowPreset.BOOST, 90)
+    await device.cancel_override(object())
+
+    # Assert - both packet-56 commands use the exact documented payloads.
+    override = decode_packet(sent[0])
+    cancel = decode_packet(sent[1])
+    assert override.packet_type == PacketType.USER_OVERRIDE
+    assert override.operation == Operation.DATA_REQUEST
+    assert override.payload == encode_user_override(AirflowPreset.BOOST, 90)
+    assert cancel.packet_type == PacketType.USER_OVERRIDE
+    assert cancel.operation == Operation.DATA_REQUEST
+    assert cancel.payload == encode_cancel_override()
+
+
+@pytest.mark.asyncio
 async def test_transactions_are_serialized() -> None:
     """Concurrent controls never overlap protocol sends."""
 
@@ -268,25 +308,30 @@ async def test_connection_check_waits_for_active_operation() -> None:
         nonlocal connect_calls
         connect_calls += 1
 
+    responses = iter(decode_packet(packet) for packet in _responses())
+
     async def send(packet_type, operation, payload=b""):
         request_started.set()
         await release_request.wait()
 
+    async def request(packet_type, operation, payload=b""):
+        return next(responses)
+
     device.connect = connect
     device._send = send
+    device._request = request
     first = asyncio.create_task(
         device.set_override(object(), AirflowPreset.BOOST, 60)
     )
     await request_started.wait()
 
-    # Act - start another control while the first transaction is active.
-    second = asyncio.create_task(
-        device.set_override(object(), AirflowPreset.PURGE, 60)
-    )
+    # Act - start a coordinator-style telemetry poll during the active control.
+    second = asyncio.create_task(device.update(object()))
     await asyncio.sleep(0)
 
     # Assert - the second operation has not performed a stale connection check.
     assert connect_calls == 1
     release_request.set()
-    await asyncio.gather(first, second)
+    _first_result, update = await asyncio.gather(first, second)
     assert connect_calls == 2
+    assert update.zone.fan_rpm == 1200

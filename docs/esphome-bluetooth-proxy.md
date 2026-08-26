@@ -1,8 +1,12 @@
 # ESPHome Bluetooth proxy
 
-Home Assistant can connect to the ventilation unit through a normal ESPHome
-Bluetooth proxy. The ESP32 does not run any Vent-Axia-specific code: it forwards
-BLE advertisements and GATT connections to Home Assistant.
+An ESPHome Bluetooth proxy is optional. Home Assistant can use a supported local
+Bluetooth adapter directly when it has a reliable connection to the ventilation
+unit. The physically tested MEV had poor practical range, so a proxy positioned
+near the controller may provide a much more reliable route.
+
+The ESP32 does not run Vent-Axia-specific code. It forwards BLE advertisements
+and GATT connections to Home Assistant, where this integration runs.
 
 This integration requires `bluetooth_proxy.active: true`. Passive or
 advertisement-only proxies can discover a device but cannot complete setup,
@@ -107,5 +111,6 @@ ota:
 - A Wi-Fi ESP32 shares one 2.4 GHz radio between Wi-Fi and BLE. Ethernet plus an
   external antenna gives the best reliability in difficult installations.
 - Ensure at least one active connection slot is free. This integration connects
-  briefly for each transaction and releases the slot afterwards.
-
+  to the MEV and normally keeps that connection open for polling. It therefore
+  occupies one proxy connection slot until the link drops or the integration is
+  reloaded. It automatically reconnects using the last known proxy route.

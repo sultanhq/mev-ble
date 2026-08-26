@@ -2,7 +2,7 @@
 
 ## The integration does not appear in HACS
 
-- Add `https://github.com/robadams/mev-ble` through HACS's
+- Add `https://github.com/sultanhq/mev-ble` through HACS's
   **Custom repositories** dialog and select **Integration**, not Plugin.
 - Confirm HACS can access GitHub and the repository is public.
 - Refresh HACS after adding the custom repository.
@@ -14,7 +14,8 @@
 - Put the unit into its Bluetooth pairing/setup mode.
 - Confirm it advertises as `MEV` or `Multihome`. `Multivent` is not currently a
   supported discovery name.
-- Confirm the Bluetooth integration is loaded in Home Assistant.
+- Confirm the Bluetooth integration and at least one connectable local adapter
+  or active proxy are loaded in Home Assistant.
 - For ESPHome, confirm both `esp32_ble_tracker:` and
   `bluetooth_proxy.active: true` are present and the proxy is connected to Home
   Assistant through the ESPHome integration.
@@ -43,7 +44,11 @@
 
 ## Entities are intermittently unavailable
 
-- Improve proxy placement and check RSSI in ESPHome/Home Assistant diagnostics.
+- If using the Home Assistant host's local Bluetooth adapter, try a nearby active
+  ESPHome proxy. The tested MEV had poor practical range.
+- If already using a proxy, move it close to the controller and check that Home
+  Assistant routes the MEV through that proxy. RSSI alone does not prove that
+  GATT connections are reliable.
 - Keep Wi-Fi proxies away from 2.4 GHz interference. Consider an Ethernet proxy
   with an external antenna for difficult locations.
 - Ensure other BLE integrations are not exhausting every proxy connection slot.
@@ -52,8 +57,10 @@
   encryption credentials have not changed.
 
 The integration disconnects and clears its transport after communication
-failures, then retries on the next poll. A manual reload should not normally be
-needed.
+failures, retains the last known local/proxy route, and retries on the next poll.
+This specifically handles the MEV disappearing from the scanner cache while a
+long-lived GATT connection is open. A manual reload should not normally be
+needed with version 0.1.1 or newer.
 
 ## Debug logging
 
@@ -77,7 +84,7 @@ Bluetooth addresses. The integration does not deliberately log the setup code.
 
 ## Report a useful issue
 
-Open an issue at <https://github.com/robadams/mev-ble/issues> and include:
+Open an issue at <https://github.com/sultanhq/mev-ble/issues> and include:
 
 - Home Assistant version
 - Integration version

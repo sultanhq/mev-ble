@@ -99,11 +99,16 @@ Choose the actual entity in the automation editor.
 
 ## Polling and availability
 
-Home Assistant polls zone telemetry and system status every 10 seconds. Failed
-communication makes the entities unavailable, clears stale connection state,
-and retries normally. Home Assistant's Bluetooth manager chooses a reachable
-local adapter or active proxy automatically; there is no adapter setting in
-this integration.
+Home Assistant polls zone telemetry and system status every 10 seconds over a
+normally long-lived GATT connection. Failed communication makes the entities
+unavailable, clears stale protocol state, and retries normally. The integration
+retains the last known Bluetooth route so it can reconnect even when the MEV's
+advertisement has expired from Home Assistant's scanner cache.
+
+Home Assistant's Bluetooth manager chooses a reachable local adapter or active
+proxy automatically; there is no adapter setting in this integration. An ESP32
+proxy is optional, but the tested MEV had poor practical range and benefited
+from a proxy placed close to the controller.
 
 Only one transaction is sent to a unit at a time, so polling and user actions
 cannot overlap at protocol level.

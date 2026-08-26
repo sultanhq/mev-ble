@@ -1,7 +1,8 @@
 # Contributing
 
-Bug reports and hardware-validation results are especially useful because the
-initial implementation was produced without a physical Multihome unit.
+Bug reports and hardware-validation results are especially useful. Initial
+testing covers one physical MEV through an ESPHome Bluetooth proxy, but other
+models, firmware versions, local adapters, and proxy boards need wider coverage.
 
 ## Before opening an issue
 
@@ -39,4 +40,3 @@ reset commands, and fan power-off remain outside the initial integration scope.
 HACS can install the default branch without a release, but releases give users
 stable version choices and are required before applying to HACS's default
 catalog.
-

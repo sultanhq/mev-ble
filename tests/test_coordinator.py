@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from homeassistant.const import CONF_ADDRESS
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.ventaxia_multihome import coordinator as coordinator_module
 from custom_components.ventaxia_multihome.coordinator import (
@@ -64,3 +66,24 @@ def test_ble_device_uses_newly_discovered_path(monkeypatch) -> None:
     # Assert - current discovery wins and refreshes the retained path.
     assert result is new_device
     assert coordinator._last_ble_device is new_device
+
+
+def test_ble_device_reports_unreachable_without_any_known_path(monkeypatch) -> None:
+    """A never-seen device retains Home Assistant's reachability diagnostics."""
+
+    # Arrange - expose neither a current discovery nor a retained adapter route.
+    coordinator = _coordinator()
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_ble_device_from_address",
+        lambda hass, address, connectable: None,
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_address_reachability_diagnostics",
+        lambda hass, address, intent: "unknown (never seen by any scanner)",
+    )
+
+    # Act / Assert - setup fails with the useful HA diagnostic instead of guessing.
+    with pytest.raises(UpdateFailed, match="never seen by any scanner"):
+        coordinator._ble_device()
