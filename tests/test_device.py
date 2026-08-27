@@ -22,22 +22,18 @@ from custom_components.ventaxia_multihome.const import (
 )
 from custom_components.ventaxia_multihome.device import (
     MultihomeDevice,
-    MultihomeDeviceInfo,
     SetupCodeRejectedError,
-    UnsupportedOperationError,
 )
 from custom_components.ventaxia_multihome.protocol import (
     AirflowPreset,
     DataObjectType,
     Operation,
     PacketType,
-    VentilationMode,
     decode_packet,
     encode_cancel_override,
     encode_data_object_array,
     encode_packet,
     encode_user_override,
-    encode_ventilation_mode,
     fragment_ack,
     fragment_packet,
     reassemble_fragments,
@@ -126,10 +122,9 @@ async def test_raw_model_number_is_preserved_for_capability_detection() -> None:
     info = await device.read_device_information()
     device.device_info = info
 
-    # Assert - model-gated ventilation controls recognise the raw value.
+    # Assert - the non-ASCII model value remains useful device information.
     assert info.model == "11"
     assert device.model_number == 11
-    assert device.normal_ventilation_mode is VentilationMode.VENTILATION
 
 
 @pytest.mark.asyncio
@@ -423,102 +418,6 @@ async def test_control_and_readback_have_transport_parity(
     assert decoded.payload == encode_user_override(AirflowPreset.BOOST, 90)
     assert data.zone.fan_rpm == 1200
     assert data.system.override_remaining == 60
-
-
-@pytest.mark.asyncio
-async def test_ventilation_modes_use_distinct_send_only_packets() -> None:
-    """Off, stop, and restore are independent packet-56 mode commands."""
-
-    # Arrange - report a ventilation model and install a send-recording transport.
-    client = DeviceClient([])
-    sent: list[bytes] = []
-    responses = deque([*_responses(), *_responses(), *_responses()])
-
-    class SendOnlyTransport:
-        name = "test"
-
-        async def send(self, packet: bytes) -> None:
-            sent.append(packet)
-
-        async def request(self, packet: bytes) -> bytes:
-            return responses.popleft()
-
-    device = MultihomeDevice("AA", "MEV", 1234)
-    device.device_info = MultihomeDeviceInfo(model="11")
-    device._client = client
-    device._transport = SendOnlyTransport()
-    device._authenticated = True
-
-    # Act - send normal off, protocol stop, and the model's normal on mode.
-    await device.set_ventilation_mode(object(), VentilationMode.OFF)
-    await device.set_ventilation_mode(object(), VentilationMode.STOP)
-    await device.set_ventilation_mode(object(), VentilationMode.VENTILATION)
-
-    # Assert - each command uses command zero and its exact ventilation-mode byte.
-    packets = [decode_packet(packet) for packet in sent]
-    assert all(packet.packet_type == PacketType.USER_OVERRIDE for packet in packets)
-    assert all(packet.operation == Operation.DATA_REQUEST for packet in packets)
-    assert [packet.payload for packet in packets] == [
-        encode_ventilation_mode(VentilationMode.OFF),
-        encode_ventilation_mode(VentilationMode.STOP),
-        encode_ventilation_mode(VentilationMode.VENTILATION),
-    ]
-
-
-@pytest.mark.asyncio
-async def test_unknown_model_rejects_power_control_without_sending() -> None:
-    """An unrecognised model cannot receive inferred power commands."""
-
-    # Arrange - install a transport on a device whose model is unavailable.
-    client = DeviceClient([])
-    sent: list[bytes] = []
-
-    class SendOnlyTransport:
-        name = "test"
-
-        async def send(self, packet: bytes) -> None:
-            sent.append(packet)
-
-    device = MultihomeDevice("AA", "MEV", 1234)
-    device._client = client
-    device._transport = SendOnlyTransport()
-    device._authenticated = True
-
-    # Act / Assert - capability validation fails before connect or transport send.
-    with pytest.raises(UnsupportedOperationError, match="reported model unknown"):
-        await device.set_ventilation_mode(object(), VentilationMode.OFF)
-    assert sent == []
-
-
-@pytest.mark.parametrize(
-    ("model", "normal_mode"),
-    [
-        ("1", VentilationMode.HEAT_RECOVERY),
-        ("2", VentilationMode.HEAT_RECOVERY),
-        ("3", VentilationMode.VENTILATION),
-        ("4", VentilationMode.VENTILATION),
-        ("6", VentilationMode.VENTILATION),
-        ("9", VentilationMode.HEAT_RECOVERY),
-        ("10", VentilationMode.HEAT_RECOVERY),
-        ("11", VentilationMode.VENTILATION),
-    ],
-)
-def test_known_models_select_their_normal_mode(
-    model: str, normal_mode: VentilationMode
-) -> None:
-    """Official model numbers map to heat-recovery or ventilation restore modes."""
-
-    # Arrange - attach one official model number to an otherwise idle device.
-    device = MultihomeDevice("AA", "MEV", 1234)
-    device.device_info = MultihomeDeviceInfo(model=model)
-
-    # Act - resolve its power-control capability and normal on mode.
-    supported = device.supports_ventilation_mode_control
-    result = device.normal_ventilation_mode
-
-    # Assert - the model is supported and restores the expected mode.
-    assert supported is True
-    assert result is normal_mode
 
 
 @pytest.mark.asyncio

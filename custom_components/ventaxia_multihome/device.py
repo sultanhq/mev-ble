@@ -31,7 +31,6 @@ from .protocol import (
     ProtocolError,
     ProtocolPacket,
     SystemStatus,
-    VentilationMode,
     ZoneTelemetry,
     decode_packet,
     decode_system_status,
@@ -40,7 +39,6 @@ from .protocol import (
     encode_packet,
     encode_setup_code,
     encode_user_override,
-    encode_ventilation_mode,
 )
 
 if TYPE_CHECKING:
@@ -64,22 +62,6 @@ class SetupCodeRejectedError(DeviceError):
 
 class MissingCharacteristicError(DeviceError):
     """Raised when required protocol characteristics are unavailable."""
-
-
-class UnsupportedOperationError(DeviceError):
-    """Raised when the connected model does not support a requested operation."""
-
-
-_NORMAL_MODE_BY_MODEL = {
-    1: VentilationMode.HEAT_RECOVERY,
-    2: VentilationMode.HEAT_RECOVERY,
-    3: VentilationMode.VENTILATION,
-    4: VentilationMode.VENTILATION,
-    6: VentilationMode.VENTILATION,
-    9: VentilationMode.HEAT_RECOVERY,
-    10: VentilationMode.HEAT_RECOVERY,
-    11: VentilationMode.VENTILATION,
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,18 +136,6 @@ class MultihomeDevice:
             return int(model)
         except ValueError:
             return None
-
-    @property
-    def normal_ventilation_mode(self) -> VentilationMode | None:
-        """Return the normal on-mode supported by the reported model."""
-
-        return _NORMAL_MODE_BY_MODEL.get(self.model_number)
-
-    @property
-    def supports_ventilation_mode_control(self) -> bool:
-        """Return whether off, stop, and restore are safe to expose."""
-
-        return self.normal_ventilation_mode is not None
 
     async def connect(self, ble_device: BLEDevice) -> None:
         """Connect, authenticate, select a transport, and read device info."""
@@ -314,32 +284,6 @@ class MultihomeDevice:
                 PacketType.USER_OVERRIDE,
                 Operation.DATA_REQUEST,
                 encode_cancel_override(),
-            )
-            return await self._read_data()
-
-    async def set_ventilation_mode(
-        self, ble_device: BLEDevice, mode: VentilationMode
-    ) -> MultihomeData:
-        """Set a supported ventilation mode and read back fresh telemetry."""
-
-        normal_mode = self.normal_ventilation_mode
-        if normal_mode is None:
-            model = self.device_info.model or "unknown"
-            raise UnsupportedOperationError(
-                "ventilation-mode controls are unavailable for reported "
-                f"model {model}"
-            )
-        if mode not in (VentilationMode.OFF, VentilationMode.STOP, normal_mode):
-            raise UnsupportedOperationError(
-                f"ventilation mode {mode.name.lower()} is not supported by model "
-                f"{self.model_number}"
-            )
-        async with self._operation_lock:
-            await self.connect(ble_device)
-            await self._send(
-                PacketType.USER_OVERRIDE,
-                Operation.DATA_REQUEST,
-                encode_ventilation_mode(mode),
             )
             return await self._read_data()
 

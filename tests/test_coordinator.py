@@ -19,7 +19,6 @@ from custom_components.ventaxia_multihome.coordinator import (
 from custom_components.ventaxia_multihome.protocol import (
     AirflowPreset,
     ProtocolError,
-    VentilationMode,
 )
 
 
@@ -104,11 +103,6 @@ def test_ble_device_reports_unreachable_without_any_known_path(monkeypatch) -> N
     [
         ("async_set_override", "set_override", (AirflowPreset.BOOST, 60)),
         ("async_cancel_override", "cancel_override", ()),
-        (
-            "async_set_ventilation_mode",
-            "set_ventilation_mode",
-            (VentilationMode.OFF,),
-        ),
     ],
 )
 async def test_control_publishes_only_its_fresh_telemetry(

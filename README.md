@@ -71,8 +71,6 @@ Detailed instructions:
 - Temperature, relative humidity, optional CO₂, fan RPM, fan level/state, and
   remaining override time
 - Low, Normal, Boost, and Purge timed override presets
-- Model-gated standard fan on/off controls using distinct ventilation-mode packets
-- Separate advanced Stop ventilation action; this is not override cancellation
 - Separate Cancel override button
 - Twelve documented diagnostic fault sensors
 - Device Information reads for model, serial, and firmware details when exposed
@@ -81,10 +79,13 @@ Detailed instructions:
 - Serialized controls/polling and automatic reconnection after a dropped link
 - Redacted Home Assistant diagnostics
 
-For safety, power and stop controls are exposed only when the unit reports a
-recognised model with a known normal restore mode. Calibration, configuration,
-schedules, resets, installer settings, and global airflow writes remain
-unavailable.
+The physically inspected MEV remote exposes speed levels 1–4 and timers for 30,
+60, 120, and 240 minutes, with no On, Off, Stop, or Cancel control. The
+integration therefore does not expose inferred ventilation-mode power commands.
+Cancel override is retained as a separate official-app protocol operation; it
+returns control to the unit and is not a power action. Calibration,
+configuration, schedules, resets, installer settings, and global airflow writes
+remain unavailable.
 
 ## Example action
 
@@ -97,17 +98,12 @@ target:
   entity_id: fan.vent_axia_multihome_ventilation
 data:
   preset: boost
-  duration: 60
+  duration: 1800
 ```
 
 Cancel an override by pressing the integration's **Cancel override** button.
-This is intentionally separate from turning the fan off.
-
-On recognised models, the normal Home Assistant `fan.turn_off` action selects
-the documented Off ventilation mode. `fan.turn_on` restores Ventilation or Heat
-recovery according to the reported model. The advanced
-`ventaxia_multihome.stop_ventilation` action sends the separate Stop mode; it
-does not cancel an override and should not be treated as an ordinary toggle.
+The recovered BLE app protocol includes cancellation even though the tested RF
+remote has no Cancel button. It is intentionally separate from fan power.
 
 ## Supported devices and limitations
 
@@ -122,8 +118,9 @@ ESPHome proxy. Automatic pairing, fragmented telemetry, and long-running
 connection recovery have been observed on that setup. Whole-packet transport,
 other model/firmware combinations, telemetry scaling across the full operating
 range, and broader timed-override behaviour still need more hardware reports.
-The complete v0.2 control matrix, including Off and Stop, is explicitly pending
-physical validation and is tracked in the linked validation record.
+The v0.2 speed/timer and Cancel matrix is explicitly tracked in the linked
+validation record. Recovered Off/Stop mode bytes remain offline research and are
+not sent by the Home Assistant integration.
 
 ## Development
 

@@ -8,17 +8,18 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- Add model-gated Home Assistant fan on/off controls and a separate Stop
-  ventilation action using the recovered packet-56 mode fields.
-- Add exact wire-payload, capability-gating, and non-optimistic-state regression
-  tests for Off, Stop, and normal-mode restoration.
 - Add a repeatable v0.2 physical validation matrix and evidence record covering
-  presets, cancellation, Off/Stop, failed actions, reconnects, and BLE routes.
+  speed levels, RF-matched timers, cancellation, failed actions, reconnects, and
+  BLE routes.
 - Include fan speed, RPM, override time, and coordinator success in redacted
   diagnostics for reproducible control validation.
 
 ### Changed
 
+- Align the Home Assistant control surface with the physically inspected MEV RF
+  remote: expose speed levels 1–4 and timed overrides, but not inferred On, Off,
+  or Stop commands. Keep recovered ventilation-mode bytes in the offline codec
+  only.
 - Derive fan power state from confirmed speed and RPM telemetry, and preserve the
   last confirmed state when a Bluetooth control request fails.
 - Keep each fan write and its zone/system telemetry readback inside one device

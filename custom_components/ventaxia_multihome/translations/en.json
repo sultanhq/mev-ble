@@ -51,7 +51,6 @@
     }
   },
   "services": {
-    "set_timed_override": {"name": "Set timed override", "description": "Set an airflow preset for an explicit duration.", "fields": {"preset": {"name": "Preset", "description": "Airflow preset to apply."}, "duration": {"name": "Duration", "description": "Override duration in seconds."}}},
-    "stop_ventilation": {"name": "Stop ventilation", "description": "Send the distinct protocol stop command. This does not cancel a timed override."}
+    "set_timed_override": {"name": "Set timed override", "description": "Set an airflow preset for an explicit duration.", "fields": {"preset": {"name": "Preset", "description": "Airflow preset to apply."}, "duration": {"name": "Duration", "description": "Override duration in seconds."}}}
   }
 }

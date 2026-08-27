@@ -26,7 +26,6 @@ from custom_components.ventaxia_multihome.protocol import (
     encode_packet,
     encode_setup_code,
     encode_user_override,
-    encode_ventilation_mode,
     fragment_ack,
     fragment_packet,
     reassemble_fragments,
@@ -294,36 +293,6 @@ def test_all_airflow_presets_have_exact_wire_values(
     assert result.payload == struct.pack(
         "<BBBBI", MevCommand.SET_SPEED, wire_value, 0, VentilationMode.OFF, duration
     )
-
-
-def test_off_and_stop_encoding_are_distinct_mode_commands() -> None:
-    """Off and stop use command zero and do not masquerade as speed changes."""
-
-    # Arrange - select the two documented non-running ventilation modes.
-    modes = (VentilationMode.OFF, VentilationMode.STOP)
-
-    # Act - encode and unwrap each packet-56 payload.
-    encoded = [
-        decode_data_object_array(encode_ventilation_mode(mode)).payload
-        for mode in modes
-    ]
-
-    # Assert - command, unused low preset, zone, mode, and zero timeout are exact.
-    assert encoded == [
-        struct.pack("<BBBBI", MevCommand.NONE, AirflowPreset.LOW, 0, 3, 0),
-        struct.pack("<BBBBI", MevCommand.NONE, AirflowPreset.LOW, 0, 4, 0),
-    ]
-
-
-def test_ventilation_mode_encoder_rejects_unknown_values() -> None:
-    """Only recovered ventilation-mode enum values can reach Bluetooth code."""
-
-    # Arrange - choose a byte value that is not present in the recovered enum.
-    unknown_mode = 5
-
-    # Act / Assert - validation fails before a protocol payload is returned.
-    with pytest.raises(ProtocolError, match="unsupported ventilation mode 5"):
-        encode_ventilation_mode(unknown_mode)
 
 
 def test_malformed_telemetry() -> None:

@@ -41,47 +41,39 @@ into setup mode so Home Assistant can repeat the exchange automatically.
 | Fan level | Numeric/documented airflow level |
 | Fan state | Reported operating state |
 | Override remaining | Seconds remaining on the active timed override |
-| Ventilation fan | Low, Normal, Boost, and Purge presets; model-gated on/off |
-| Cancel override | Ends the current override without pretending to power off ventilation |
+| Ventilation fan | Low, Normal, Boost, and Purge timed presets |
+| Cancel override | Ends the current BLE override and returns control to the unit |
 | Fault binary sensors | Motor, sensor, attachment, alarm, firmware, battery, filter, and service diagnostics |
 
-Standard on/off controls appear only when the unit reports a recognised model
-whose normal restore mode is known. Unknown model numbers remain preset-only
-instead of receiving an inferred power command.
+## Supported control scope
 
-## Power, stop, and cancel are different
+The physically inspected MEV RF remote exposes speed levels 1–4 and timer
+buttons for 30, 60, 120, and 240 minutes. It has no On, Off, Stop, or Cancel
+button. Home Assistant therefore exposes Low, Normal, Boost, and Purge timed
+presets, but it does not advertise standard fan On/Off or a Stop action.
 
-On a recognised model:
+The official BLE app protocol contains a distinct Cancel override operation,
+which returns control to the unit without sending an inferred power mode. There
+is no equivalent button on the inspected RF remote, so Cancel remains clearly
+separate from the hardware-matched speed/timer controls.
 
-- `fan.turn_off` sends the documented **Off** ventilation mode.
-- `fan.turn_on` restores **Ventilation** or **Heat recovery** according to the
-  reported model number.
-- `ventaxia_multihome.stop_ventilation` sends the distinct protocol **Stop**
-  mode.
-- The **Cancel override** button only ends a timed Low, Normal, Boost, or Purge
-  override.
+The recovered protocol also assigns byte values to Off and Stop modes. Those
+bytes remain available in the offline reference codec for research, but the
+Home Assistant integration does not send them without physical capability and
+safety evidence.
 
-The integration never changes the fan entity optimistically. After a power or
-stop request it refreshes device telemetry; the entity reports off only when
-both reported fan speed and RPM are zero. A rejected or timed-out request keeps
-the last confirmed state and raises an action error.
-
-The Stop action is available from **Developer tools → Actions** and targets the
-fan entity:
-
-```yaml
-action: ventaxia_multihome.stop_ventilation
-target:
-  entity_id: fan.vent_axia_multihome_ventilation
-```
-
-Off/stop packet shapes are recovered from the official client but still require
-physical validation across supported model/firmware combinations before the
-v0.2 release. Do not depend on Stop for an emergency or safety function.
+After a preset or Cancel request, the integration reads fresh zone and system
+telemetry before publishing state. A rejected or timed-out request retains the
+last confirmed values and raises an action error.
 
 ## Default override duration
 
 The fan preset control initially uses 1,800 seconds (30 minutes).
+
+To match the inspected RF timer buttons, use 1,800, 3,600, 7,200, or 14,400
+seconds for 30, 60, 120, or 240 minutes respectively. The recovered BLE app
+allows other durations up to eight hours, so the integration does not restrict
+the field to only those four values.
 
 1. Open **Settings → Devices & services → Vent-Axia Multihome**.
 2. Open the configured device's **Configure** or options dialog.
