@@ -157,6 +157,12 @@ Home Assistant publishes the result only after that readback succeeds. If the
 write or readback fails, the last confirmed values are retained while the
 entities become unavailable until communication recovers.
 
+Home Assistant Core excludes entities that are already unavailable when it
+dispatches entity services. Consequently, an action targeting an unavailable
+fan may be skipped without a user-facing action error because the integration
+is never called. An operation that starts while the entity is still available
+will report its Bluetooth failure normally.
+
 The locally estimated countdown survives ordinary BLE reconnects while Home
 Assistant remains running. It cannot be reconstructed after a Home Assistant
 restart unless the firmware supplies a nonzero remaining value.

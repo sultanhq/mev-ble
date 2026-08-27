@@ -18,8 +18,8 @@ defines which controls are safe to expose.
 | Telemetry | Fan entity and telemetry were available in Home Assistant | Observed |
 | Connection recovery | Availability remained stable after the serialized-operation and reconnect fixes | User-reported smoke test |
 | Low | Speed 1 became active and telemetry reported `user_override` on v0.2.0-rc.1 | Physically passed |
-| Normal, Boost, Purge | Exact BLE packets and Home Assistant paths pass automated tests | Pending physical matrix |
-| Timer values | The tested firmware accepted the Low override but returned zero in its countdown field; guarded local estimation added for RC2 | Pending RC2 and remaining-duration matrix |
+| Normal, Boost, Purge | All four presets physically changed the MEV to levels 1–4 on RC2 | Physically passed |
+| Timer values | A 70-second BLE override counted down and returned automatically; firmware reports zero, so RC2 estimates HA-started time locally | Physical expiry passed; exact long-duration encodings automated |
 | Cancel override | Recovered from the official BLE app; physically returned the tested unit to automatic control | Physically passed |
 | On, Off, Stop | Recovered mode bytes have no matching tested hardware control and are not exposed by HA | Excluded from v0.2 |
 | Whole-packet transport | Automated parity tests pass; no physical unit using this transport is recorded | Pending hardware report |
@@ -83,9 +83,12 @@ RF remote. It must be recorded as a BLE-only result and never described as Off.
    remaining-time value after each command; Cancel between tests if physical
    validation confirms cancellation works.
 5. Start a 1,800-second Boost, interrupt the Bluetooth route, and attempt one
-   further speed command. Confirm the action fails, the previous confirmed
+   further speed command **before** the next coordinator poll marks the entity
+   unavailable. Confirm the in-flight action fails, the previous confirmed
    values are retained, and entities become unavailable rather than accepting
-   an optimistic state.
+   an optimistic state. Once an entity is already unavailable, Home Assistant
+   Core filters entity-service targets before calling the integration; a later
+   action can therefore be skipped without displaying an action error.
 6. Restore the adapter/proxy. Confirm automatic reconnection, fresh telemetry,
    and speed-control recovery without reloading the integration.
 7. Confirm there are no new faults, restore the original speed/automatic state,
@@ -115,11 +118,11 @@ or full household Bluetooth inventory.
 | Selected transport | Pending |
 | Adapter/proxy and ESPHome version | Pending |
 | Low + Cancel | Passed on v0.2.0-rc.1; level 1 and `user_override` observed; Cancel worked |
-| Normal + Cancel | Pending |
-| Boost + Cancel | Pending |
-| Purge + Cancel | Pending |
-| 30/60/120/240-minute telemetry | RC1 firmware status returned zero; retest local estimate on RC2 pending |
-| Failed-command state retention | Pending |
+| Normal + Cancel | Normal speed passed; shared Cancel operation previously passed |
+| Boost + Cancel | Boost speed passed; shared Cancel operation previously passed |
+| Purge + Cancel | Purge speed passed; shared Cancel operation previously passed |
+| 30/60/120/240-minute telemetry | RC2 local estimate passed and a 70-second command expired automatically; device-reported remaining time is unavailable on this firmware |
+| Failed-command state retention | An action sent after the entity became unavailable was silently skipped by Home Assistant Core; repeat only if needed before the unavailable transition |
 | Automatic reconnect | Pending |
 | Final restored state and faults | Pending |
 
