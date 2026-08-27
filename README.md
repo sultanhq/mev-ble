@@ -69,7 +69,7 @@ Detailed instructions:
 - Local BLE polling through Home Assistant's Bluetooth connection manager
 - Automatic routing through local and ESPHome proxy adapters
 - Temperature, relative humidity, optional CO₂, fan RPM, fan level/state, and
-  remaining override time
+  device-reported or guarded locally estimated remaining override time
 - Low, Normal, Boost, and Purge timed override presets
 - Separate Cancel override button
 - Twelve documented diagnostic fault sensors

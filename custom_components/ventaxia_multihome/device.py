@@ -6,8 +6,10 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from math import ceil
+from time import monotonic
 from typing import TYPE_CHECKING
 
 from .bluetooth import (
@@ -26,6 +28,7 @@ from .const import (
 )
 from .protocol import (
     AirflowPreset,
+    FanState,
     Operation,
     PacketType,
     ProtocolError,
@@ -112,6 +115,8 @@ class MultihomeDevice:
         self._operation_lock = asyncio.Lock()
         self._connection_lock = asyncio.Lock()
         self._transaction_lock = asyncio.Lock()
+        self._override_deadline: float | None = None
+        self._override_preset: AirflowPreset | None = None
         self.device_info = MultihomeDeviceInfo()
 
     @property
@@ -256,7 +261,7 @@ class MultihomeDevice:
 
         async with self._operation_lock:
             await self.connect(ble_device)
-            return await self._read_data()
+            return self._reconcile_override_remaining(await self._read_data())
 
     async def set_override(
         self,
@@ -268,12 +273,15 @@ class MultihomeDevice:
 
         async with self._operation_lock:
             await self.connect(ble_device)
+            command_started = monotonic()
             await self._send(
                 PacketType.USER_OVERRIDE,
                 Operation.DATA_REQUEST,
                 encode_user_override(preset, duration_seconds),
             )
-            return await self._read_data()
+            self._override_deadline = command_started + duration_seconds
+            self._override_preset = preset
+            return self._reconcile_override_remaining(await self._read_data())
 
     async def cancel_override(self, ble_device: BLEDevice) -> MultihomeData:
         """Cancel the active override and read back fresh telemetry."""
@@ -285,7 +293,8 @@ class MultihomeDevice:
                 Operation.DATA_REQUEST,
                 encode_cancel_override(),
             )
-            return await self._read_data()
+            self._clear_local_override()
+            return self._reconcile_override_remaining(await self._read_data())
 
     async def _read_data(self) -> MultihomeData:
         """Read one coherent zone/system snapshot while an operation is locked."""
@@ -301,6 +310,44 @@ class MultihomeDevice:
             system=decode_system_status(system_packet.payload),
             last_successful_update=datetime.now(UTC),
         )
+
+    def _reconcile_override_remaining(self, data: MultihomeData) -> MultihomeData:
+        """Use a local deadline only when active firmware reports a false zero."""
+
+        if data.zone.fan_state != FanState.USER_OVERRIDE:
+            self._clear_local_override()
+            return data
+
+        reported = data.system.override_remaining
+        if reported is not None and reported > 0:
+            return data
+
+        if (
+            self._override_deadline is None
+            or self._override_preset is None
+            or data.zone.fan_level != self._override_preset
+        ):
+            self._clear_local_override()
+            system = replace(
+                data.system,
+                override_remaining=None,
+                override_remaining_source="unavailable",
+            )
+            return replace(data, system=system)
+
+        remaining = max(0, ceil(self._override_deadline - monotonic()))
+        system = replace(
+            data.system,
+            override_remaining=remaining,
+            override_remaining_source="estimated",
+        )
+        return replace(data, system=system)
+
+    def _clear_local_override(self) -> None:
+        """Forget the locally commanded deadline and preset."""
+
+        self._override_deadline = None
+        self._override_preset = None
 
     async def disconnect(self) -> None:
         """Disconnect and clear transport/authentication state."""

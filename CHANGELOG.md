@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0-rc.2] - 2026-08-27
+
+### Fixed
+
+- Count down a successfully commanded override locally when active MEV firmware
+  reports a false zero remaining time. Device-reported nonzero values remain
+  authoritative, and unknown externally started durations become unavailable.
+
 ## [0.2.0-rc.1] - 2026-08-27
 
 ### Added
@@ -75,7 +83,8 @@ All notable changes to this project are documented here. The format follows
 - Low, Normal, Boost, and Purge timed overrides plus independent cancellation.
 - ESPHome Wi-Fi and Ethernet Bluetooth proxy examples and end-user guides.
 
-[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.2.0-rc.1...HEAD
+[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.2.0-rc.2...HEAD
+[0.2.0-rc.2]: https://github.com/sultanhq/mev-ble/compare/v0.2.0-rc.1...v0.2.0-rc.2
 [0.2.0-rc.1]: https://github.com/sultanhq/mev-ble/compare/v0.1.2...v0.2.0-rc.1
 [0.1.2]: https://github.com/sultanhq/mev-ble/releases/tag/v0.1.2
 [0.1.1]: https://github.com/sultanhq/mev-ble/releases/tag/v0.1.1

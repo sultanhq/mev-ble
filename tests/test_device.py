@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from custom_components.ventaxia_multihome import device as device_module
 from custom_components.ventaxia_multihome.bluetooth import (
     FragmentedTransport,
     WholePacketTransport,
@@ -88,9 +89,17 @@ class DeviceClient:
         return True
 
 
-def _responses(*, co2: float = 800.0) -> list[bytes]:
-    zone = struct.pack("<BBBHfffI", 1, 3, 2, 1200, 22.0, 55.0, co2, 0)
-    status = encode_data_object_array(DataObjectType.RAW, struct.pack("<BHI", 3, 60, 0))
+def _responses(
+    *,
+    co2: float = 800.0,
+    fan_level: int = 3,
+    fan_state: int = 2,
+    override_remaining: int = 60,
+) -> list[bytes]:
+    zone = struct.pack("<BBBHfffI", 1, fan_level, fan_state, 1200, 22.0, 55.0, co2, 0)
+    status = encode_data_object_array(
+        DataObjectType.RAW, struct.pack("<BHI", 3, override_remaining, 0)
+    )
     return [
         encode_packet(PacketType.ZONE_VIEW_ROW, Operation.RESPONSE, zone, timestamp=1),
         encode_packet(
@@ -153,7 +162,109 @@ async def test_update_authenticates_and_decodes() -> None:
     ) in client.writes
     assert result.zone.temperature == pytest.approx(22.0)
     assert result.system.override_remaining == 60
+    assert result.system.override_remaining_source == "device"
     assert device.transport_name == "whole_packet"
+
+
+@pytest.mark.asyncio
+async def test_zero_device_timeout_uses_local_command_countdown(monkeypatch) -> None:
+    """An accepted HA override gets a countdown when firmware reports zero."""
+
+    # Arrange - hold time and return zero timeout for the command and next poll.
+    now = [100.0]
+    monkeypatch.setattr(device_module, "monotonic", lambda: now[0])
+    client = DeviceClient([])
+    responses = deque(
+        [
+            *_responses(fan_level=1, override_remaining=0),
+            *_responses(fan_level=1, override_remaining=0),
+        ]
+    )
+
+    class ZeroTimeoutTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            return None
+
+        async def request(self, packet: bytes) -> bytes:
+            return responses.popleft()
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device._client = client
+    device._transport = ZeroTimeoutTransport()
+    device._authenticated = True
+
+    # Act - start 90 seconds of Low, advance time, and poll again.
+    started = await device.set_override(object(), AirflowPreset.LOW, 90)
+    now[0] = 112.2
+    updated = await device.update(object())
+
+    # Assert - Home Assistant counts down from its accepted command deadline.
+    assert started.system.override_remaining == 90
+    assert started.system.override_remaining_source == "estimated"
+    assert updated.system.override_remaining == 78
+    assert updated.system.override_remaining_source == "estimated"
+
+
+@pytest.mark.asyncio
+async def test_external_zero_timeout_is_unavailable() -> None:
+    """A zero timeout without a matching HA command is not published as zero."""
+
+    # Arrange - expose an active user override with no locally known deadline.
+    client = DeviceClient(_responses(fan_level=1, override_remaining=0))
+
+    async def factory(ble_device, name, callback):
+        client.callback = callback
+        return client
+
+    device = MultihomeDevice("AA", "MEV", 1234, client_factory=factory)
+
+    # Act - read the externally initiated override.
+    result = await device.update(object())
+
+    # Assert - an unknown duration is unavailable rather than a false zero.
+    assert result.system.override_remaining is None
+    assert result.system.override_remaining_source == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_cancel_clears_estimated_countdown(monkeypatch) -> None:
+    """A confirmed Cancel removes the locally estimated override deadline."""
+
+    # Arrange - return zero for an active Low override, then a cancelled default state.
+    monkeypatch.setattr(device_module, "monotonic", lambda: 100.0)
+    client = DeviceClient([])
+    responses = deque(
+        [
+            *_responses(fan_level=1, override_remaining=0),
+            *_responses(fan_level=1, fan_state=8, override_remaining=0),
+        ]
+    )
+
+    class CancelTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            return None
+
+        async def request(self, packet: bytes) -> bytes:
+            return responses.popleft()
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device._client = client
+    device._transport = CancelTransport()
+    device._authenticated = True
+
+    # Act - start an estimated countdown and then cancel the override.
+    started = await device.set_override(object(), AirflowPreset.LOW, 90)
+    cancelled = await device.cancel_override(object())
+
+    # Assert - Cancel returns to the device's genuine non-override zero state.
+    assert started.system.override_remaining == 90
+    assert started.system.override_remaining_source == "estimated"
+    assert cancelled.system.override_remaining == 0
+    assert cancelled.system.override_remaining_source == "device"
 
 
 @pytest.mark.asyncio

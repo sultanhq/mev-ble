@@ -42,6 +42,9 @@ async def async_get_config_entry_diagnostics(
             "fan_speed": data.system.fan_speed if data else None,
             "fan_rpm": data.zone.fan_rpm if data else None,
             "override_remaining": data.system.override_remaining if data else None,
+            "override_remaining_source": (
+                data.system.override_remaining_source if data else None
+            ),
             "co2_supported": data.zone.co2_supported if data else None,
             "zone_fault_mask": data.zone.fault_mask if data else None,
             "system_fault_mask": data.system.fault_mask if data else None,

@@ -17,9 +17,10 @@ defines which controls are safe to expose.
 | Discovery and pairing | Discovery, automatic application-code pairing, and entity creation | Observed |
 | Telemetry | Fan entity and telemetry were available in Home Assistant | Observed |
 | Connection recovery | Availability remained stable after the serialized-operation and reconnect fixes | User-reported smoke test |
-| Low, Normal, Boost, Purge | Exact BLE packets and Home Assistant paths pass automated tests | Pending complete physical matrix |
-| Timer values | BLE accepts seconds; RF-matched 30/60/120/240-minute values are documented | Pending complete physical matrix |
-| Cancel override | Recovered from the official BLE app; no RF equivalent | Pending physical BLE result |
+| Low | Speed 1 became active and telemetry reported `user_override` on v0.2.0-rc.1 | Physically passed |
+| Normal, Boost, Purge | Exact BLE packets and Home Assistant paths pass automated tests | Pending physical matrix |
+| Timer values | The tested firmware accepted the Low override but returned zero in its countdown field; guarded local estimation added for RC2 | Pending RC2 and remaining-duration matrix |
+| Cancel override | Recovered from the official BLE app; physically returned the tested unit to automatic control | Physically passed |
 | On, Off, Stop | Recovered mode bytes have no matching tested hardware control and are not exposed by HA | Excluded from v0.2 |
 | Whole-packet transport | Automated parity tests pass; no physical unit using this transport is recorded | Pending hardware report |
 | Local HA Bluetooth adapter | Supported by Home Assistant's Bluetooth manager but not used in the recorded MEV test | Not tested |
@@ -48,10 +49,10 @@ Set speed (1), target 0, zone 0, and the recovered default mode byte 3.
 
 | Home Assistant preset | RF speed | Preset byte | Recommended test timeout | Expected fresh telemetry |
 |---|---:|---:|---:|---|
-| Low | 1 | 1 | 1,800 seconds | Fan level 1; user override; remaining time near 1,800 |
-| Normal | 2 | 2 | 1,800 seconds | Fan level 2; user override; remaining time near 1,800 |
-| Boost | 3 | 3 | 1,800 seconds | Fan level 3; user override; remaining time near 1,800 |
-| Purge | 4 | 4 | 1,800 seconds | Fan level 4; user override; remaining time near 1,800 |
+| Low | 1 | 1 | 1,800 seconds | Fan level 1; user override; device or estimated time near 1,800 |
+| Normal | 2 | 2 | 1,800 seconds | Fan level 2; user override; device or estimated time near 1,800 |
+| Boost | 3 | 3 | 1,800 seconds | Fan level 3; user override; device or estimated time near 1,800 |
+| Purge | 4 | 4 | 1,800 seconds | Fan level 4; user override; device or estimated time near 1,800 |
 
 The RF timer values map to BLE timeouts as follows:
 
@@ -76,6 +77,7 @@ RF remote. It must be recorded as a BLE-only result and never described as Off.
    remaining time, faults, availability, transport, and Bluetooth route.
 2. Run Low for 1,800 seconds. Confirm fresh fan-level and remaining-time
    telemetry, then use Cancel override and confirm automatic control resumes.
+   Record whether diagnostics labels remaining time `device` or `estimated`.
 3. Repeat step 2 for Normal, Boost, and Purge.
 4. On Normal, apply 3,600, 7,200, and 14,400 seconds in turn. Confirm the fresh
    remaining-time value after each command; Cancel between tests if physical
@@ -112,11 +114,11 @@ or full household Bluetooth inventory.
 | MEV model/firmware | Pending |
 | Selected transport | Pending |
 | Adapter/proxy and ESPHome version | Pending |
-| Low + Cancel | Pending |
+| Low + Cancel | Passed on v0.2.0-rc.1; level 1 and `user_override` observed; Cancel worked |
 | Normal + Cancel | Pending |
 | Boost + Cancel | Pending |
 | Purge + Cancel | Pending |
-| 30/60/120/240-minute telemetry | Pending |
+| 30/60/120/240-minute telemetry | RC1 firmware status returned zero; retest local estimate on RC2 pending |
 | Failed-command state retention | Pending |
 | Automatic reconnect | Pending |
 | Final restored state and faults | Pending |

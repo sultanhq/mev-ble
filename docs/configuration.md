@@ -40,7 +40,7 @@ into setup mode so Home Assistant can repeat the exchange automatically.
 | Fan RPM | Reported motor speed |
 | Fan level | Numeric/documented airflow level |
 | Fan state | Reported operating state |
-| Override remaining | Seconds remaining on the active timed override |
+| Override remaining | Device-reported or locally estimated seconds remaining |
 | Ventilation fan | Low, Normal, Boost, and Purge timed presets |
 | Cancel override | Ends the current BLE override and returns control to the unit |
 | Fault binary sensors | Motor, sensor, attachment, alarm, firmware, battery, filter, and service diagnostics |
@@ -65,6 +65,15 @@ safety evidence.
 After a preset or Cancel request, the integration reads fresh zone and system
 telemetry before publishing state. A rejected or timed-out request retains the
 last confirmed values and raises an action error.
+
+Some MEV firmware accepts timed overrides but reports zero in the system-status
+countdown field while the override is visibly active. After Home Assistant
+successfully starts an override, the integration uses the commanded duration as
+a local countdown only when that false-zero condition occurs. A nonzero device
+value always remains authoritative. If an override was started externally and
+the firmware reports zero, the entity is unavailable because its duration is
+unknown. Diagnostics identify the source as `device`, `estimated`, or
+`unavailable`.
 
 ## Default override duration
 
@@ -147,3 +156,7 @@ readback, so a scheduled poll cannot consume or overwrite the control result.
 Home Assistant publishes the result only after that readback succeeds. If the
 write or readback fails, the last confirmed values are retained while the
 entities become unavailable until communication recovers.
+
+The locally estimated countdown survives ordinary BLE reconnects while Home
+Assistant remains running. It cannot be reconstructed after a Home Assistant
+restart unless the firmware supplies a nonzero remaining value.

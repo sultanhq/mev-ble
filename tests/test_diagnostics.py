@@ -30,6 +30,7 @@ async def test_diagnostics_include_control_validation_state() -> None:
         system=SimpleNamespace(
             fan_speed=3,
             override_remaining=52,
+            override_remaining_source="estimated",
             fault_mask=0,
         ),
     )
@@ -65,6 +66,7 @@ async def test_diagnostics_include_control_validation_state() -> None:
         "fan_speed": 3,
         "fan_rpm": 1200,
         "override_remaining": 52,
+        "override_remaining_source": "estimated",
         "co2_supported": True,
         "zone_fault_mask": 0,
         "system_fault_mask": 0,

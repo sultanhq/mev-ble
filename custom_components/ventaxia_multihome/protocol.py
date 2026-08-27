@@ -471,8 +471,9 @@ class SystemStatus:
     """Decoded system-status body."""
 
     fan_speed: int
-    override_remaining: int
+    override_remaining: int | None
     fault_mask: int
+    override_remaining_source: str = "device"
 
 
 def decode_system_status(data: bytes) -> SystemStatus:
