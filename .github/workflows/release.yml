@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish GitHub release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Publish manifest version when it is not already released
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag_name="v$(jq -r '.version' custom_components/ventaxia_multihome/manifest.json)"
+          if gh release view "$tag_name" >/dev/null 2>&1; then
+            echo "$tag_name is already published"
+            exit 0
+          fi
+          git tag "$tag_name" "$GITHUB_SHA"
+          git push origin "$tag_name"
+          gh release create "$tag_name" \
+            --target "$GITHUB_SHA" \
+            --generate-notes \
+            --latest=false \
+            --title "Vent-Axia Multihome $tag_name (release candidate)"
