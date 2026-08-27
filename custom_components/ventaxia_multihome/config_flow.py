@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 from statistics import fmean
@@ -33,6 +34,8 @@ from homeassistant.helpers import selector
 
 from .bluetooth import TransportError, async_establish_connection
 from .const import (
+    CO2_CALIBRATION_PROGRESS_INTERVAL,
+    CO2_CALIBRATION_SAMPLING_DURATION,
     CONF_OVERRIDE_DURATION,
     CONF_SETUP_CODE,
     DEFAULT_OVERRIDE_DURATION,
@@ -321,6 +324,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._reference_entity_ids: list[str] = []
         self._reference_ppm: int | None = None
         self._reference_summary = ""
+        self._calibration_progress_task: asyncio.Task[None] | None = None
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -486,7 +490,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                     )
                     errors["base"] = "calibration_failed"
                 else:
-                    return await self.async_step_calibration_result()
+                    return await self.async_step_calibration_progress()
 
         return self.async_show_form(
             step_id="calibration_confirm",
@@ -505,10 +509,46 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             },
         )
 
+    async def async_step_calibration_progress(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Track the manual's three-minute internal-sensor sampling period."""
+
+        if self._calibration_progress_task is None:
+            self._calibration_progress_task = self.hass.async_create_task(
+                self._async_track_calibration_progress(),
+                "Track Multihome CO2 calibration sampling period",
+            )
+        if not self._calibration_progress_task.done():
+            return self.async_show_progress(
+                step_id="calibration_progress",
+                progress_action="calibration_sampling",
+                progress_task=self._calibration_progress_task,
+                description_placeholders={
+                    "device": self.config_entry.title,
+                    "reference_ppm": str(self._reference_ppm or ""),
+                },
+            )
+        return self.async_show_progress_done(next_step_id="calibration_result")
+
+    async def _async_track_calibration_progress(self) -> None:
+        """Update HA progress for the documented 180-second sampling period."""
+
+        steps = max(
+            1,
+            math.ceil(
+                CO2_CALIBRATION_SAMPLING_DURATION
+                / CO2_CALIBRATION_PROGRESS_INTERVAL
+            ),
+        )
+        for step in range(1, steps + 1):
+            await asyncio.sleep(CO2_CALIBRATION_PROGRESS_INTERVAL)
+            self.async_update_progress(step / steps)
+
     async def async_step_calibration_result(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Explain protocol acceptance without claiming calibration readback."""
+        """Explain elapsed sampling time without claiming calibration readback."""
 
         if user_input is not None:
             return self.async_create_entry(

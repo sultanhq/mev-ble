@@ -25,9 +25,13 @@ This method uses the documented outdoor-air baseline of **400 ppm**.
 3. Keep the rooms unoccupied and leave the openings open.
 4. In the integration's Configure flow, choose **Fresh-air exposure** and
    review the final confirmation.
-5. Confirm once. The MEV should flash its status LED magenta while sampling for
-   about three minutes.
-6. Keep the rooms open, unoccupied, and unchanged until the LED stops flashing.
+5. Confirm once. Home Assistant displays progress for the MEV manual's specified
+   three-minute internal-sensor sampling period.
+6. Keep the rooms open, unoccupied, and unchanged until the progress finishes.
+
+The physical MEV status LED should flash magenta during sampling, but users do
+not need access to a loft-mounted unit to time the process. Closing Home
+Assistant's progress screen does not cancel a calibration command already sent.
 
 Opening only one window beside the controller is not the intended preparation.
 The unit samples air arriving through all of its extract paths, so every
@@ -53,20 +57,28 @@ measures true CO₂. Some inexpensive air-quality sensors estimate **eCO₂** fr
 other gases; do not use those as calibration references. Use this method only
 when you independently trust the selected instruments and their placement.
 
-## What success looks like
+## Progress and completion
 
-After protocol acceptance, observe the physical unit:
+After transport delivery, Home Assistant advances a progress bar for exactly
+three minutes. This duration comes from the Vent-Axia internal-sensor procedure:
+the MEV repeatedly reads the CO₂ sensor for three minutes to obtain a stable
+reading, then sets the calibration value.
 
-- the status LED should flash magenta for approximately three minutes;
-- the rooms and reference conditions should remain stable during that period;
-- later CO₂ readings should settle plausibly rather than change instantly.
+Keep the rooms and reference conditions stable while the progress bar is
+running. When it finishes, the screen says **Sampling period elapsed** and the
+rooms can be used normally.
 
-The completion screen means only that the integration delivered the recovered
-packet successfully. If the expected LED indication does not occur, assume the
-calibration did not run and collect debug logs before trying again. Do not repeat
-commands rapidly; the integration enforces a five-minute cooldown even after a
-failed attempt because the device may have received it before the connection
-failed.
+The bar tracks elapsed time; it is not live firmware status. The recovered BLE
+protocol exposes no calibration completion readback, so the integration does
+not claim verified success. If accessible, a magenta LED that stops flashing is
+useful optional evidence. Later CO₂ readings should also settle plausibly. Do
+not repeat commands rapidly; the integration enforces a five-minute cooldown
+even after a failed attempt because the device may have received it before the
+connection failed.
+
+The manual's separate five-minute room-condition instruction applies to paired
+room sensors. This integration calibrates only the MEV's internal sensor, whose
+documented sampling duration is three minutes.
 
 ## v0.3 physical validation record
 
@@ -77,7 +89,9 @@ Before v0.3 is promoted from release candidate, record:
 | Open Configure without confirmation | No calibration packet is sent |
 | Fresh-air preparation screen | Clearly states all extracted rooms, 10–15 minutes, unoccupied, and 400 ppm |
 | Final confirmation | Defaults to off and names the device/reference |
-| Confirm fresh-air calibration | Physical LED flashes magenta for about three minutes |
+| Confirm fresh-air calibration | HA shows three-minute progress immediately after delivery |
+| Progress finishes | Result says elapsed time, not verified firmware completion |
+| Close progress screen | Calibration is not cancelled or repeated |
 | Attempt again within five minutes | Flow reports rate limiting; no second packet is sent |
 | Reference entity becomes unavailable before confirmation | Flow returns to sensor selection; no packet is sent |
 | Select the MEV's own CO₂ entity | Selection is rejected; no packet is sent |

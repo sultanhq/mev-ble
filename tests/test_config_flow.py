@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
@@ -21,6 +21,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.ventaxia_multihome import config_flow as config_flow_module
 from custom_components.ventaxia_multihome.config_flow import (
     CALIBRATION_METHOD_FRESH_AIR,
     CALIBRATION_METHOD_REFERENCE_SENSORS,
@@ -86,6 +87,30 @@ async def _open_calibration_options(hass, entry):
     return await hass.config_entries.options.async_configure(
         initial["flow_id"], {"next_step_id": "calibrate_co2"}
     )
+
+
+@pytest.fixture
+def fast_calibration_progress(monkeypatch):
+    """Keep end-to-end progress-flow tests fast."""
+
+    monkeypatch.setattr(
+        config_flow_module, "CO2_CALIBRATION_SAMPLING_DURATION", 0.001
+    )
+    monkeypatch.setattr(
+        config_flow_module, "CO2_CALIBRATION_PROGRESS_INTERVAL", 0.001
+    )
+
+
+async def _complete_calibration_progress(hass, progress):
+    """Wait for a shortened progress task and return its result form."""
+
+    assert progress["type"] is data_entry_flow.FlowResultType.SHOW_PROGRESS
+    assert progress["step_id"] == "calibration_progress"
+    flow = hass.config_entries.options._progress[progress["flow_id"]]
+    if task := flow.async_get_progress_task():
+        await task
+    await hass.async_block_till_done()
+    return hass.config_entries.options.async_get(progress["flow_id"])
 
 
 @pytest.mark.asyncio
@@ -272,7 +297,9 @@ async def test_unsupported_discovery_name(hass) -> None:
 
 
 @pytest.mark.asyncio
-async def test_fresh_air_calibration_requires_final_confirmation(hass) -> None:
+async def test_fresh_air_calibration_requires_final_confirmation(
+    hass, fast_calibration_progress
+) -> None:
     """Fresh-air calibration cannot write until the final guarded step."""
 
     # Arrange - open calibration for a validated internal-CO2 model.
@@ -299,15 +326,18 @@ async def test_fresh_air_calibration_requires_final_confirmation(hass) -> None:
     declined = await hass.config_entries.options.async_configure(
         confirm["flow_id"], {CONF_CONFIRM_CALIBRATION: False}
     )
-    result = await hass.config_entries.options.async_configure(
+    progress = await hass.config_entries.options.async_configure(
         declined["flow_id"], {CONF_CONFIRM_CALIBRATION: True}
     )
 
-    # Assert - only the positive confirmation sends one 400 ppm command.
+    # Assert - only the positive confirmation sends one 400 ppm command and
+    # starts HA's documented-duration progress screen.
     assert declined["errors"] == {"base": "confirmation_required"}
-    assert result["step_id"] == "calibration_result"
+    assert progress["step_id"] == "calibration_progress"
     coordinator.async_calibrate_internal_co2.assert_awaited_once_with(400)
 
+    result = await _complete_calibration_progress(hass, progress)
+    assert result["step_id"] == "calibration_result"
     completed = await hass.config_entries.options.async_configure(
         result["flow_id"], {}
     )
@@ -316,7 +346,9 @@ async def test_fresh_air_calibration_requires_final_confirmation(hass) -> None:
 
 
 @pytest.mark.asyncio
-async def test_reference_calibration_rereads_and_averages_sensors(hass) -> None:
+async def test_reference_calibration_rereads_and_averages_sensors(
+    hass, fast_calibration_progress
+) -> None:
     """The final write uses a fresh average of independent ppm sensors."""
 
     # Arrange - expose two independent, plausible CO2 reference states.
@@ -350,17 +382,22 @@ async def test_reference_calibration_rereads_and_averages_sensors(hass) -> None:
 
     # Act - change one sensor after review; confirmation must re-read both.
     hass.states.async_set("sensor.bedroom_co2", "460", attributes)
-    result = await hass.config_entries.options.async_configure(
+    progress = await hass.config_entries.options.async_configure(
         confirm["flow_id"], {CONF_CONFIRM_CALIBRATION: True}
     )
 
     # Assert - the command uses the current mean, (420 + 460) / 2 = 440 ppm.
-    assert result["step_id"] == "calibration_result"
+    assert progress["step_id"] == "calibration_progress"
     coordinator.async_calibrate_internal_co2.assert_awaited_once_with(440)
+
+    result = await _complete_calibration_progress(hass, progress)
+    assert result["step_id"] == "calibration_result"
 
 
 @pytest.mark.asyncio
-async def test_single_reference_calibration_is_supported_with_warning(hass) -> None:
+async def test_single_reference_calibration_is_supported_with_warning(
+    hass, fast_calibration_progress
+) -> None:
     """One trusted reference works but the review states its placement duty."""
 
     # Arrange - expose one independent true-CO2 reference.
@@ -384,7 +421,7 @@ async def test_single_reference_calibration_is_supported_with_warning(hass) -> N
         references["flow_id"],
         {CONF_REFERENCE_SENSORS: ["sensor.reference_co2"]},
     )
-    result = await hass.config_entries.options.async_configure(
+    progress = await hass.config_entries.options.async_configure(
         confirm["flow_id"], {CONF_CONFIRM_CALIBRATION: True}
     )
 
@@ -392,8 +429,31 @@ async def test_single_reference_calibration_is_supported_with_warning(hass) -> N
     assert "must represent the air entering" in (
         confirm["description_placeholders"]["reference_summary"]
     )
-    assert result["step_id"] == "calibration_result"
+    assert progress["step_id"] == "calibration_progress"
     coordinator.async_calibrate_internal_co2.assert_awaited_once_with(450)
+
+    result = await _complete_calibration_progress(hass, progress)
+    assert result["step_id"] == "calibration_result"
+
+
+@pytest.mark.asyncio
+async def test_calibration_progress_tracks_documented_180_seconds() -> None:
+    """Progress advances once per second for the manual's three-minute period."""
+
+    # Arrange - isolate the timer and replace real sleeping with an awaitable mock.
+    flow = object.__new__(config_flow_module.VentaxiaMultihomeOptionsFlow)
+    flow.async_update_progress = Mock()
+    with patch(
+        "custom_components.ventaxia_multihome.config_flow.asyncio.sleep",
+        new=AsyncMock(),
+    ) as sleep:
+        # Act - track one complete internal-sensor sampling period.
+        await flow._async_track_calibration_progress()
+
+    # Assert - the documented 180 seconds reaches exact 100% progress.
+    assert sleep.await_count == 180
+    flow.async_update_progress.assert_any_call(1 / 180)
+    flow.async_update_progress.assert_called_with(1.0)
 
 
 @pytest.mark.asyncio

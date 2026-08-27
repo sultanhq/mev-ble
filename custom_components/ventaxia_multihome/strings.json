@@ -60,7 +60,7 @@
       },
       "calibration_exposure": {
         "title": "Prepare fresh-air exposure",
-        "description": "1. Open external windows and doors in every room from which the MEV extracts air.\n2. Ventilate for 10–15 minutes.\n3. Keep those rooms unoccupied and leave the openings open.\n4. Select Submit only when preparation is complete.\n\nThe reference is fixed at 400 ppm. Keep the rooms open and unoccupied until the MEV status LED stops flashing magenta."
+        "description": "1. Open external windows and doors in every room from which the MEV extracts air.\n2. Ventilate for 10–15 minutes.\n3. Keep those rooms unoccupied and leave the openings open.\n4. Select Submit only when preparation is complete.\n\nThe reference is fixed at 400 ppm. After final confirmation, Home Assistant will display the MEV manual's three-minute sampling progress. Keep the rooms open and unoccupied until that progress finishes; you do not need to see the loft-mounted unit."
       },
       "calibration_reference": {
         "title": "Choose trusted CO₂ references",
@@ -71,15 +71,22 @@
       },
       "calibration_confirm": {
         "title": "Confirm CO₂ calibration",
-        "description": "Device: **{device}**\n\nCalibration target: **internal MEV CO₂ sensor**\n\nReference: **{reference_ppm} ppm**\n\n{reference_summary}\n\nAfter confirmation, the MEV should flash its status LED magenta while it samples for approximately three minutes. Keep rooms unoccupied and conditions unchanged until the LED stops flashing. An incorrect reference will make future CO₂ readings inaccurate.",
+        "description": "Device: **{device}**\n\nCalibration target: **internal MEV CO₂ sensor**\n\nReference: **{reference_ppm} ppm**\n\n{reference_summary}\n\nAfter confirmation, Home Assistant will track the documented three-minute sampling period. Keep rooms unoccupied and conditions unchanged until its progress finishes. The physical status LED should flash magenta, but you do not need to see the unit. An incorrect reference will make future CO₂ readings inaccurate.",
         "data": {
           "confirm_calibration": "I have completed the preparation and confirm that the reference is trustworthy"
         }
       },
+      "calibration_progress": {
+        "title": "CO₂ calibration in progress",
+        "description": "Home Assistant sent the {reference_ppm} ppm command to {device} and is tracking the MEV manual's three-minute internal-sensor sampling period. Keep every extracted room ventilated, unoccupied, and unchanged until the progress bar finishes. Closing this screen does not stop calibration."
+      },
       "calibration_result": {
-        "title": "Calibration command sent",
-        "description": "Home Assistant sent the {reference_ppm} ppm calibration command to {device}. This confirms transport delivery only; the firmware does not expose calibration readback. Check that the MEV status LED is flashing magenta, keep conditions unchanged, and wait for it to stop before judging the result."
+        "title": "Sampling period elapsed",
+        "description": "The MEV manual's three-minute sampling period has elapsed for the {reference_ppm} ppm command sent to {device}. You may now close the windows and use the rooms normally. This Home Assistant timer does not prove firmware completion because the MEV protocol exposes no calibration-status readback."
       }
+    },
+    "progress": {
+      "calibration_sampling": "Tracking the three-minute MEV sampling period"
     },
     "error": {
       "calibration_failed": "The calibration command failed. No success has been recorded; normal polling will retry automatically.",

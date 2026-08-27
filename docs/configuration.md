@@ -104,6 +104,11 @@ CO₂ entity as its reference, and is limited to one attempt every five minutes.
 It is not exposed as an action or automation service. Read the complete
 [CO₂ calibration safety and validation guide](co2-calibration.md) before use.
 
+After the command is delivered, Home Assistant displays a progress bar for the
+manual's three-minute internal-sensor sampling period. Users do not need to see
+a loft-mounted unit. The progress is an elapsed-time guide rather than device
+readback because the recovered BLE protocol exposes no completion state.
+
 ## Timed override action
 
 Use `ventaxia_multihome.set_timed_override` when an automation needs an explicit
