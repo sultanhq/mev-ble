@@ -12,6 +12,10 @@ All notable changes to this project are documented here. The format follows
   ventilation action using the recovered packet-56 mode fields.
 - Add exact wire-payload, capability-gating, and non-optimistic-state regression
   tests for Off, Stop, and normal-mode restoration.
+- Add a repeatable v0.2 physical validation matrix and evidence record covering
+  presets, cancellation, Off/Stop, failed actions, reconnects, and BLE routes.
+- Include fan speed, RPM, override time, and coordinator success in redacted
+  diagnostics for reproducible control validation.
 
 ### Changed
 

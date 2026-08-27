@@ -35,9 +35,13 @@ async def async_get_config_entry_diagnostics(
         "last_successful_update": (
             data.last_successful_update.isoformat() if data else None
         ),
+        "last_update_success": coordinator.last_update_success,
         "state": {
             "fan_state": fan_state_name(data.zone.fan_state) if data else None,
             "fan_level": data.zone.fan_level if data else None,
+            "fan_speed": data.system.fan_speed if data else None,
+            "fan_rpm": data.zone.fan_rpm if data else None,
+            "override_remaining": data.system.override_remaining if data else None,
             "co2_supported": data.zone.co2_supported if data else None,
             "zone_fault_mask": data.zone.fault_mask if data else None,
             "system_fault_mask": data.system.fault_mask if data else None,

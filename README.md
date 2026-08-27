@@ -62,6 +62,7 @@ Detailed instructions:
 - [Choose and configure an ESPHome Bluetooth proxy](docs/esphome-bluetooth-proxy.md)
 - [Configure the integration and use its entities/actions](docs/configuration.md)
 - [Troubleshooting and diagnostics](docs/troubleshooting.md)
+- [v0.2 physical validation procedure and evidence](docs/validation-v0.2.md)
 
 ## Features
 
@@ -121,6 +122,8 @@ ESPHome proxy. Automatic pairing, fragmented telemetry, and long-running
 connection recovery have been observed on that setup. Whole-packet transport,
 other model/firmware combinations, telemetry scaling across the full operating
 range, and broader timed-override behaviour still need more hardware reports.
+The complete v0.2 control matrix, including Off and Stop, is explicitly pending
+physical validation and is tracked in the linked validation record.
 
 ## Development
 

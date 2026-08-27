@@ -11,7 +11,7 @@ from homeassistant.const import CONF_ADDRESS
 from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.ventaxia_multihome.fan import MultihomeFan
-from custom_components.ventaxia_multihome.protocol import VentilationMode
+from custom_components.ventaxia_multihome.protocol import AirflowPreset, VentilationMode
 
 
 def _fan(
@@ -106,3 +106,22 @@ def test_fan_state_comes_from_confirmed_telemetry() -> None:
 
     # Assert - no optimistic or remembered command state is involved.
     assert result is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("preset", ["low", "normal", "boost", "purge"])
+async def test_all_home_assistant_presets_use_documented_overrides(
+    preset: str,
+) -> None:
+    """Every advertised preset delegates to its matching protocol enum."""
+
+    # Arrange - create a supported entity with a recording coordinator.
+    entity, coordinator = _fan()
+
+    # Act - select one preset through Home Assistant's standard fan API.
+    await entity.async_set_preset_mode(preset)
+
+    # Assert - the matching recovered enum is sent with the default duration.
+    coordinator.async_set_override.assert_awaited_once_with(
+        AirflowPreset[preset.upper()]
+    )

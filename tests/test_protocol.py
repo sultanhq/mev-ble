@@ -270,6 +270,32 @@ def test_override_and_cancel_encoding() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("preset", "wire_value"),
+    [
+        (AirflowPreset.LOW, 1),
+        (AirflowPreset.NORMAL, 2),
+        (AirflowPreset.BOOST, 3),
+        (AirflowPreset.PURGE, 4),
+    ],
+)
+def test_all_airflow_presets_have_exact_wire_values(
+    preset: AirflowPreset, wire_value: int
+) -> None:
+    """Every exposed Home Assistant preset retains its recovered packet value."""
+
+    # Arrange - select one exposed preset and a deterministic override duration.
+    duration = 90
+
+    # Act - encode and unwrap the packet-56 command body.
+    result = decode_data_object_array(encode_user_override(preset, duration))
+
+    # Assert - set-speed, preset, zone, default mode, and timeout are exact.
+    assert result.payload == struct.pack(
+        "<BBBBI", MevCommand.SET_SPEED, wire_value, 0, VentilationMode.OFF, duration
+    )
+
+
 def test_off_and_stop_encoding_are_distinct_mode_commands() -> None:
     """Off and stop use command zero and do not masquerade as speed changes."""
 
