@@ -288,12 +288,14 @@ async def test_reconnect_zero_co2_is_unavailable_until_valid_reading() -> None:
 
 
 @pytest.mark.asyncio
-async def test_override_controls_use_send_only_packets() -> None:
-    """Override and cancel commands do not request an application response."""
+async def test_override_controls_send_then_read_fresh_telemetry() -> None:
+    """Override and cancel send once, then read a complete telemetry snapshot."""
 
-    # Arrange - install a transport that records sends and rejects requests.
+    # Arrange - install a transport that records sends and serves telemetry reads.
     client = DeviceClient([])
     sent: list[bytes] = []
+    requested: list[bytes] = []
+    responses = deque([*_responses(), *_responses()])
 
     class SendOnlyTransport:
         name = "test"
@@ -302,7 +304,8 @@ async def test_override_controls_use_send_only_packets() -> None:
             sent.append(packet)
 
         async def request(self, packet: bytes) -> bytes:
-            raise AssertionError("control packets must not request a response")
+            requested.append(packet)
+            return responses.popleft()
 
     device = MultihomeDevice("AA", "MEV", 1234)
     device._client = client
@@ -310,10 +313,10 @@ async def test_override_controls_use_send_only_packets() -> None:
     device._authenticated = True
 
     # Act - apply one boost and then send the independent cancel command.
-    await device.set_override(object(), AirflowPreset.BOOST, 90)
-    await device.cancel_override(object())
+    override_data = await device.set_override(object(), AirflowPreset.BOOST, 90)
+    cancel_data = await device.cancel_override(object())
 
-    # Assert - both packet-56 commands use the exact documented payloads.
+    # Assert - packet 56 is send-only and each command is followed by zone/status.
     override = decode_packet(sent[0])
     cancel = decode_packet(sent[1])
     assert override.packet_type == PacketType.USER_OVERRIDE
@@ -322,6 +325,14 @@ async def test_override_controls_use_send_only_packets() -> None:
     assert cancel.packet_type == PacketType.USER_OVERRIDE
     assert cancel.operation == Operation.DATA_REQUEST
     assert cancel.payload == encode_cancel_override()
+    assert [decode_packet(packet).packet_type for packet in requested] == [
+        PacketType.ZONE_VIEW_ROW,
+        PacketType.SYSTEM_STATUS,
+        PacketType.ZONE_VIEW_ROW,
+        PacketType.SYSTEM_STATUS,
+    ]
+    assert override_data.zone.fan_rpm == 1200
+    assert cancel_data.system.fan_speed == 3
 
 
 @pytest.mark.asyncio
@@ -331,12 +342,16 @@ async def test_ventilation_modes_use_distinct_send_only_packets() -> None:
     # Arrange - report a ventilation model and install a send-recording transport.
     client = DeviceClient([])
     sent: list[bytes] = []
+    responses = deque([*_responses(), *_responses(), *_responses()])
 
     class SendOnlyTransport:
         name = "test"
 
         async def send(self, packet: bytes) -> None:
             sent.append(packet)
+
+        async def request(self, packet: bytes) -> bytes:
+            return responses.popleft()
 
     device = MultihomeDevice("AA", "MEV", 1234)
     device.device_info = MultihomeDeviceInfo(model="11")
@@ -424,16 +439,24 @@ async def test_transactions_are_serialized() -> None:
     client = DeviceClient([])
     active = 0
     maximum_active = 0
+    responses = deque([*_responses(), *_responses()])
 
     class SlowTransport:
         name = "test"
 
-        async def send(self, packet: bytes) -> None:
+        async def _enter(self) -> None:
             nonlocal active, maximum_active
             active += 1
             maximum_active = max(maximum_active, active)
             await asyncio.sleep(0)
             active -= 1
+
+        async def send(self, packet: bytes) -> None:
+            await self._enter()
+
+        async def request(self, packet: bytes) -> bytes:
+            await self._enter()
+            return responses.popleft()
 
     device = MultihomeDevice("AA", "MEV", 1234)
     device._client = client
@@ -464,7 +487,9 @@ async def test_connection_check_waits_for_active_operation() -> None:
         nonlocal connect_calls
         connect_calls += 1
 
-    responses = iter(decode_packet(packet) for packet in _responses())
+    responses = iter(
+        decode_packet(packet) for packet in [*_responses(), *_responses()]
+    )
 
     async def send(packet_type, operation, payload=b""):
         request_started.set()
@@ -488,6 +513,66 @@ async def test_connection_check_waits_for_active_operation() -> None:
     # Assert - the second operation has not performed a stale connection check.
     assert connect_calls == 1
     release_request.set()
-    _first_result, update = await asyncio.gather(first, second)
+    control_update, scheduled_update = await asyncio.gather(first, second)
     assert connect_calls == 2
-    assert update.zone.fan_rpm == 1200
+    assert control_update.zone.fan_rpm == 1200
+    assert scheduled_update.zone.fan_rpm == 1200
+
+
+@pytest.mark.asyncio
+async def test_active_poll_finishes_before_control_and_its_readback() -> None:
+    """A control waits for a poll, then keeps its own write/readback atomic."""
+
+    # Arrange - pause an initial poll after it acquires the operation lock.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    poll_started = asyncio.Event()
+    release_poll = asyncio.Event()
+    timeline: list[str] = []
+    responses = iter(
+        decode_packet(packet) for packet in [*_responses(), *_responses()]
+    )
+    request_count = 0
+
+    async def connect(ble_device) -> None:
+        timeline.append("connect")
+
+    async def send(packet_type, operation, payload=b"") -> None:
+        timeline.append(f"send:{int(packet_type)}")
+
+    async def request(packet_type, operation, payload=b""):
+        nonlocal request_count
+        request_count += 1
+        timeline.append(f"request:{int(packet_type)}")
+        if request_count == 1:
+            poll_started.set()
+            await release_poll.wait()
+        return next(responses)
+
+    device.connect = connect
+    device._send = send
+    device._request = request
+    poll = asyncio.create_task(device.update(object()))
+    await poll_started.wait()
+
+    # Act - queue a control while the scheduled poll still owns the device.
+    control = asyncio.create_task(
+        device.set_override(object(), AirflowPreset.BOOST, 60)
+    )
+    await asyncio.sleep(0)
+    before_release = list(timeline)
+    release_poll.set()
+    poll_data, control_data = await asyncio.gather(poll, control)
+
+    # Assert - the control starts only after the poll, then reads both fresh rows.
+    assert before_release == ["connect", f"request:{int(PacketType.ZONE_VIEW_ROW)}"]
+    assert timeline == [
+        "connect",
+        f"request:{int(PacketType.ZONE_VIEW_ROW)}",
+        f"request:{int(PacketType.SYSTEM_STATUS)}",
+        "connect",
+        f"send:{int(PacketType.USER_OVERRIDE)}",
+        f"request:{int(PacketType.ZONE_VIEW_ROW)}",
+        f"request:{int(PacketType.SYSTEM_STATUS)}",
+    ]
+    assert poll_data.zone.fan_rpm == 1200
+    assert control_data.system.fan_speed == 3

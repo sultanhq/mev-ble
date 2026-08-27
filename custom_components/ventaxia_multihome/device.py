@@ -286,25 +286,15 @@ class MultihomeDevice:
 
         async with self._operation_lock:
             await self.connect(ble_device)
-            zone_packet = await self._request(
-                PacketType.ZONE_VIEW_ROW, Operation.DATA_REQUEST, b"\x00"
-            )
-            system_packet = await self._request(
-                PacketType.SYSTEM_STATUS, Operation.DATA_REQUEST
-            )
-            return MultihomeData(
-                zone=decode_zone_telemetry(zone_packet.payload),
-                system=decode_system_status(system_packet.payload),
-                last_successful_update=datetime.now(UTC),
-            )
+            return await self._read_data()
 
     async def set_override(
         self,
         ble_device: BLEDevice,
         preset: AirflowPreset,
         duration_seconds: int,
-    ) -> None:
-        """Set one documented timed airflow override."""
+    ) -> MultihomeData:
+        """Set one documented timed override and read back fresh telemetry."""
 
         async with self._operation_lock:
             await self.connect(ble_device)
@@ -313,9 +303,10 @@ class MultihomeDevice:
                 Operation.DATA_REQUEST,
                 encode_user_override(preset, duration_seconds),
             )
+            return await self._read_data()
 
-    async def cancel_override(self, ble_device: BLEDevice) -> None:
-        """Send the documented cancel-override command."""
+    async def cancel_override(self, ble_device: BLEDevice) -> MultihomeData:
+        """Cancel the active override and read back fresh telemetry."""
 
         async with self._operation_lock:
             await self.connect(ble_device)
@@ -324,11 +315,12 @@ class MultihomeDevice:
                 Operation.DATA_REQUEST,
                 encode_cancel_override(),
             )
+            return await self._read_data()
 
     async def set_ventilation_mode(
         self, ble_device: BLEDevice, mode: VentilationMode
-    ) -> None:
-        """Set off, stop, or the model's documented normal ventilation mode."""
+    ) -> MultihomeData:
+        """Set a supported ventilation mode and read back fresh telemetry."""
 
         normal_mode = self.normal_ventilation_mode
         if normal_mode is None:
@@ -349,6 +341,22 @@ class MultihomeDevice:
                 Operation.DATA_REQUEST,
                 encode_ventilation_mode(mode),
             )
+            return await self._read_data()
+
+    async def _read_data(self) -> MultihomeData:
+        """Read one coherent zone/system snapshot while an operation is locked."""
+
+        zone_packet = await self._request(
+            PacketType.ZONE_VIEW_ROW, Operation.DATA_REQUEST, b"\x00"
+        )
+        system_packet = await self._request(
+            PacketType.SYSTEM_STATUS, Operation.DATA_REQUEST
+        )
+        return MultihomeData(
+            zone=decode_zone_telemetry(zone_packet.payload),
+            system=decode_system_status(system_packet.payload),
+            last_successful_update=datetime.now(UTC),
+        )
 
     async def disconnect(self) -> None:
         """Disconnect and clear transport/authentication state."""

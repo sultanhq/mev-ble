@@ -100,7 +100,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 f"{MIN_OVERRIDE_DURATION}..{MAX_OVERRIDE_DURATION} seconds"
             )
         try:
-            await self.device.set_override(self._ble_device(), preset, duration)
+            data = await self.device.set_override(self._ble_device(), preset, duration)
         except (
             BleakError,
             TransportError,
@@ -109,16 +109,17 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             TimeoutError,
         ) as err:
             await self.device.disconnect()
+            self.async_set_update_error(err)
             raise HomeAssistantError(
                 f"Unable to set Multihome override: {err}"
             ) from err
-        await self.async_request_refresh()
+        self.async_set_updated_data(data)
 
     async def async_cancel_override(self) -> None:
         """Cancel the active override and request fresh state."""
 
         try:
-            await self.device.cancel_override(self._ble_device())
+            data = await self.device.cancel_override(self._ble_device())
         except (
             BleakError,
             TransportError,
@@ -127,16 +128,17 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             TimeoutError,
         ) as err:
             await self.device.disconnect()
+            self.async_set_update_error(err)
             raise HomeAssistantError(
                 f"Unable to cancel Multihome override: {err}"
             ) from err
-        await self.async_request_refresh()
+        self.async_set_updated_data(data)
 
     async def async_set_ventilation_mode(self, mode: VentilationMode) -> None:
         """Set a model-supported ventilation mode and request fresh state."""
 
         try:
-            await self.device.set_ventilation_mode(self._ble_device(), mode)
+            data = await self.device.set_ventilation_mode(self._ble_device(), mode)
         except (
             BleakError,
             TransportError,
@@ -145,10 +147,11 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             TimeoutError,
         ) as err:
             await self.device.disconnect()
+            self.async_set_update_error(err)
             raise HomeAssistantError(
                 f"Unable to set Multihome ventilation mode {mode.name.lower()}: {err}"
             ) from err
-        await self.async_request_refresh()
+        self.async_set_updated_data(data)
 
     def _ble_device(self) -> BLEDevice:
         """Get the current or last known connectable HA Bluetooth device."""

@@ -141,5 +141,9 @@ proxy automatically; there is no adapter setting in this integration. An ESP32
 proxy is optional, but the tested MEV had poor practical range and benefited
 from a proxy placed close to the controller.
 
-Only one transaction is sent to a unit at a time, so polling and user actions
-cannot overlap at protocol level.
+Only one operation is sent to a unit at a time. Each user action keeps the same
+device lock from its packet-56 write through a fresh zone and system-status
+readback, so a scheduled poll cannot consume or overwrite the control result.
+Home Assistant publishes the result only after that readback succeeds. If the
+write or readback fails, the last confirmed values are retained while the
+entities become unavailable until communication recovers.

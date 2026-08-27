@@ -17,6 +17,10 @@ All notable changes to this project are documented here. The format follows
 
 - Derive fan power state from confirmed speed and RPM telemetry, and preserve the
   last confirmed state when a Bluetooth control request fails.
+- Keep each fan write and its zone/system telemetry readback inside one device
+  operation, preventing scheduled polls from interleaving with control results.
+- Publish control state only from the fresh readback; failed readbacks retain the
+  preceding snapshot while immediately updating entity availability.
 
 ### Fixed
 
