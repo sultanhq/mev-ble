@@ -6,6 +6,32 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-27
+
+### Added
+
+- Add physically validated Low, Normal, Boost, and Purge timed airflow controls
+  plus the official BLE Cancel operation.
+- Add an explicit-duration Home Assistant action and control-state diagnostics.
+
+### Changed
+
+- Keep control writes, fresh telemetry readback, and reconnect state serialized.
+- Exclude unvalidated On, Off, and Stop commands from the Home Assistant surface.
+
+### Fixed
+
+- Preserve confirmed state across failed Bluetooth operations and reconnect
+  automatically through the retained local/proxy route.
+- Treat invalid CO₂ values as unavailable and locally estimate an HA-started
+  countdown when tested MEV firmware reports a false zero.
+
+### Validated
+
+- Physically confirmed all four speed levels, Cancel, timed automatic expiry,
+  estimated countdown, unavailable-state retention, and automatic ESPHome proxy
+  recovery on the recorded fragmented-transport MEV setup.
+
 ## [0.2.0-rc.2] - 2026-08-27
 
 ### Fixed
@@ -83,7 +109,8 @@ All notable changes to this project are documented here. The format follows
 - Low, Normal, Boost, and Purge timed overrides plus independent cancellation.
 - ESPHome Wi-Fi and Ethernet Bluetooth proxy examples and end-user guides.
 
-[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.2.0-rc.2...HEAD
+[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sultanhq/mev-ble/compare/v0.1.2...v0.2.0
 [0.2.0-rc.2]: https://github.com/sultanhq/mev-ble/compare/v0.2.0-rc.1...v0.2.0-rc.2
 [0.2.0-rc.1]: https://github.com/sultanhq/mev-ble/compare/v0.1.2...v0.2.0-rc.1
 [0.1.2]: https://github.com/sultanhq/mev-ble/releases/tag/v0.1.2

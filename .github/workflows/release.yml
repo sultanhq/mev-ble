@@ -19,15 +19,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag_name="v$(jq -r '.version' custom_components/ventaxia_multihome/manifest.json)"
+          version="$(jq -r '.version' custom_components/ventaxia_multihome/manifest.json)"
+          tag_name="v$version"
           if gh release view "$tag_name" >/dev/null 2>&1; then
             echo "$tag_name is already published"
             exit 0
           fi
           git tag "$tag_name" "$GITHUB_SHA"
           git push origin "$tag_name"
-          gh release create "$tag_name" \
-            --target "$GITHUB_SHA" \
-            --generate-notes \
-            --latest=false \
-            --title "Vent-Axia Multihome $tag_name (release candidate)"
+          release_args=(
+            --target "$GITHUB_SHA"
+            --generate-notes
+          )
+          if [[ "$version" == *-* ]]; then
+            release_args+=(
+              --latest=false
+              --title "Vent-Axia Multihome $tag_name (release candidate)"
+            )
+          else
+            release_args+=(
+              --latest
+              --title "Vent-Axia Multihome $tag_name"
+            )
+          fi
+          gh release create "$tag_name" "${release_args[@]}"

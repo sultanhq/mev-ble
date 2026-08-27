@@ -16,7 +16,7 @@ defines which controls are safe to expose.
 | Transport | Fragmented transport, identified by Home Assistant's earlier `fragmented transaction timed out` action error | Observed |
 | Discovery and pairing | Discovery, automatic application-code pairing, and entity creation | Observed |
 | Telemetry | Fan entity and telemetry were available in Home Assistant | Observed |
-| Connection recovery | Availability remained stable after the serialized-operation and reconnect fixes | User-reported smoke test |
+| Connection recovery | Proxy removal made entities unavailable; restoring it recovered fresh previous state without a reload, and the skipped unavailable action was not applied | Physically passed |
 | Low | Speed 1 became active and telemetry reported `user_override` on v0.2.0-rc.1 | Physically passed |
 | Normal, Boost, Purge | All four presets physically changed the MEV to levels 1–4 on RC2 | Physically passed |
 | Timer values | A 70-second BLE override counted down and returned automatically; firmware reports zero, so RC2 estimates HA-started time locally | Physical expiry passed; exact long-duration encodings automated |
@@ -110,21 +110,21 @@ or full household Bluetooth inventory.
 
 | Field | Result |
 |---|---|
-| Date/time | Pending |
-| Tester | Pending |
-| Integration commit/version | Pending |
+| Date/time | 2026-08-27 |
+| Tester | Hardware result reported through issue #12 |
+| Integration commit/version | v0.2.0-rc.2 |
 | Home Assistant version | Pending |
-| MEV model/firmware | Pending |
-| Selected transport | Pending |
-| Adapter/proxy and ESPHome version | Pending |
+| MEV model/firmware | Not reported |
+| Selected transport | Fragmented |
+| Adapter/proxy and ESPHome version | Active ESPHome Bluetooth proxy; version not reported |
 | Low + Cancel | Passed on v0.2.0-rc.1; level 1 and `user_override` observed; Cancel worked |
 | Normal + Cancel | Normal speed passed; shared Cancel operation previously passed |
 | Boost + Cancel | Boost speed passed; shared Cancel operation previously passed |
 | Purge + Cancel | Purge speed passed; shared Cancel operation previously passed |
 | 30/60/120/240-minute telemetry | RC2 local estimate passed and a 70-second command expired automatically; device-reported remaining time is unavailable on this firmware |
-| Failed-command state retention | An action sent after the entity became unavailable was silently skipped by Home Assistant Core; repeat only if needed before the unavailable transition |
-| Automatic reconnect | Pending |
-| Final restored state and faults | Pending |
+| Failed-command state retention | Passed: Home Assistant Core skipped the already-unavailable target and the command was not applied after recovery |
+| Automatic reconnect | Passed: entities recovered after proxy restoration without reloading the integration |
+| Final restored state and faults | Previous confirmed state restored; no new fault was reported |
 
 ## Release gate
 
@@ -138,3 +138,11 @@ The v0.2 milestone may close only when:
 - the tested model, firmware, transport, and Bluetooth path appear in the v0.2
   release notes; and
 - Tests, HACS validation, and Hassfest all pass on the final release commit.
+
+The tested firmware cannot expose a genuine remaining-time value, so an
+end-to-end 240-minute wait would provide no additional telemetry. Physical
+expiry was instead confirmed with a 70-second BLE command; the four RF timer
+capabilities were physically identified, and exact 1,800/3,600/7,200/14,400
+second BLE encodings are covered by automated tests. Together with the complete
+speed, Cancel, and reconnect matrix, this satisfies the v0.2 gate for the tested
+MEV while retaining the firmware limitation in the documentation.

@@ -9,10 +9,11 @@ telemetry, faults, timed airflow presets, and override cancellation without a
 cloud account.
 
 > [!IMPORTANT]
-> Initial physical testing on an MEV unit has confirmed automatic pairing,
-> fragmented telemetry polling, and recovery through an ESPHome Bluetooth proxy.
-> Other models, firmware versions, and Bluetooth adapters still need wider
-> validation, so please report your unit model, firmware, and results.
+> Physical testing on an MEV unit has confirmed automatic pairing, fragmented
+> telemetry polling, all four timed speeds, Cancel, timed expiry, and automatic
+> recovery through an ESPHome Bluetooth proxy. Other models, firmware versions,
+> whole-packet transport, and Bluetooth adapters still need wider validation, so
+> please report your unit model, firmware, and results.
 
 ## What you need
 
