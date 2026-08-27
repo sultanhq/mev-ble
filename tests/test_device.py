@@ -22,7 +22,9 @@ from custom_components.ventaxia_multihome.const import (
     WHOLE_PACKET_CHARACTERISTIC_UUID,
 )
 from custom_components.ventaxia_multihome.device import (
+    DeviceError,
     MultihomeDevice,
+    MultihomeDeviceInfo,
     SetupCodeRejectedError,
 )
 from custom_components.ventaxia_multihome.protocol import (
@@ -32,6 +34,7 @@ from custom_components.ventaxia_multihome.protocol import (
     PacketType,
     decode_packet,
     encode_cancel_override,
+    encode_co2_calibration,
     encode_data_object_array,
     encode_packet,
     encode_user_override,
@@ -458,6 +461,73 @@ async def test_override_controls_send_then_read_fresh_telemetry() -> None:
     ]
     assert override_data.zone.fan_rpm == 1200
     assert cancel_data.system.fan_speed == 3
+
+
+@pytest.mark.asyncio
+async def test_internal_co2_calibration_uses_validated_target_and_flags() -> None:
+    """The device API exposes only the validated internal-sensor command."""
+
+    # Arrange - install a send-only transport and an authenticated client.
+    client = DeviceClient([])
+    sent: list[bytes] = []
+
+    class CalibrationTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            sent.append(packet)
+
+        async def request(self, packet: bytes) -> bytes:
+            raise AssertionError("calibration must not claim a readback response")
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(model="2")
+    device._client = client
+    device._transport = CalibrationTransport()
+    device._authenticated = True
+
+    # Act - start the documented internal-sensor fresh-air calibration.
+    await device.calibrate_internal_co2(object(), 400)
+
+    # Assert - packet type, operation, target, and hidden flags are exact.
+    assert len(sent) == 1
+    packet = decode_packet(sent[0])
+    assert packet.packet_type == PacketType.CO2_CALIBRATION
+    assert packet.operation == Operation.UPDATE
+    assert packet.target == 0
+    assert packet.payload == encode_co2_calibration(
+        400,
+        automatic_enabled=False,
+        start_forced_calibration=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_internal_co2_calibration_rejects_unvalidated_model() -> None:
+    """Unknown and non-CO2 models cannot receive a calibration command."""
+
+    # Arrange - leave the device model unknown and record any transport writes.
+    client = DeviceClient([])
+    sent: list[bytes] = []
+
+    class CalibrationTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            sent.append(packet)
+
+        async def request(self, packet: bytes) -> bytes:
+            raise AssertionError("no request expected")
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device._client = client
+    device._transport = CalibrationTransport()
+    device._authenticated = True
+
+    # Act / Assert - target validation happens before Bluetooth I/O.
+    with pytest.raises(DeviceError, match="not validated"):
+        await device.calibrate_internal_co2(object(), 400)
+    assert sent == []
 
 
 @pytest.mark.asyncio

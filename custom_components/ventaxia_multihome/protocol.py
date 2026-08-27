@@ -19,6 +19,8 @@ PROTOCOL_HEADER_SIZE: Final = 10
 DATA_OBJECT_MAGIC: Final = 0x0ABA
 FRAGMENT_SIZE: Final = 20
 FRAGMENT_PAYLOAD_SIZE: Final = 17
+MIN_CO2_CALIBRATION_REFERENCE: Final = 400
+MAX_CO2_CALIBRATION_REFERENCE: Final = 2000
 
 WHOLE_PACKET_ACK: Final = b"\x00\x00\x01"
 WHOLE_PACKET_CANCEL: Final = b"\x00\x00\xff"
@@ -33,6 +35,7 @@ class PacketType(IntEnum):
 
     USER_OVERRIDE = 56
     SYSTEM_STATUS = 67
+    CO2_CALIBRATION = 116
     ZONE_VIEW_ROW = 146
 
 
@@ -352,6 +355,30 @@ def encode_cancel_override() -> bytes:
     """Encode the documented cancel-override command."""
 
     return encode_user_override(AirflowPreset.LOW, 0, command=MevCommand.CANCEL)
+
+
+def encode_co2_calibration(
+    reference_ppm: int,
+    *,
+    automatic_enabled: bool,
+    start_forced_calibration: bool,
+) -> bytes:
+    """Encode the recovered four-byte CO2 calibration command body."""
+
+    if not MIN_CO2_CALIBRATION_REFERENCE <= reference_ppm <= (
+        MAX_CO2_CALIBRATION_REFERENCE
+    ):
+        raise ProtocolError(
+            "CO2 calibration reference must be "
+            f"{MIN_CO2_CALIBRATION_REFERENCE}.."
+            f"{MAX_CO2_CALIBRATION_REFERENCE} ppm"
+        )
+    return struct.pack(
+        "<HBB",
+        reference_ppm,
+        automatic_enabled,
+        start_forced_calibration,
+    )
 
 
 def fragment_packet(packet: bytes, *, channel: int = 0) -> list[bytes]:

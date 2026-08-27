@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from math import ceil
+from time import monotonic
 from typing import TYPE_CHECKING
 
 from bleak.exc import BleakError
@@ -16,6 +18,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .bluetooth import TransportError
 from .const import (
+    CO2_CALIBRATION_COOLDOWN,
     CONF_OVERRIDE_DURATION,
     DEFAULT_OVERRIDE_DURATION,
     MAX_OVERRIDE_DURATION,
@@ -28,12 +31,25 @@ from .device import (
     MultihomeDevice,
     SetupCodeRejectedError,
 )
-from .protocol import AirflowPreset, ProtocolError
+from .protocol import (
+    MAX_CO2_CALIBRATION_REFERENCE,
+    MIN_CO2_CALIBRATION_REFERENCE,
+    AirflowPreset,
+    ProtocolError,
+)
 
 if TYPE_CHECKING:
     from bleak.backends.device import BLEDevice
 
 _LOGGER = logging.getLogger(__name__)
+
+
+class CalibrationNotSupportedError(HomeAssistantError):
+    """Raised when the internal calibration target is not validated."""
+
+
+class CalibrationRateLimitedError(HomeAssistantError):
+    """Raised when calibration is attempted again too quickly."""
 
 
 class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
@@ -56,6 +72,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         )
         self.device = device
         self._last_ble_device: BLEDevice | None = None
+        self._last_calibration_attempt: float | None = None
 
     @property
     def override_duration(self) -> int:
@@ -133,6 +150,50 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 f"Unable to cancel Multihome override: {err}"
             ) from err
         self.async_set_updated_data(data)
+
+    async def async_calibrate_internal_co2(self, reference_ppm: int) -> None:
+        """Start one guarded internal-sensor calibration command."""
+
+        if not MIN_CO2_CALIBRATION_REFERENCE <= reference_ppm <= (
+            MAX_CO2_CALIBRATION_REFERENCE
+        ):
+            raise HomeAssistantError(
+                "CO2 calibration reference must be "
+                f"{MIN_CO2_CALIBRATION_REFERENCE}.."
+                f"{MAX_CO2_CALIBRATION_REFERENCE} ppm"
+            )
+        if not self.device.supports_internal_co2_calibration:
+            raise CalibrationNotSupportedError(
+                "Internal CO2 calibration is not validated for this model"
+            )
+
+        now = monotonic()
+        if self._last_calibration_attempt is not None:
+            remaining = ceil(
+                CO2_CALIBRATION_COOLDOWN
+                - (now - self._last_calibration_attempt)
+            )
+            if remaining > 0:
+                raise CalibrationRateLimitedError(
+                    f"Wait {remaining} seconds before another calibration attempt"
+                )
+
+        self._last_calibration_attempt = now
+        try:
+            await self.device.calibrate_internal_co2(
+                self._ble_device(), reference_ppm
+            )
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            await self.device.disconnect()
+            raise HomeAssistantError(
+                f"Unable to start Multihome CO2 calibration: {err}"
+            ) from err
 
     def _ble_device(self) -> BLEDevice:
         """Get the current or last known connectable HA Bluetooth device."""

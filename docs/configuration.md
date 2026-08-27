@@ -90,6 +90,20 @@ the field to only those four values.
 
 Changing a preset on the fan entity uses this duration.
 
+## Internal CO₂ calibration
+
+For validated models with an internal CO₂ sensor, the integration's Configure
+menu includes a guarded calibration flow. The recommended method exposes every
+extracted room to outdoor air for 10–15 minutes and uses a fixed 400 ppm
+baseline. An advanced method can average independent Home Assistant CO₂ sensor
+entities, but Home Assistant cannot prove those sensors are calibrated or even
+measure true CO₂ rather than eCO₂.
+
+Calibration requires a separate final confirmation, cannot use the MEV's own
+CO₂ entity as its reference, and is limited to one attempt every five minutes.
+It is not exposed as an action or automation service. Read the complete
+[CO₂ calibration safety and validation guide](co2-calibration.md) before use.
+
 ## Timed override action
 
 Use `ventaxia_multihome.set_timed_override` when an automation needs an explicit

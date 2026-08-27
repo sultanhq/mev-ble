@@ -3,20 +3,32 @@
 from __future__ import annotations
 
 import logging
+import math
+from statistics import fmean
 from typing import Any, override
 
 import voluptuous as vol
 from bleak.exc import BleakError
 from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
+from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
     OptionsFlow,
 )
-from homeassistant.const import CONF_ADDRESS
+from homeassistant.const import (
+    ATTR_DEVICE_CLASS,
+    ATTR_UNIT_OF_MEASUREMENT,
+    CONCENTRATION_PARTS_PER_MILLION,
+    CONF_ADDRESS,
+    STATE_UNAVAILABLE,
+    STATE_UNKNOWN,
+)
 from homeassistant.core import callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 
 from .bluetooth import TransportError, async_establish_connection
@@ -30,6 +42,10 @@ from .const import (
     NAME,
     SUPPORTED_LOCAL_NAMES,
 )
+from .coordinator import (
+    CalibrationNotSupportedError,
+    CalibrationRateLimitedError,
+)
 from .device import (
     DeviceError,
     MissingCharacteristicError,
@@ -38,9 +54,28 @@ from .device import (
     SetupCodeRejectedError,
 )
 from .entity import format_identifier
-from .protocol import ProtocolError
+from .protocol import (
+    MAX_CO2_CALIBRATION_REFERENCE,
+    MIN_CO2_CALIBRATION_REFERENCE,
+    ProtocolError,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+CONF_CALIBRATION_METHOD = "calibration_method"
+CONF_REFERENCE_SENSORS = "reference_sensors"
+CONF_CONFIRM_CALIBRATION = "confirm_calibration"
+
+CALIBRATION_METHOD_FRESH_AIR = "fresh_air"
+CALIBRATION_METHOD_REFERENCE_SENSORS = "reference_sensors"
+
+
+class CalibrationReferenceError(ValueError):
+    """Raised when a selected Home Assistant reference is unsafe to use."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(reason)
+        self.reason = reason
 
 
 def is_supported_name(name: str | None) -> bool:
@@ -279,17 +314,33 @@ class DeviceUnavailableError(Exception):
 
 
 class VentaxiaMultihomeOptionsFlow(OptionsFlow):
-    """Configure the default duration used by standard fan preset calls."""
+    """Configure fan defaults and run guarded CO2 calibration."""
+
+    def __init__(self) -> None:
+        self._calibration_method: str | None = None
+        self._reference_entity_ids: list[str] = []
+        self._reference_ppm: int | None = None
+        self._reference_summary = ""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Manage integration options."""
+        """Show the integration options menu."""
+
+        return self.async_show_menu(
+            step_id="init",
+            menu_options=["fan_options", "calibrate_co2"],
+        )
+
+    async def async_step_fan_options(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Configure the default duration used by fan preset calls."""
 
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
         return self.async_show_form(
-            step_id="init",
+            step_id="fan_options",
             data_schema=vol.Schema(
                 {
                     vol.Required(
@@ -309,3 +360,220 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                 }
             ),
         )
+
+    async def async_step_calibrate_co2(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Choose the guarded internal CO2 calibration method."""
+
+        if not self.config_entry.runtime_data.device.supports_internal_co2_calibration:
+            return self.async_abort(reason="calibration_not_supported")
+
+        if user_input is not None:
+            self._calibration_method = user_input[CONF_CALIBRATION_METHOD]
+            if self._calibration_method == CALIBRATION_METHOD_FRESH_AIR:
+                return await self.async_step_calibration_exposure()
+            return await self.async_step_calibration_reference()
+
+        return self.async_show_form(
+            step_id="calibrate_co2",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CALIBRATION_METHOD,
+                        default=CALIBRATION_METHOD_FRESH_AIR,
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                CALIBRATION_METHOD_FRESH_AIR,
+                                CALIBRATION_METHOD_REFERENCE_SENSORS,
+                            ],
+                            translation_key="calibration_method",
+                        )
+                    )
+                }
+            ),
+        )
+
+    async def async_step_calibration_exposure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Explain and acknowledge the documented fresh-air preparation."""
+
+        if user_input is not None:
+            self._reference_entity_ids = []
+            self._reference_ppm = MIN_CO2_CALIBRATION_REFERENCE
+            self._reference_summary = (
+                "Method: fresh-air exposure. Target: internal MEV CO2 sensor."
+            )
+            return await self.async_step_calibration_confirm()
+        return self.async_show_form(
+            step_id="calibration_exposure",
+            data_schema=vol.Schema({}),
+        )
+
+    async def async_step_calibration_reference(
+        self,
+        user_input: dict[str, Any] | None = None,
+        *,
+        errors: dict[str, str] | None = None,
+    ) -> ConfigFlowResult:
+        """Select and validate independent Home Assistant CO2 references."""
+
+        if user_input is not None:
+            selected = user_input[CONF_REFERENCE_SENSORS]
+            raw_entity_ids = (
+                [selected] if isinstance(selected, str) else list(selected)
+            )
+            entity_ids = list(dict.fromkeys(raw_entity_ids))
+            try:
+                reference_ppm, summary = self._read_reference_sensors(entity_ids)
+            except CalibrationReferenceError as err:
+                errors = {"base": err.reason}
+            else:
+                self._reference_entity_ids = entity_ids
+                self._reference_ppm = reference_ppm
+                self._reference_summary = summary
+                return await self.async_step_calibration_confirm()
+
+        return self.async_show_form(
+            step_id="calibration_reference",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_REFERENCE_SENSORS): selector.EntitySelector(
+                        selector.EntitySelectorConfig(
+                            domain="sensor",
+                            device_class=SensorDeviceClass.CO2,
+                            multiple=True,
+                        )
+                    )
+                }
+            ),
+            errors=errors or {},
+        )
+
+    async def async_step_calibration_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Require final review immediately before the BLE write."""
+
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input[CONF_CONFIRM_CALIBRATION]:
+                errors["base"] = "confirmation_required"
+            else:
+                if self._reference_entity_ids:
+                    try:
+                        self._reference_ppm, self._reference_summary = (
+                            self._read_reference_sensors(self._reference_entity_ids)
+                        )
+                    except CalibrationReferenceError as err:
+                        return await self.async_step_calibration_reference(
+                            errors={"base": err.reason}
+                        )
+                assert self._reference_ppm is not None
+                try:
+                    await self.config_entry.runtime_data.async_calibrate_internal_co2(
+                        self._reference_ppm
+                    )
+                except CalibrationNotSupportedError:
+                    errors["base"] = "calibration_not_supported"
+                except CalibrationRateLimitedError:
+                    errors["base"] = "calibration_rate_limited"
+                except HomeAssistantError as err:
+                    _LOGGER.debug(
+                        "Unable to start Multihome CO2 calibration: %s", err
+                    )
+                    errors["base"] = "calibration_failed"
+                else:
+                    return await self.async_step_calibration_result()
+
+        return self.async_show_form(
+            step_id="calibration_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONFIRM_CALIBRATION, default=False
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "device": self.config_entry.title,
+                "reference_ppm": str(self._reference_ppm or ""),
+                "reference_summary": self._reference_summary,
+            },
+        )
+
+    async def async_step_calibration_result(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Explain protocol acceptance without claiming calibration readback."""
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        return self.async_show_form(
+            step_id="calibration_result",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "device": self.config_entry.title,
+                "reference_ppm": str(self._reference_ppm or ""),
+            },
+        )
+
+    def _read_reference_sensors(
+        self, entity_ids: list[str]
+    ) -> tuple[int, str]:
+        """Return the rounded mean and display summary for trusted references."""
+
+        if not entity_ids:
+            raise CalibrationReferenceError("invalid_reference")
+
+        registry = er.async_get(self.hass)
+        own_entities = {
+            entry.entity_id
+            for entry in er.async_entries_for_config_entry(
+                registry, self.config_entry.entry_id
+            )
+        }
+        values: list[float] = []
+        summaries: list[str] = []
+        for entity_id in entity_ids:
+            if entity_id in own_entities:
+                raise CalibrationReferenceError("self_reference")
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in {STATE_UNKNOWN, STATE_UNAVAILABLE}:
+                raise CalibrationReferenceError("reference_unavailable")
+            if state.attributes.get(ATTR_DEVICE_CLASS) != SensorDeviceClass.CO2:
+                raise CalibrationReferenceError("invalid_reference")
+            unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
+            if not isinstance(unit, str) or unit.casefold() != (
+                CONCENTRATION_PARTS_PER_MILLION
+            ):
+                raise CalibrationReferenceError("invalid_reference")
+            try:
+                value = float(state.state)
+            except ValueError as err:
+                raise CalibrationReferenceError("invalid_reference") from err
+            if not math.isfinite(value) or not (
+                MIN_CO2_CALIBRATION_REFERENCE
+                <= value
+                <= MAX_CO2_CALIBRATION_REFERENCE
+            ):
+                raise CalibrationReferenceError("reference_out_of_range")
+            values.append(value)
+            summaries.append(
+                f"{state.name}: {value:g} ppm "
+                f"({state.last_updated.isoformat(timespec='seconds')})"
+            )
+
+        reference_ppm = math.floor(fmean(values) + 0.5)
+        detail = "; ".join(summaries)
+        if len(entity_ids) == 1:
+            detail += (
+                ". One reference was selected; it must represent the air "
+                "entering all MEV extract paths"
+            )
+        return reference_ppm, f"Method: trusted HA reference. {detail}"

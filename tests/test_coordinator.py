@@ -14,6 +14,8 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from custom_components.ventaxia_multihome import coordinator as coordinator_module
 from custom_components.ventaxia_multihome.bluetooth import TransactionTimeoutError
 from custom_components.ventaxia_multihome.coordinator import (
+    CalibrationNotSupportedError,
+    CalibrationRateLimitedError,
     VentaxiaMultihomeCoordinator,
 )
 from custom_components.ventaxia_multihome.protocol import (
@@ -176,3 +178,119 @@ async def test_failed_control_retains_data_and_updates_availability(
     coordinator.async_set_updated_data.assert_not_called()
     coordinator.async_set_update_error.assert_called_once_with(error)
     device.disconnect.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_calibration_uses_validated_device_and_reference(monkeypatch) -> None:
+    """A valid calibration command reaches the device exactly once."""
+
+    # Arrange - expose one validated model and stable monotonic time.
+    ble_device = object()
+    device = SimpleNamespace(
+        supports_internal_co2_calibration=True,
+        calibrate_internal_co2=AsyncMock(),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        _last_calibration_attempt=None,
+        _ble_device=lambda: ble_device,
+    )
+    monkeypatch.setattr(coordinator_module, "monotonic", lambda: 100.0)
+
+    # Act - start a fresh-air reference calibration.
+    await VentaxiaMultihomeCoordinator.async_calibrate_internal_co2(
+        coordinator, 400
+    )
+
+    # Assert - the coordinator records the attempt and delegates once.
+    assert coordinator._last_calibration_attempt == 100.0
+    device.calibrate_internal_co2.assert_awaited_once_with(ble_device, 400)
+    device.disconnect.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_calibration_is_rate_limited_before_bluetooth(monkeypatch) -> None:
+    """Repeated calibration attempts cannot hammer or restart the sensor."""
+
+    # Arrange - retain an attempt from ten seconds ago.
+    device = SimpleNamespace(
+        supports_internal_co2_calibration=True,
+        calibrate_internal_co2=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        _last_calibration_attempt=100.0,
+        _ble_device=lambda: object(),
+    )
+    monkeypatch.setattr(coordinator_module, "monotonic", lambda: 110.0)
+
+    # Act / Assert - the cooldown is reported without any device call.
+    with pytest.raises(CalibrationRateLimitedError, match="290 seconds"):
+        await VentaxiaMultihomeCoordinator.async_calibrate_internal_co2(
+            coordinator, 400
+        )
+    device.calibrate_internal_co2.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_calibration_rejects_unvalidated_model_before_bluetooth() -> None:
+    """The coordinator does not guess an internal sensor target."""
+
+    # Arrange - expose a model outside the recovered internal-CO2 map.
+    device = SimpleNamespace(
+        supports_internal_co2_calibration=False,
+        calibrate_internal_co2=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        _last_calibration_attempt=None,
+        _ble_device=lambda: object(),
+    )
+
+    # Act / Assert - capability validation happens before Bluetooth I/O.
+    with pytest.raises(CalibrationNotSupportedError, match="not validated"):
+        await VentaxiaMultihomeCoordinator.async_calibrate_internal_co2(
+            coordinator, 400
+        )
+    device.calibrate_internal_co2.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [
+        TransactionTimeoutError("timed out"),
+        BleakError("disconnected"),
+        ProtocolError("malformed acknowledgement"),
+    ],
+)
+async def test_failed_calibration_disconnects_without_false_success(
+    monkeypatch, error
+) -> None:
+    """Transport failures clear the connection and retain the cooldown."""
+
+    # Arrange - fail one validated calibration transport operation.
+    device = SimpleNamespace(
+        supports_internal_co2_calibration=True,
+        calibrate_internal_co2=AsyncMock(side_effect=error),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        _last_calibration_attempt=None,
+        _ble_device=lambda: object(),
+    )
+    monkeypatch.setattr(coordinator_module, "monotonic", lambda: 100.0)
+
+    # Act - send the command and receive an uncertain transport outcome.
+    with pytest.raises(HomeAssistantError, match="Unable to start"):
+        await VentaxiaMultihomeCoordinator.async_calibrate_internal_co2(
+            coordinator, 400
+        )
+
+    # Assert - no success is returned, stale BLE state is cleared, and an
+    # immediate retry remains blocked in case the firmware received the write.
+    assert coordinator._last_calibration_attempt == 100.0
+    device.disconnect.assert_awaited_once()
+    device.calibrate_internal_co2.assert_awaited_once()

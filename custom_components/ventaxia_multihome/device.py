@@ -10,7 +10,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from math import ceil
 from time import monotonic
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from .bluetooth import (
     BluetoothClient,
@@ -39,6 +39,7 @@ from .protocol import (
     decode_system_status,
     decode_zone_telemetry,
     encode_cancel_override,
+    encode_co2_calibration,
     encode_packet,
     encode_setup_code,
     encode_user_override,
@@ -48,6 +49,8 @@ if TYPE_CHECKING:
     from bleak.backends.device import BLEDevice
 
 _LOGGER = logging.getLogger(__name__)
+
+INTERNAL_CO2_CALIBRATION_MODELS: Final = frozenset({2, 10})
 
 ClientFactory = Callable[
     ["BLEDevice", str, Callable[[BluetoothClient], None]],
@@ -141,6 +144,12 @@ class MultihomeDevice:
             return int(model)
         except ValueError:
             return None
+
+    @property
+    def supports_internal_co2_calibration(self) -> bool:
+        """Return whether the recovered model map identifies an internal CO2 sensor."""
+
+        return self.model_number in INTERNAL_CO2_CALIBRATION_MODELS
 
     async def connect(self, ble_device: BLEDevice) -> None:
         """Connect, authenticate, select a transport, and read device info."""
@@ -296,6 +305,30 @@ class MultihomeDevice:
             self._clear_local_override()
             return self._reconcile_override_remaining(await self._read_data())
 
+    async def calibrate_internal_co2(
+        self,
+        ble_device: BLEDevice,
+        reference_ppm: int,
+    ) -> None:
+        """Start calibration of the validated internal MEV CO2 target."""
+
+        if not self.supports_internal_co2_calibration:
+            raise DeviceError(
+                "internal CO2 calibration is not validated for this model"
+            )
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            await self._send(
+                PacketType.CO2_CALIBRATION,
+                Operation.UPDATE,
+                encode_co2_calibration(
+                    reference_ppm,
+                    automatic_enabled=False,
+                    start_forced_calibration=True,
+                ),
+                target=0,
+            )
+
     async def _read_data(self) -> MultihomeData:
         """Read one coherent zone/system snapshot while an operation is locked."""
 
@@ -381,7 +414,12 @@ class MultihomeDevice:
             return response
 
     async def _send(
-        self, packet_type: PacketType, operation: Operation, payload: bytes = b""
+        self,
+        packet_type: PacketType,
+        operation: Operation,
+        payload: bytes = b"",
+        *,
+        target: int = 0,
     ) -> None:
         """Serialize a command whose transport acknowledgements indicate acceptance."""
 
@@ -389,7 +427,9 @@ class MultihomeDevice:
             if not self._transport or not self.connected or not self._authenticated:
                 raise DeviceError("device is not ready for a protocol transaction")
             _LOGGER.debug("Sending packet type %s", int(packet_type))
-            await self._transport.send(encode_packet(packet_type, operation, payload))
+            await self._transport.send(
+                encode_packet(packet_type, operation, payload, target=target)
+            )
 
     def _select_transport(self, client: BluetoothClient) -> ProtocolTransport:
         """Prefer the readable whole-packet characteristic, then legacy framing."""

@@ -62,6 +62,7 @@ Detailed instructions:
 - [Install and update with HACS](docs/installation.md)
 - [Choose and configure an ESPHome Bluetooth proxy](docs/esphome-bluetooth-proxy.md)
 - [Configure the integration and use its entities/actions](docs/configuration.md)
+- [Safely calibrate an internal CO₂ sensor](docs/co2-calibration.md)
 - [Troubleshooting and diagnostics](docs/troubleshooting.md)
 - [v0.2 physical validation procedure and evidence](docs/validation-v0.2.md)
 
@@ -78,15 +79,18 @@ Detailed instructions:
 - Preferred whole-packet transport with legacy 20-byte fragmented fallback
 - Automatic application-code pairing and reauthentication without an OS bond
 - Serialized controls/polling and automatic reconnection after a dropped link
+- Guarded internal CO₂ calibration for validated CO₂-equipped models, using
+  either documented fresh-air exposure or trusted Home Assistant references
 - Redacted Home Assistant diagnostics
 
 The physically inspected MEV remote exposes speed levels 1–4 and timers for 30,
 60, 120, and 240 minutes, with no On, Off, Stop, or Cancel control. The
 integration therefore does not expose inferred ventilation-mode power commands.
 Cancel override is retained as a separate official-app protocol operation; it
-returns control to the unit and is not a power action. Calibration,
-configuration, schedules, resets, installer settings, and global airflow writes
-remain unavailable.
+returns control to the unit and is not a power action. Internal CO₂ calibration
+is available only through a guarded Configure flow on validated CO₂-equipped
+models. Configuration, schedules, resets, installer settings, and global
+airflow writes remain unavailable.
 
 ## Example action
 

@@ -15,6 +15,7 @@ CONF_OVERRIDE_DURATION: Final = "override_duration"
 DEFAULT_OVERRIDE_DURATION: Final = 1800
 MIN_OVERRIDE_DURATION: Final = 1
 MAX_OVERRIDE_DURATION: Final = 28_800
+CO2_CALIBRATION_COOLDOWN: Final = 300
 UPDATE_INTERVAL: Final = timedelta(seconds=10)
 
 SUPPORTED_LOCAL_NAMES: Final = frozenset({"mev", "multihome"})

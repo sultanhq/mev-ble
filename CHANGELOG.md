@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0-rc.1] - 2026-08-27
+
+### Added
+
+- Add a deliberately guarded internal CO₂ calibration flow for validated
+  CO₂-equipped model numbers, with documented 400 ppm fresh-air exposure as the
+  recommended method.
+- Add an advanced option that averages one or more independent Home Assistant
+  CO₂ references and re-validates their current ppm states at confirmation.
+- Add a physical v0.3 validation guide covering device indication, safety
+  interlocks, failure handling, and the absence of automatic retries.
+
+### Safety
+
+- Require a separate opt-in confirmation immediately before the BLE write;
+  calibration is not exposed as an entity, service, action, or automation.
+- Reject unavailable, non-ppm, non-finite, out-of-range, and self-referential
+  sensors, and rate-limit attempts for five minutes even after transport errors.
+- Describe protocol delivery accurately without claiming firmware completion or
+  calibration readback.
+
 ## [0.2.0] - 2026-08-27
 
 ### Added
@@ -109,7 +130,8 @@ All notable changes to this project are documented here. The format follows
 - Low, Normal, Boost, and Purge timed overrides plus independent cancellation.
 - ESPHome Wi-Fi and Ethernet Bluetooth proxy examples and end-user guides.
 
-[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.1...HEAD
+[0.3.0-rc.1]: https://github.com/sultanhq/mev-ble/compare/v0.2.0...v0.3.0-rc.1
 [0.2.0]: https://github.com/sultanhq/mev-ble/compare/v0.1.2...v0.2.0
 [0.2.0-rc.2]: https://github.com/sultanhq/mev-ble/compare/v0.2.0-rc.1...v0.2.0-rc.2
 [0.2.0-rc.1]: https://github.com/sultanhq/mev-ble/compare/v0.1.2...v0.2.0-rc.1

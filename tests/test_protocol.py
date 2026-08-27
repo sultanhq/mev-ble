@@ -22,6 +22,7 @@ from custom_components.ventaxia_multihome.protocol import (
     decode_system_status,
     decode_zone_telemetry,
     encode_cancel_override,
+    encode_co2_calibration,
     encode_data_object_array,
     encode_packet,
     encode_setup_code,
@@ -267,6 +268,48 @@ def test_override_and_cancel_encoding() -> None:
     assert cancel.payload == struct.pack(
         "<BBBBI", MevCommand.CANCEL, AirflowPreset.LOW, 0, 3, 0
     )
+
+
+def test_co2_calibration_encoding_and_packet_fixture() -> None:
+    """Calibration uses the recovered UInt16LE value and two flags."""
+
+    # Arrange - use the documented fresh-air reference and fixed timestamp.
+    payload = encode_co2_calibration(
+        400,
+        automatic_enabled=False,
+        start_forced_calibration=True,
+    )
+
+    # Act - encode the complete command and its legacy transport frame.
+    packet = encode_packet(
+        PacketType.CO2_CALIBRATION,
+        Operation.UPDATE,
+        payload,
+        timestamp=0x01020304,
+    )
+    frames = fragment_packet(packet)
+
+    # Assert - payload, whole packet, and fragment are deterministic.
+    assert payload == bytes.fromhex("90010001")
+    assert packet.hex() == "600e007401000102030490010001"
+    assert [frame.hex() for frame in frames] == [
+        "117800600e007401000102030490010001000000"
+    ]
+
+
+@pytest.mark.parametrize("reference_ppm", [399, 2001])
+def test_co2_calibration_rejects_out_of_range_reference(
+    reference_ppm: int,
+) -> None:
+    """Unsafe calibration values are rejected before Bluetooth I/O."""
+
+    # Arrange / Act / Assert - the app-recovered range is enforced exactly.
+    with pytest.raises(ProtocolError, match="400..2000"):
+        encode_co2_calibration(
+            reference_ppm,
+            automatic_enabled=False,
+            start_forced_calibration=True,
+        )
 
 
 @pytest.mark.parametrize(
