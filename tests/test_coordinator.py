@@ -294,3 +294,70 @@ async def test_failed_calibration_disconnects_without_false_success(
     assert coordinator._last_calibration_attempt == 100.0
     device.disconnect.assert_awaited_once()
     device.calibrate_internal_co2.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_polling_recovers_after_failed_calibration(monkeypatch) -> None:
+    """A calibration transport failure does not poison the next coordinator poll."""
+
+    # Arrange - fail calibration once, then make ordinary polling return data.
+    ble_device = object()
+    fresh_data = object()
+    device = SimpleNamespace(
+        supports_internal_co2_calibration=True,
+        calibrate_internal_co2=AsyncMock(
+            side_effect=TransactionTimeoutError("timed out")
+        ),
+        disconnect=AsyncMock(),
+        update=AsyncMock(return_value=fresh_data),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        _last_calibration_attempt=None,
+        _ble_device=lambda: ble_device,
+    )
+    monkeypatch.setattr(coordinator_module, "monotonic", lambda: 100.0)
+
+    # Act - observe the guarded write failure, then run the next normal refresh.
+    with pytest.raises(HomeAssistantError):
+        await VentaxiaMultihomeCoordinator.async_calibrate_internal_co2(
+            coordinator, 400
+        )
+    result = await VentaxiaMultihomeCoordinator._async_update_data(coordinator)
+
+    # Assert - stale connection state was cleared and telemetry polling resumed.
+    device.disconnect.assert_awaited_once()
+    device.update.assert_awaited_once_with(ble_device)
+    assert result is fresh_data
+
+
+@pytest.mark.asyncio
+async def test_polling_continues_after_successful_calibration(monkeypatch) -> None:
+    """A completed send leaves the next scheduled telemetry read usable."""
+
+    # Arrange - complete calibration and expose a following telemetry snapshot.
+    ble_device = object()
+    fresh_data = object()
+    device = SimpleNamespace(
+        supports_internal_co2_calibration=True,
+        calibrate_internal_co2=AsyncMock(),
+        disconnect=AsyncMock(),
+        update=AsyncMock(return_value=fresh_data),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        _last_calibration_attempt=None,
+        _ble_device=lambda: ble_device,
+    )
+    monkeypatch.setattr(coordinator_module, "monotonic", lambda: 100.0)
+
+    # Act - send calibration, then run the next ordinary refresh.
+    await VentaxiaMultihomeCoordinator.async_calibrate_internal_co2(
+        coordinator, 400
+    )
+    result = await VentaxiaMultihomeCoordinator._async_update_data(coordinator)
+
+    # Assert - no forced disconnect occurred and polling returned normally.
+    device.disconnect.assert_not_awaited()
+    device.update.assert_awaited_once_with(ble_device)
+    assert result is fresh_data

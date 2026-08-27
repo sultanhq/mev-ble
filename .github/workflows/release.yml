@@ -34,6 +34,7 @@ jobs:
           if [[ "$version" == *-* ]]; then
             release_args+=(
               --latest=false
+              --prerelease
               --title "Vent-Axia Multihome $tag_name (release candidate)"
             )
           else
