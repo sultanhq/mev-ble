@@ -9,8 +9,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from custom_components.ventaxia_multihome.bluetooth import (
+    FragmentedTransport,
+    WholePacketTransport,
+)
 from custom_components.ventaxia_multihome.const import (
     DEVICE_INFO_CHARACTERISTICS,
+    FRAGMENT_CHARACTERISTIC_UUID,
     PIN_CHARACTERISTIC_UUID,
     PIN_CONFIRM_CHARACTERISTIC_UUID,
     WHOLE_PACKET_CHARACTERISTIC_UUID,
@@ -33,15 +38,22 @@ from custom_components.ventaxia_multihome.protocol import (
     encode_packet,
     encode_user_override,
     encode_ventilation_mode,
+    fragment_ack,
+    fragment_packet,
+    reassemble_fragments,
 )
 
 
 class FakeServices:
-    """Minimal service collection exposing the whole-packet characteristic."""
+    """Minimal service collection exposing one protocol characteristic."""
 
-    def __init__(self) -> None:
+    def __init__(self, protocol_uuid: str = WHOLE_PACKET_CHARACTERISTIC_UUID) -> None:
         self._characteristics = {
-            WHOLE_PACKET_CHARACTERISTIC_UUID: SimpleNamespace(properties=["read"]),
+            protocol_uuid: SimpleNamespace(
+                properties=["read"]
+                if protocol_uuid == WHOLE_PACKET_CHARACTERISTIC_UUID
+                else []
+            ),
         }
 
     def get_characteristic(self, uuid: str):
@@ -51,9 +63,14 @@ class FakeServices:
 class DeviceClient:
     """Bleak client fake with characteristic-specific responses."""
 
-    def __init__(self, protocol_reads: list[bytes]) -> None:
+    def __init__(
+        self,
+        protocol_reads: list[bytes],
+        protocol_uuid: str = WHOLE_PACKET_CHARACTERISTIC_UUID,
+    ) -> None:
         self.protocol_reads = deque(protocol_reads)
-        self.services = FakeServices()
+        self.protocol_uuid = protocol_uuid
+        self.services = FakeServices(protocol_uuid)
         self.is_connected = True
         self.writes: list[tuple[str, bytes, bool | None]] = []
         self.callback = None
@@ -61,7 +78,7 @@ class DeviceClient:
     async def read_gatt_char(self, uuid: str) -> bytearray:
         if uuid == PIN_CONFIRM_CHARACTERISTIC_UUID:
             return bytearray(b"\x01")
-        if uuid == WHOLE_PACKET_CHARACTERISTIC_UUID:
+        if uuid == self.protocol_uuid:
             return bytearray(self.protocol_reads.popleft())
         raise AssertionError(f"unexpected read {uuid}")
 
@@ -250,9 +267,11 @@ async def test_reconnects_with_fresh_client_after_disconnect() -> None:
     assert first.callback is not None
     first.is_connected = False
     first.callback(first)
+    cleared_transport = device.transport_name
     await device.update(object())
 
-    # Assert - a new client connected and repeated application authentication.
+    # Assert - stale transport cleared immediately; reconnect reauthenticated.
+    assert cleared_transport is None
     assert len(created) == 2
     assert any(write[0] == PIN_CHARACTERISTIC_UUID for write in created[1].writes)
 
@@ -333,6 +352,77 @@ async def test_override_controls_send_then_read_fresh_telemetry() -> None:
     ]
     assert override_data.zone.fan_rpm == 1200
     assert cancel_data.system.fan_speed == 3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("transport_name", ["whole_packet", "fragmented"])
+async def test_control_and_readback_have_transport_parity(
+    transport_name: str,
+) -> None:
+    """The same override API sends and reconciles over either BLE transport."""
+
+    # Arrange - build the exact acknowledgements/responses for the chosen transport.
+    zone_response, status_response = _responses()
+    command_template = encode_packet(
+        PacketType.USER_OVERRIDE,
+        Operation.DATA_REQUEST,
+        encode_user_override(AirflowPreset.BOOST, 90),
+        timestamp=1,
+    )
+    if transport_name == "whole_packet":
+        client = DeviceClient([zone_response, status_response])
+        transport = WholePacketTransport(client, timeout=0.1, poll_interval=0)
+        command_frame_count = 1
+    else:
+        zone_request = encode_packet(
+            PacketType.ZONE_VIEW_ROW, Operation.DATA_REQUEST, b"\x00", timestamp=1
+        )
+        status_request = encode_packet(
+            PacketType.SYSTEM_STATUS, Operation.DATA_REQUEST, timestamp=1
+        )
+        command_frames = fragment_packet(command_template)
+        zone_request_frames = fragment_packet(zone_request)
+        status_request_frames = fragment_packet(status_request)
+        client = DeviceClient(
+            [
+                *(fragment_ack(index) for index in range(1, len(command_frames) + 1)),
+                *(
+                    fragment_ack(index)
+                    for index in range(1, len(zone_request_frames) + 1)
+                ),
+                *fragment_packet(zone_response),
+                *(
+                    fragment_ack(index)
+                    for index in range(1, len(status_request_frames) + 1)
+                ),
+                *fragment_packet(status_response),
+            ],
+            FRAGMENT_CHARACTERISTIC_UUID,
+        )
+        transport = FragmentedTransport(
+            client, timeout=0.1, poll_interval=0, write_delay=0
+        )
+        command_frame_count = len(command_frames)
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device._client = client
+    device._transport = transport
+    device._authenticated = True
+
+    # Act - invoke the transport-independent device control API.
+    data = await device.set_override(object(), AirflowPreset.BOOST, 90)
+
+    # Assert - the command is exact and both transports return the same readback.
+    if transport_name == "whole_packet":
+        command = client.writes[0][1]
+    else:
+        command = reassemble_fragments(
+            [write[1] for write in client.writes[:command_frame_count]]
+        )
+    decoded = decode_packet(command)
+    assert decoded.packet_type == PacketType.USER_OVERRIDE
+    assert decoded.payload == encode_user_override(AirflowPreset.BOOST, 90)
+    assert data.zone.fan_rpm == 1200
+    assert data.system.override_remaining == 60
 
 
 @pytest.mark.asyncio

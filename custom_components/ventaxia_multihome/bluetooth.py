@@ -112,30 +112,35 @@ class WholePacketTransport(ProtocolTransport):
         """Perform one whole-packet transaction."""
 
         deadline = monotonic() + self.timeout
-        await self.send(packet)
-        while monotonic() < deadline:
-            value = bytes(
-                await self.client.read_gatt_char(WHOLE_PACKET_CHARACTERISTIC_UUID)
-            )
-            if not value or not any(value):
-                await asyncio.sleep(self.poll_interval)
-                continue
+        try:
+            await self.send(packet)
+            while monotonic() < deadline:
+                value = bytes(
+                    await self.client.read_gatt_char(
+                        WHOLE_PACKET_CHARACTERISTIC_UUID
+                    )
+                )
+                if not value or not any(value):
+                    await asyncio.sleep(self.poll_interval)
+                    continue
 
-            await self.client.write_gatt_char(
-                WHOLE_PACKET_CHARACTERISTIC_UUID,
-                WHOLE_PACKET_ACK,
-                response=False,
-            )
-            try:
-                decode_packet(value)
-            except ProtocolError as err:
-                _LOGGER.debug("Ignoring malformed whole-packet response: %s", err)
-                await asyncio.sleep(self.poll_interval)
-                continue
-            return value
+                await self.client.write_gatt_char(
+                    WHOLE_PACKET_CHARACTERISTIC_UUID,
+                    WHOLE_PACKET_ACK,
+                    response=False,
+                )
+                try:
+                    decode_packet(value)
+                except ProtocolError as err:
+                    _LOGGER.debug("Ignoring malformed whole-packet response: %s", err)
+                    await asyncio.sleep(self.poll_interval)
+                    continue
+                return value
 
-        await self._cancel()
-        raise TransactionTimeoutError("whole-packet transaction timed out")
+            raise TransactionTimeoutError("whole-packet transaction timed out")
+        except BaseException:
+            await self._cancel()
+            raise
 
     async def send(self, packet: bytes) -> None:
         """Write one complete packet without requiring a protocol response."""

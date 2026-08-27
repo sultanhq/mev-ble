@@ -136,6 +136,14 @@ unavailable, clears stale protocol state, and retries normally. The integration
 retains the last known Bluetooth route so it can reconnect even when the MEV's
 advertisement has expired from Home Assistant's scanner cache.
 
+When the unit exposes the whole-packet characteristic, requests are written
+without response and incomplete results are polled with a 50 ms cooperative
+delay. A valid response is acknowledged; malformed responses are discarded and
+polling continues until the five-second deadline. Timeout, task cancellation,
+or a GATT failure sends the documented cancellation before transport state is
+cleared. Older firmware uses the equivalent acknowledged 20-byte fragmented
+path.
+
 Home Assistant's Bluetooth manager chooses a reachable local adapter or active
 proxy automatically; there is no adapter setting in this integration. An ESP32
 proxy is optional, but the tested MEV had poor practical range and benefited

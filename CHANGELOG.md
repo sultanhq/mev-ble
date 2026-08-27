@@ -21,6 +21,9 @@ All notable changes to this project are documented here. The format follows
   operation, preventing scheduled polls from interleaving with control results.
 - Publish control state only from the fresh readback; failed readbacks retain the
   preceding snapshot while immediately updating entity availability.
+- Bring whole-packet controls to automated parity with fragmented framing,
+  including cooperative not-ready polling and cancellation on timeout,
+  interruption, or GATT failure.
 
 ### Fixed
 

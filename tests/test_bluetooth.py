@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 
 import pytest
@@ -75,6 +76,33 @@ async def test_whole_packet_zero_then_response() -> None:
 
 
 @pytest.mark.asyncio
+async def test_whole_packet_not_ready_read_yields_to_adapter(monkeypatch) -> None:
+    """A not-ready whole-packet read waits cooperatively before polling again."""
+
+    # Arrange - queue one zero response and record the configured sleep interval.
+    request = encode_packet(
+        PacketType.SYSTEM_STATUS, Operation.DATA_REQUEST, timestamp=1
+    )
+    response = encode_packet(PacketType.SYSTEM_STATUS, Operation.RESPONSE, timestamp=2)
+    client = FakeClient([bytes(20), response])
+    sleeps: list[float] = []
+
+    async def record_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr(asyncio, "sleep", record_sleep)
+
+    # Act - request through a transport with a visible cooperative interval.
+    result = await WholePacketTransport(
+        client, timeout=0.1, poll_interval=0.025
+    ).request(request)
+
+    # Assert - the adapter was yielded exactly once before the successful read.
+    assert result == response
+    assert sleeps == [0.025]
+
+
+@pytest.mark.asyncio
 async def test_whole_packet_send_does_not_poll_for_response() -> None:
     """A send-only whole packet completes immediately after its GATT write."""
 
@@ -138,6 +166,65 @@ async def test_whole_packet_timeout_cancels() -> None:
         WHOLE_PACKET_CANCEL,
         False,
     )
+
+
+@pytest.mark.asyncio
+async def test_whole_packet_task_cancellation_cancels_device_transaction() -> None:
+    """Cancelling a pending request sends the documented device cancellation."""
+
+    # Arrange - block the characteristic read after the request has been written.
+    request = encode_packet(
+        PacketType.SYSTEM_STATUS, Operation.DATA_REQUEST, timestamp=1
+    )
+    read_started = asyncio.Event()
+    never_finish = asyncio.Event()
+
+    class BlockingClient(FakeClient):
+        async def read_gatt_char(self, uuid: str) -> bytearray:
+            read_started.set()
+            await never_finish.wait()
+            return bytearray()
+
+    client = BlockingClient([])
+    task = asyncio.create_task(WholePacketTransport(client).request(request))
+    await read_started.wait()
+
+    # Act - cancel Home Assistant's in-flight transaction task.
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # Assert - device-side state is cancelled after the original request write.
+    assert client.writes == [
+        (WHOLE_PACKET_CHARACTERISTIC_UUID, request, False),
+        (WHOLE_PACKET_CHARACTERISTIC_UUID, WHOLE_PACKET_CANCEL, False),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_whole_packet_read_failure_cancels_device_transaction() -> None:
+    """A failed GATT read clears a possibly active whole-packet transaction."""
+
+    # Arrange - make the first response read fail after accepting the request.
+    request = encode_packet(
+        PacketType.SYSTEM_STATUS, Operation.DATA_REQUEST, timestamp=1
+    )
+
+    class FailingClient(FakeClient):
+        async def read_gatt_char(self, uuid: str) -> bytearray:
+            raise OSError("adapter disappeared")
+
+    client = FailingClient([])
+
+    # Act - run the request through the failing adapter path.
+    with pytest.raises(OSError, match="adapter disappeared"):
+        await WholePacketTransport(client).request(request)
+
+    # Assert - the transport makes a best-effort cancellation before propagating.
+    assert client.writes == [
+        (WHOLE_PACKET_CHARACTERISTIC_UUID, request, False),
+        (WHOLE_PACKET_CHARACTERISTIC_UUID, WHOLE_PACKET_CANCEL, False),
+    ]
 
 
 @pytest.mark.asyncio
