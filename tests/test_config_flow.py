@@ -320,6 +320,9 @@ async def test_fresh_air_calibration_requires_final_confirmation(
     assert exposure["step_id"] == "calibration_exposure"
     assert confirm["step_id"] == "calibration_confirm"
     assert confirm["description_placeholders"]["reference_ppm"] == "400"
+    assert "not a live measurement" in (
+        confirm["description_placeholders"]["reference_summary"]
+    )
     coordinator.async_calibrate_internal_co2.assert_not_awaited()
 
     # Act - explicitly decline, then explicitly confirm the irreversible action.

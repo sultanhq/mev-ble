@@ -93,11 +93,11 @@ Changing a preset on the fan entity uses this duration.
 ## Internal CO₂ calibration
 
 For validated models with an internal CO₂ sensor, the integration's Configure
-menu includes a guarded calibration flow. The recommended method exposes every
-extracted room to outdoor air for 10–15 minutes and uses a fixed 400 ppm
-baseline. An advanced method can average independent Home Assistant CO₂ sensor
-entities, but Home Assistant cannot prove those sensors are calibrated or even
-measure true CO₂ rather than eCO₂.
+menu includes a guarded calibration flow. The Vent-Axia fresh-air method exposes
+every extracted room to outdoor air for 10–15 minutes and uses the
+manufacturer's fixed 400 ppm assumption. An advanced method can average
+independent Home Assistant CO₂ sensor entities, but Home Assistant cannot prove
+those sensors are calibrated or even measure true CO₂ rather than eCO₂.
 
 Calibration requires a separate final confirmation, cannot use the MEV's own
 CO₂ entity as its reference, and is limited to one attempt every five minutes.
@@ -106,8 +106,19 @@ It is not exposed as an action or automation service. Read the complete
 
 After the command is delivered, Home Assistant displays a progress bar for the
 manual's three-minute internal-sensor sampling period. Users do not need to see
-a loft-mounted unit. The progress is an elapsed-time guide rather than device
-readback because the recovered BLE protocol exposes no completion state.
+or reach the installed MEV/Multihome unit. The progress is an elapsed-time guide
+rather than device readback because the recovered BLE protocol exposes no
+completion state.
+
+Vent-Axia's fresh-air procedure fixes the reference at 400 ppm. This is the
+manufacturer's documented assumption, not a live worldwide or local outdoor
+measurement; current atmospheric background is higher and local air varies.
+
+Calibration may be run again after the five-minute safety cooldown. Home
+Assistant exposes no reset because the recovered general `RestoreDefaults`
+enum has no validated MEV payload or calibration-only scope and may affect wider
+unit settings. To correct an earlier calibration, repeat the guarded flow with
+a properly prepared fresh-air or trusted-sensor reference.
 
 ## Timed override action
 

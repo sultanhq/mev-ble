@@ -408,7 +408,10 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             self._reference_entity_ids = []
             self._reference_ppm = MIN_CO2_CALIBRATION_REFERENCE
             self._reference_summary = (
-                "Method: fresh-air exposure. Target: internal MEV CO2 sensor."
+                "Method: Vent-Axia fresh-air procedure. The fixed 400 ppm "
+                "reference is the manufacturer's documented assumption, not "
+                "a live measurement of current outdoor CO2. Target: internal "
+                "MEV CO2 sensor."
             )
             return await self.async_step_calibration_confirm()
         return self.async_show_form(

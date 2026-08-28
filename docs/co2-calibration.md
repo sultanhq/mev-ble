@@ -17,7 +17,23 @@ firmware does not expose calibration readback.
 
 ## Recommended: fresh-air exposure
 
-This method uses the documented outdoor-air baseline of **400 ppm**.
+This method uses Vent-Axia's documented outdoor-air assumption of **400 ppm**.
+The manual says that the exposure method assumes outside CO₂ is 400 ppm, and
+the recovered official app keeps 400 ppm as its default/minimum calibration
+value. It is not a live measurement of the world's atmosphere or the air at the
+installation.
+
+Atmospheric CO₂ is now higher than that legacy round-number assumption. For
+context, NOAA reported a global marine-surface monthly mean of **428.73 ppm for
+May 2026** and a Mauna Loa monthly mean of **429.12 ppm for July 2026**. Local
+outdoor air also varies with weather, vegetation, traffic, combustion, and
+building exhaust. See NOAA's current [global trend][noaa-global] and
+[Mauna Loa trend][noaa-mauna-loa].
+
+The 400 ppm path remains available because it exactly follows the manufacturer
+procedure and does not depend on an unverified household sensor. If a genuinely
+trusted, recently calibrated true-CO₂ instrument is available, the advanced
+method can instead use the measured local reference.
 
 1. Open external windows or doors in every room from which the MEV extracts
    air, such as bathrooms, utility rooms, and kitchens.
@@ -30,8 +46,9 @@ This method uses the documented outdoor-air baseline of **400 ppm**.
 6. Keep the rooms open, unoccupied, and unchanged until the progress finishes.
 
 The physical MEV status LED should flash magenta during sampling, but users do
-not need access to a loft-mounted unit to time the process. Closing Home
-Assistant's progress screen does not cancel a calibration command already sent.
+not need to see or reach the installed MEV/Multihome unit to time the process.
+Closing Home Assistant's progress screen does not cancel a calibration command
+already sent.
 
 Opening only one window beside the controller is not the intended preparation.
 The unit samples air arriving through all of its extract paths, so every
@@ -80,6 +97,26 @@ The manual's separate five-minute room-condition instruction applies to paired
 room sensors. This integration calibrates only the MEV's internal sensor, whose
 documented sampling duration is three minutes.
 
+## Rerunning or correcting calibration
+
+Calibration can be run again. Wait at least five minutes after the previous
+attempt, prepare the rooms and reference correctly, then reopen **Configure →
+Calibrate internal CO₂ sensor**. If the firmware completes, the new calibration
+supersedes the earlier baseline.
+
+Home Assistant does not expose a calibration Reset button. Static analysis does
+contain a general packet enum named `RestoreDefaults` (`62`), but no normal MEV
+call path, payload, scope, or evidence that it resets only CO₂ calibration was
+recovered. It could affect wider installer/unit configuration and is therefore
+unsafe to infer or expose.
+
+To correct a mistaken calibration, repeat either method with a properly
+prepared reference. Fresh-air exposure reruns the manufacturer's fixed 400 ppm
+procedure; it does not prove that unknown factory offsets have been restored.
+The five-minute interval is a Home Assistant safety cooldown between commands,
+not an automatic reset. Restarting or reloading the integration does not repeat
+calibration.
+
 ## v0.3 physical validation record
 
 Before v0.3 is promoted from release candidate, record:
@@ -100,3 +137,6 @@ Before v0.3 is promoted from release candidate, record:
 Report the unit's model number, firmware version, transport (`fragmented` or
 `whole`), reference method, visible LED behaviour, and before/after readings in
 the v0.3 validation issue. Do not include the stored application setup code.
+
+[noaa-global]: https://gml.noaa.gov/ccgg/trends/global.html
+[noaa-mauna-loa]: https://gml.noaa.gov/ccgg/trends/

@@ -6,6 +6,18 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0-rc.3] - 2026-08-28
+
+### Changed
+
+- Refer to an installed MEV/Multihome unit that may be out of sight or easy
+  reach, without assuming a particular installation location.
+- Explain that calibration can be run again after the five-minute safety
+  cooldown, while the unvalidated general `RestoreDefaults` packet is not a
+  safe calibration reset and remains unavailable.
+- Identify 400 ppm as Vent-Axia's fixed fresh-air assumption rather than a live
+  worldwide or local outdoor measurement.
+
 ## [0.3.0-rc.2] - 2026-08-27
 
 ### Added
@@ -15,9 +27,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- Remove the need to observe a loft-mounted MEV: preparation and result screens
-  now use the Home Assistant progress bar, with the magenta LED retained only as
-  optional physical evidence.
+- Remove the need to observe an installed MEV/Multihome unit: preparation and
+  result screens now use the Home Assistant progress bar, with the magenta LED
+  retained only as optional physical evidence.
 - Distinguish elapsed sampling time from verified firmware completion because
   the recovered BLE protocol exposes no calibration-status readback.
 - Clarify that the manual's five-minute condition applies to paired room sensors;
@@ -147,7 +159,8 @@ All notable changes to this project are documented here. The format follows
 - Low, Normal, Boost, and Purge timed overrides plus independent cancellation.
 - ESPHome Wi-Fi and Ethernet Bluetooth proxy examples and end-user guides.
 
-[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.2...HEAD
+[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.3...HEAD
+[0.3.0-rc.3]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.2...v0.3.0-rc.3
 [0.3.0-rc.2]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.1...v0.3.0-rc.2
 [0.3.0-rc.1]: https://github.com/sultanhq/mev-ble/compare/v0.2.0...v0.3.0-rc.1
 [0.2.0]: https://github.com/sultanhq/mev-ble/compare/v0.1.2...v0.2.0
