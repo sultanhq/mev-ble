@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0-rc.5] - 2026-08-28
+
+### Fixed
+
+- Make the calibration progress page self-contained when a Home Assistant
+  client remains on it at 100% instead of displaying the result step: 100% is
+  explicitly identified as elapsed, with safe close guidance.
+
 ## [0.3.0-rc.4] - 2026-08-28
 
 ### Safety
@@ -167,7 +175,8 @@ All notable changes to this project are documented here. The format follows
 - Low, Normal, Boost, and Purge timed overrides plus independent cancellation.
 - ESPHome Wi-Fi and Ethernet Bluetooth proxy examples and end-user guides.
 
-[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.4...HEAD
+[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.5...HEAD
+[0.3.0-rc.5]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.4...v0.3.0-rc.5
 [0.3.0-rc.4]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.3...v0.3.0-rc.4
 [0.3.0-rc.3]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.2...v0.3.0-rc.3
 [0.3.0-rc.2]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.1...v0.3.0-rc.2

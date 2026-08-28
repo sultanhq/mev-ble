@@ -77,8 +77,8 @@
         }
       },
       "calibration_progress": {
-        "title": "CO₂ calibration in progress",
-        "description": "Home Assistant sent the {reference_ppm} ppm command to {device} and is tracking the MEV manual's three-minute internal-sensor sampling period. Keep every extracted room ventilated, unoccupied, and unchanged until the progress bar finishes. Closing this screen does not stop calibration."
+        "title": "CO₂ calibration sampling timer",
+        "description": "Home Assistant sent the {reference_ppm} ppm command to {device} and is tracking the MEV manual's three-minute internal-sensor sampling period. Keep every extracted room ventilated, unoccupied, and unchanged until the progress reaches 100%. At 100%, the documented sampling period has elapsed and you may close this screen with X, even if Home Assistant does not automatically advance. Closing this screen earlier does not stop a calibration command already sent."
       },
       "calibration_result": {
         "title": "Sampling period elapsed",
@@ -86,7 +86,7 @@
       }
     },
     "progress": {
-      "calibration_sampling": "Tracking the three-minute MEV sampling period"
+      "calibration_sampling": "At 100%, the sampling period has elapsed and this screen can be closed"
     },
     "error": {
       "calibration_failed": "The calibration command failed. No success has been recorded; normal polling will retry automatically.",

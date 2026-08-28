@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -457,6 +459,30 @@ async def test_calibration_progress_tracks_documented_180_seconds() -> None:
     assert sleep.await_count == 180
     flow.async_update_progress.assert_any_call(1 / 180)
     flow.async_update_progress.assert_called_with(1.0)
+
+
+def test_calibration_progress_copy_is_safe_when_client_stays_at_100() -> None:
+    """A client stuck on the progress step still gives correct completion guidance."""
+
+    # Arrange - load the source and shipped English option-flow translations.
+    integration_dir = Path("custom_components/ventaxia_multihome")
+    source = json.loads((integration_dir / "strings.json").read_text())
+    english = json.loads(
+        (integration_dir / "translations/en.json").read_text()
+    )
+
+    # Act - read the progress page and progress-action copy from both files.
+    source_step = source["options"]["step"]["calibration_progress"]
+    english_step = english["options"]["step"]["calibration_progress"]
+    source_action = source["options"]["progress"]["calibration_sampling"]
+    english_action = english["options"]["progress"]["calibration_sampling"]
+
+    # Assert - 100% is explicitly complete and safe to close on every client.
+    assert source_step == english_step
+    assert source_action == english_action
+    assert "At 100%" in source_step["description"]
+    assert "close this screen with X" in source_step["description"]
+    assert "sampling period has elapsed" in source_action
 
 
 @pytest.mark.asyncio

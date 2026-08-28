@@ -87,6 +87,12 @@ Keep the rooms and reference conditions stable while the progress bar is
 running. When it finishes, the screen says **Sampling period elapsed** and the
 rooms can be used normally.
 
+Some Home Assistant clients may leave the progress page visible at 100% instead
+of automatically advancing to the result page. Reaching 100% still means the
+documented three-minute sampling period has elapsed. The progress page states
+that it can be closed with **X** at that point; closing it does not repeat or
+undo the calibration command.
+
 The bar tracks elapsed time; it is not live firmware status. The recovered BLE
 protocol exposes no calibration completion readback, so the integration does
 not claim verified success. If accessible, a magenta LED that stops flashing is
