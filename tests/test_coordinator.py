@@ -13,6 +13,9 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.ventaxia_multihome import coordinator as coordinator_module
 from custom_components.ventaxia_multihome.bluetooth import TransactionTimeoutError
+from custom_components.ventaxia_multihome.const import (
+    CONF_LAST_CO2_CALIBRATION_ATTEMPT,
+)
 from custom_components.ventaxia_multihome.coordinator import (
     CalibrationNotSupportedError,
     CalibrationRateLimitedError,
@@ -194,9 +197,12 @@ async def test_calibration_uses_validated_device_and_reference(monkeypatch) -> N
     coordinator = SimpleNamespace(
         device=device,
         _last_calibration_attempt=None,
+        _record_calibration_attempt=lambda value: setattr(
+            coordinator, "_last_calibration_attempt", value
+        ),
         _ble_device=lambda: ble_device,
     )
-    monkeypatch.setattr(coordinator_module, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(coordinator_module, "time", lambda: 100.0)
 
     # Act - start a fresh-air reference calibration.
     await VentaxiaMultihomeCoordinator.async_calibrate_internal_co2(
@@ -221,9 +227,12 @@ async def test_calibration_is_rate_limited_before_bluetooth(monkeypatch) -> None
     coordinator = SimpleNamespace(
         device=device,
         _last_calibration_attempt=100.0,
+        _record_calibration_attempt=lambda value: setattr(
+            coordinator, "_last_calibration_attempt", value
+        ),
         _ble_device=lambda: object(),
     )
-    monkeypatch.setattr(coordinator_module, "monotonic", lambda: 110.0)
+    monkeypatch.setattr(coordinator_module, "time", lambda: 110.0)
 
     # Act / Assert - the cooldown is reported without any device call.
     with pytest.raises(CalibrationRateLimitedError, match="290 seconds"):
@@ -245,6 +254,9 @@ async def test_calibration_rejects_unvalidated_model_before_bluetooth() -> None:
     coordinator = SimpleNamespace(
         device=device,
         _last_calibration_attempt=None,
+        _record_calibration_attempt=lambda value: setattr(
+            coordinator, "_last_calibration_attempt", value
+        ),
         _ble_device=lambda: object(),
     )
 
@@ -279,9 +291,12 @@ async def test_failed_calibration_disconnects_without_false_success(
     coordinator = SimpleNamespace(
         device=device,
         _last_calibration_attempt=None,
+        _record_calibration_attempt=lambda value: setattr(
+            coordinator, "_last_calibration_attempt", value
+        ),
         _ble_device=lambda: object(),
     )
-    monkeypatch.setattr(coordinator_module, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(coordinator_module, "time", lambda: 100.0)
 
     # Act - send the command and receive an uncertain transport outcome.
     with pytest.raises(HomeAssistantError, match="Unable to start"):
@@ -314,9 +329,12 @@ async def test_polling_recovers_after_failed_calibration(monkeypatch) -> None:
     coordinator = SimpleNamespace(
         device=device,
         _last_calibration_attempt=None,
+        _record_calibration_attempt=lambda value: setattr(
+            coordinator, "_last_calibration_attempt", value
+        ),
         _ble_device=lambda: ble_device,
     )
-    monkeypatch.setattr(coordinator_module, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(coordinator_module, "time", lambda: 100.0)
 
     # Act - observe the guarded write failure, then run the next normal refresh.
     with pytest.raises(HomeAssistantError):
@@ -347,9 +365,12 @@ async def test_polling_continues_after_successful_calibration(monkeypatch) -> No
     coordinator = SimpleNamespace(
         device=device,
         _last_calibration_attempt=None,
+        _record_calibration_attempt=lambda value: setattr(
+            coordinator, "_last_calibration_attempt", value
+        ),
         _ble_device=lambda: ble_device,
     )
-    monkeypatch.setattr(coordinator_module, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(coordinator_module, "time", lambda: 100.0)
 
     # Act - send calibration, then run the next ordinary refresh.
     await VentaxiaMultihomeCoordinator.async_calibrate_internal_co2(
@@ -361,3 +382,45 @@ async def test_polling_continues_after_successful_calibration(monkeypatch) -> No
     device.disconnect.assert_not_awaited()
     device.update.assert_awaited_once_with(ble_device)
     assert result is fresh_data
+
+
+def test_calibration_cooldown_is_persisted_and_restored() -> None:
+    """A reload or restart cannot bypass the five-minute safety guard."""
+
+    # Arrange - create the persistence-facing coordinator subset and entry.
+    update_entry = Mock()
+    entry = SimpleNamespace(data={CONF_ADDRESS: "AA:BB"})
+    coordinator = object.__new__(VentaxiaMultihomeCoordinator)
+    coordinator.hass = SimpleNamespace(
+        config_entries=SimpleNamespace(async_update_entry=update_entry)
+    )
+    coordinator.config_entry = entry
+    coordinator._last_calibration_attempt = None
+
+    # Act - record an attempt, then restore it as a newly loaded coordinator would.
+    coordinator._record_calibration_attempt(1_787_910_400.0)
+    persisted_data = update_entry.call_args.kwargs["data"]
+    restored = VentaxiaMultihomeCoordinator._stored_calibration_attempt(
+        SimpleNamespace(data=persisted_data)
+    )
+
+    # Assert - the absolute attempt time survives the in-memory coordinator.
+    assert coordinator._last_calibration_attempt == 1_787_910_400.0
+    assert persisted_data[CONF_LAST_CO2_CALIBRATION_ATTEMPT] == 1_787_910_400.0
+    assert restored == 1_787_910_400.0
+
+
+@pytest.mark.parametrize("stored_value", [None, True, -1, float("nan"), "now"])
+def test_invalid_persisted_calibration_attempt_is_ignored(stored_value) -> None:
+    """Corrupt or legacy config data cannot create an invalid cooldown."""
+
+    # Arrange - load a config entry containing an invalid internal timestamp.
+    entry = SimpleNamespace(
+        data={CONF_LAST_CO2_CALIBRATION_ATTEMPT: stored_value}
+    )
+
+    # Act - parse the optional persisted calibration-attempt value.
+    restored = VentaxiaMultihomeCoordinator._stored_calibration_attempt(entry)
+
+    # Assert - invalid values are treated as if no prior attempt was stored.
+    assert restored is None

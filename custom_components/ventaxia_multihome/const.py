@@ -11,6 +11,7 @@ MANUFACTURER: Final = "Vent-Axia"
 
 CONF_SETUP_CODE: Final = "setup_code"
 CONF_OVERRIDE_DURATION: Final = "override_duration"
+CONF_LAST_CO2_CALIBRATION_ATTEMPT: Final = "last_co2_calibration_attempt"
 
 DEFAULT_OVERRIDE_DURATION: Final = 1800
 MIN_OVERRIDE_DURATION: Final = 1

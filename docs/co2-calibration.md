@@ -13,7 +13,9 @@ an entity, action, service, or automation trigger.
 The integration requires a separate final confirmation immediately before it
 sends the command. It permits one attempt every five minutes and does not claim
 that calibration succeeded merely because the BLE packet was accepted. The
-firmware does not expose calibration readback.
+firmware does not expose calibration readback. The attempt time is stored in the
+Home Assistant config entry so reloading the integration or restarting Home
+Assistant cannot bypass the cooldown.
 
 ## Recommended: fresh-air exposure
 

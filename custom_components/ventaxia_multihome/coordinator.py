@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from math import ceil
-from time import monotonic
+from math import ceil, isfinite
+from time import time
 from typing import TYPE_CHECKING
 
 from bleak.exc import BleakError
@@ -19,6 +19,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 from .bluetooth import TransportError
 from .const import (
     CO2_CALIBRATION_COOLDOWN,
+    CONF_LAST_CO2_CALIBRATION_ATTEMPT,
     CONF_OVERRIDE_DURATION,
     DEFAULT_OVERRIDE_DURATION,
     MAX_OVERRIDE_DURATION,
@@ -72,7 +73,33 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         )
         self.device = device
         self._last_ble_device: BLEDevice | None = None
-        self._last_calibration_attempt: float | None = None
+        self._last_calibration_attempt = self._stored_calibration_attempt(entry)
+
+    @staticmethod
+    def _stored_calibration_attempt(entry: ConfigEntry) -> float | None:
+        """Restore a valid persisted calibration-attempt timestamp."""
+
+        raw_value = entry.data.get(CONF_LAST_CO2_CALIBRATION_ATTEMPT)
+        if (
+            isinstance(raw_value, (int, float))
+            and not isinstance(raw_value, bool)
+            and isfinite(float(raw_value))
+            and float(raw_value) > 0
+        ):
+            return float(raw_value)
+        return None
+
+    def _record_calibration_attempt(self, attempted_at: float) -> None:
+        """Persist the cooldown before dispatching an uncertain BLE write."""
+
+        self._last_calibration_attempt = attempted_at
+        self.hass.config_entries.async_update_entry(
+            self.config_entry,
+            data={
+                **self.config_entry.data,
+                CONF_LAST_CO2_CALIBRATION_ATTEMPT: attempted_at,
+            },
+        )
 
     @property
     def override_duration(self) -> int:
@@ -167,18 +194,19 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 "Internal CO2 calibration is not validated for this model"
             )
 
-        now = monotonic()
+        now = time()
         if self._last_calibration_attempt is not None:
+            elapsed = max(0.0, now - self._last_calibration_attempt)
             remaining = ceil(
                 CO2_CALIBRATION_COOLDOWN
-                - (now - self._last_calibration_attempt)
+                - elapsed
             )
             if remaining > 0:
                 raise CalibrationRateLimitedError(
                     f"Wait {remaining} seconds before another calibration attempt"
                 )
 
-        self._last_calibration_attempt = now
+        self._record_calibration_attempt(now)
         try:
             await self.device.calibrate_internal_co2(
                 self._ble_device(), reference_ppm

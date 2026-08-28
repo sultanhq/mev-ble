@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0-rc.4] - 2026-08-28
+
+### Safety
+
+- Persist the five-minute CO₂ calibration cooldown across integration reloads
+  and Home Assistant restarts so an uncertain or completed command cannot be
+  repeated early by recreating the coordinator.
+
 ## [0.3.0-rc.3] - 2026-08-28
 
 ### Changed
@@ -159,7 +167,8 @@ All notable changes to this project are documented here. The format follows
 - Low, Normal, Boost, and Purge timed overrides plus independent cancellation.
 - ESPHome Wi-Fi and Ethernet Bluetooth proxy examples and end-user guides.
 
-[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.3...HEAD
+[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.4...HEAD
+[0.3.0-rc.4]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.3...v0.3.0-rc.4
 [0.3.0-rc.3]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.2...v0.3.0-rc.3
 [0.3.0-rc.2]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.1...v0.3.0-rc.2
 [0.3.0-rc.1]: https://github.com/sultanhq/mev-ble/compare/v0.2.0...v0.3.0-rc.1
