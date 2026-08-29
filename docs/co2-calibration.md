@@ -17,35 +17,28 @@ firmware does not expose calibration readback. The attempt time is stored in the
 Home Assistant config entry so reloading the integration or restarting Home
 Assistant cannot bypass the cooldown.
 
-## Recommended: fresh-air exposure
+## Vent-Axia value: 450 ppm default or manual input
 
-This method uses Vent-Axia's documented outdoor-air assumption of **400 ppm**.
-The manual says that the exposure method assumes outside CO₂ is 400 ppm, and
-the recovered official app keeps 400 ppm as its default/minimum calibration
-value. It is not a live measurement of the world's atmosphere or the air at the
-installation.
+This method mirrors the current official Vent-Axia app. Its numeric field
+defaults to **450 ppm** and accepts **400–2,000 ppm**. The default is a
+manufacturer-chosen fresh-air calibration reference; it is not a live
+measurement of the world's atmosphere or the air at the installation.
 
-Atmospheric CO₂ is now higher than that legacy round-number assumption. For
-context, NOAA reported a global marine-surface monthly mean of **428.73 ppm for
-May 2026** and a Mauna Loa monthly mean of **429.12 ppm for July 2026**. Local
-outdoor air also varies with weather, vegetation, traffic, combustion, and
-building exhaust. See NOAA's current [global trend][noaa-global] and
-[Mauna Loa trend][noaa-mauna-loa].
-
-The 400 ppm path remains available because it exactly follows the manufacturer
-procedure and does not depend on an unverified household sensor. If a genuinely
-trusted, recently calibrated true-CO₂ instrument is available, the advanced
-method can instead use the measured local reference.
+Leave the field at 450 ppm when following the official fresh-air preparation.
+If a genuinely trusted, calibrated true-CO₂ instrument is available, enter its
+current reading instead. Home Assistant also retains the advanced entity-based
+method for averaging several trusted reference sensors.
 
 1. Open external windows or doors in every room from which the MEV extracts
    air, such as bathrooms, utility rooms, and kitchens.
-2. Ventilate those rooms for **10–15 minutes**.
+2. Ventilate those rooms for **at least 15 minutes**.
 3. Keep the rooms unoccupied and leave the openings open.
-4. In the integration's Configure flow, choose **Fresh-air exposure** and
-   review the final confirmation.
-5. Confirm once. Home Assistant displays progress for the MEV manual's specified
+4. In the integration's Configure flow, choose **Vent-Axia value**. Leave the
+   field at **450 ppm**, or replace it with a calibrated instrument reading.
+5. Review the final confirmation.
+6. Confirm once. Home Assistant displays progress for the MEV manual's specified
    three-minute internal-sensor sampling period.
-6. Keep the rooms open, unoccupied, and unchanged until the progress finishes.
+7. Keep the rooms open, unoccupied, and unchanged until the progress finishes.
 
 The physical MEV status LED should flash magenta during sampling, but users do
 not need to see or reach the installed MEV/Multihome unit to time the process.
@@ -119,8 +112,9 @@ recovered. It could affect wider installer/unit configuration and is therefore
 unsafe to infer or expose.
 
 To correct a mistaken calibration, repeat either method with a properly
-prepared reference. Fresh-air exposure reruns the manufacturer's fixed 400 ppm
-procedure; it does not prove that unknown factory offsets have been restored.
+prepared reference. The Vent-Axia path defaults to 450 ppm or accepts a trusted
+manual measurement; it does not prove that unknown factory offsets have been
+restored.
 The five-minute interval is a Home Assistant safety cooldown between commands,
 not an automatic reset. Restarting or reloading the integration does not repeat
 calibration.
@@ -132,7 +126,9 @@ Before v0.3 is promoted from release candidate, record:
 | Check | Expected result |
 | --- | --- |
 | Open Configure without confirmation | No calibration packet is sent |
-| Fresh-air preparation screen | Clearly states all extracted rooms, 10–15 minutes, unoccupied, and 400 ppm |
+| Vent-Axia preparation screen | Clearly states all extracted rooms, at least 15 minutes, unoccupied, and a 450 ppm default |
+| Manual value | Accepts 400–2,000 ppm and shows the entered value at final confirmation |
+| Calibration routing | Resolves an internal CO₂ device-table row and targets that address, not master 0 |
 | Final confirmation | Defaults to off and names the device/reference |
 | Confirm fresh-air calibration | HA shows three-minute progress immediately after delivery |
 | Progress finishes | Result says elapsed time, not verified firmware completion |
@@ -145,6 +141,3 @@ Before v0.3 is promoted from release candidate, record:
 Report the unit's model number, firmware version, transport (`fragmented` or
 `whole`), reference method, visible LED behaviour, and before/after readings in
 the v0.3 validation issue. Do not include the stored application setup code.
-
-[noaa-global]: https://gml.noaa.gov/ccgg/trends/global.html
-[noaa-mauna-loa]: https://gml.noaa.gov/ccgg/trends/

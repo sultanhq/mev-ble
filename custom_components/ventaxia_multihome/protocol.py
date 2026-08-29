@@ -21,6 +21,7 @@ FRAGMENT_SIZE: Final = 20
 FRAGMENT_PAYLOAD_SIZE: Final = 17
 MIN_CO2_CALIBRATION_REFERENCE: Final = 400
 MAX_CO2_CALIBRATION_REFERENCE: Final = 2000
+DEFAULT_CO2_CALIBRATION_REFERENCE: Final = 450
 
 WHOLE_PACKET_ACK: Final = b"\x00\x00\x01"
 WHOLE_PACKET_CANCEL: Final = b"\x00\x00\xff"
@@ -36,6 +37,8 @@ class PacketType(IntEnum):
     USER_OVERRIDE = 56
     SYSTEM_STATUS = 67
     CO2_CALIBRATION = 116
+    DEVICE_VIEW_HEADER = 141
+    DEVICE_VIEW_ROW = 142
     ZONE_VIEW_ROW = 146
 
 
@@ -81,6 +84,12 @@ class AirflowPreset(IntEnum):
     NORMAL = 2
     BOOST = 3
     PURGE = 4
+
+
+class DeviceType(IntEnum):
+    """Device-table types needed to resolve command destinations."""
+
+    INTERNAL_CO2_SENSOR = 6
 
 
 class VentilationMode(IntEnum):
@@ -379,6 +388,39 @@ def encode_co2_calibration(
         automatic_enabled,
         start_forced_calibration,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceViewHeader:
+    """Decoded device-table header."""
+
+    row_count: int
+    version: int
+
+
+def decode_device_view_header(data: bytes) -> DeviceViewHeader:
+    """Decode the device-table row count and record version."""
+
+    if len(data) < 3:
+        raise ProtocolError("device view header requires at least three bytes")
+    return DeviceViewHeader(data[0], struct.unpack_from("<H", data, 1)[0])
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceViewRow:
+    """Routing fields shared by documented V5 and V6 device rows."""
+
+    address: int
+    device_type: int
+    hardware_type: int
+
+
+def decode_device_view_row(data: bytes) -> DeviceViewRow:
+    """Decode the common routing prefix of a V5 or V6 device row."""
+
+    if len(data) not in (34, 58):
+        raise ProtocolError("device view row must be a 34-byte V6 or 58-byte V5 record")
+    return DeviceViewRow(address=data[0], device_type=data[1], hardware_type=data[2])
 
 
 def fragment_packet(packet: bytes, *, channel: int = 0) -> list[bytes]:

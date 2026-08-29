@@ -58,6 +58,7 @@ from .device import (
 )
 from .entity import format_identifier
 from .protocol import (
+    DEFAULT_CO2_CALIBRATION_REFERENCE,
     MAX_CO2_CALIBRATION_REFERENCE,
     MIN_CO2_CALIBRATION_REFERENCE,
     ProtocolError,
@@ -66,6 +67,7 @@ from .protocol import (
 _LOGGER = logging.getLogger(__name__)
 
 CONF_CALIBRATION_METHOD = "calibration_method"
+CONF_REFERENCE_PPM = "reference_ppm"
 CONF_REFERENCE_SENSORS = "reference_sensors"
 CONF_CONFIRM_CALIBRATION = "confirm_calibration"
 
@@ -331,9 +333,12 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
     ) -> ConfigFlowResult:
         """Show the integration options menu."""
 
+        menu_options = ["fan_options"]
+        if self.config_entry.runtime_data.device.supports_internal_co2_calibration:
+            menu_options.append("calibrate_co2")
         return self.async_show_menu(
             step_id="init",
-            menu_options=["fan_options", "calibrate_co2"],
+            menu_options=menu_options,
         )
 
     async def async_step_fan_options(
@@ -406,17 +411,33 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
 
         if user_input is not None:
             self._reference_entity_ids = []
-            self._reference_ppm = MIN_CO2_CALIBRATION_REFERENCE
+            self._reference_ppm = int(user_input[CONF_REFERENCE_PPM])
             self._reference_summary = (
-                "Method: Vent-Axia fresh-air procedure. The fixed 400 ppm "
-                "reference is the manufacturer's documented assumption, not "
-                "a live measurement of current outdoor CO2. Target: internal "
+                "Method: Vent-Axia fresh-air/manual-value procedure. "
+                f"Reference entered: {self._reference_ppm} ppm. The official "
+                "app defaults to 450 ppm; a different value should come from "
+                "a trusted calibrated measurement device. Target: internal "
                 "MEV CO2 sensor."
             )
             return await self.async_step_calibration_confirm()
         return self.async_show_form(
             step_id="calibration_exposure",
-            data_schema=vol.Schema({}),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_REFERENCE_PPM,
+                        default=DEFAULT_CO2_CALIBRATION_REFERENCE,
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=MIN_CO2_CALIBRATION_REFERENCE,
+                            max=MAX_CO2_CALIBRATION_REFERENCE,
+                            step=1,
+                            mode=selector.NumberSelectorMode.BOX,
+                            unit_of_measurement="ppm",
+                        )
+                    )
+                }
+            ),
         )
 
     async def async_step_calibration_reference(

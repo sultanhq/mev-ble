@@ -17,6 +17,8 @@ from custom_components.ventaxia_multihome.protocol import (
     VentilationMode,
     crc8_zirconia,
     decode_data_object_array,
+    decode_device_view_header,
+    decode_device_view_row,
     decode_faults,
     decode_packet,
     decode_system_status,
@@ -295,6 +297,25 @@ def test_co2_calibration_encoding_and_packet_fixture() -> None:
     assert [frame.hex() for frame in frames] == [
         "117800600e007401000102030490010001000000"
     ]
+
+
+def test_device_view_routing_decoding() -> None:
+    """Device-table records expose the official calibration destination."""
+
+    # Arrange - build a V6 header and internal CO2 row with address seven.
+    header = bytes([2, 6, 0])
+    row = bytes([7, 6, 4]) + bytes(31)
+
+    # Act - decode only the routing fields needed before calibration.
+    decoded_header = decode_device_view_header(header)
+    decoded_row = decode_device_view_row(row)
+
+    # Assert - row count/version and address/type/hardware are preserved.
+    assert decoded_header.row_count == 2
+    assert decoded_header.version == 6
+    assert decoded_row.address == 7
+    assert decoded_row.device_type == 6
+    assert decoded_row.hardware_type == 4
 
 
 @pytest.mark.parametrize("reference_ppm", [399, 2001])

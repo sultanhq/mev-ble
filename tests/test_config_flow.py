@@ -29,6 +29,7 @@ from custom_components.ventaxia_multihome.config_flow import (
     CALIBRATION_METHOD_REFERENCE_SENSORS,
     CONF_CALIBRATION_METHOD,
     CONF_CONFIRM_CALIBRATION,
+    CONF_REFERENCE_PPM,
     CONF_REFERENCE_SENSORS,
 )
 from custom_components.ventaxia_multihome.const import (
@@ -315,14 +316,14 @@ async def test_fresh_air_calibration_requires_final_confirmation(
         {CONF_CALIBRATION_METHOD: CALIBRATION_METHOD_FRESH_AIR},
     )
     confirm = await hass.config_entries.options.async_configure(
-        exposure["flow_id"], {}
+        exposure["flow_id"], {CONF_REFERENCE_PPM: 450}
     )
 
-    # Assert - the flow uses the documented 400 ppm baseline, but has not written.
+    # Assert - the flow uses the official app's 450 ppm default, but has not written.
     assert exposure["step_id"] == "calibration_exposure"
     assert confirm["step_id"] == "calibration_confirm"
-    assert confirm["description_placeholders"]["reference_ppm"] == "400"
-    assert "not a live measurement" in (
+    assert confirm["description_placeholders"]["reference_ppm"] == "450"
+    assert "official app defaults to 450" in (
         confirm["description_placeholders"]["reference_summary"]
     )
     coordinator.async_calibrate_internal_co2.assert_not_awaited()
@@ -335,11 +336,11 @@ async def test_fresh_air_calibration_requires_final_confirmation(
         declined["flow_id"], {CONF_CONFIRM_CALIBRATION: True}
     )
 
-    # Assert - only the positive confirmation sends one 400 ppm command and
+    # Assert - only the positive confirmation sends one 450 ppm command and
     # starts HA's documented-duration progress screen.
     assert declined["errors"] == {"base": "confirmation_required"}
     assert progress["step_id"] == "calibration_progress"
-    coordinator.async_calibrate_internal_co2.assert_awaited_once_with(400)
+    coordinator.async_calibrate_internal_co2.assert_awaited_once_with(450)
 
     result = await _complete_calibration_progress(hass, progress)
     assert result["step_id"] == "calibration_result"
@@ -348,6 +349,31 @@ async def test_fresh_air_calibration_requires_final_confirmation(
     )
     assert completed["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     assert completed["data"] == {CONF_OVERRIDE_DURATION: 1800}
+
+
+@pytest.mark.asyncio
+async def test_manual_calibration_value_is_forwarded(hass) -> None:
+    """The Vent-Axia-style numeric field accepts a custom trusted ppm value."""
+
+    # Arrange - open the fresh-air/manual-value calibration path.
+    entry, coordinator = _options_entry(hass)
+    method = await _open_calibration_options(hass, entry)
+    exposure = await hass.config_entries.options.async_configure(
+        method["flow_id"],
+        {CONF_CALIBRATION_METHOD: CALIBRATION_METHOD_FRESH_AIR},
+    )
+
+    # Act - enter a calibrated instrument reading instead of the 450 default.
+    confirm = await hass.config_entries.options.async_configure(
+        exposure["flow_id"], {CONF_REFERENCE_PPM: 475}
+    )
+    await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_CALIBRATION: True}
+    )
+
+    # Assert - the exact user-entered reference reaches the guarded device API.
+    assert confirm["description_placeholders"]["reference_ppm"] == "475"
+    coordinator.async_calibrate_internal_co2.assert_awaited_once_with(475)
 
 
 @pytest.mark.asyncio
@@ -647,12 +673,12 @@ async def test_calibration_hidden_for_unvalidated_model(hass) -> None:
     # Arrange - create an entry whose connected model is not validated.
     entry, coordinator = _options_entry(hass, supports_calibration=False)
 
-    # Act - select calibration from the options menu.
-    result = await _open_calibration_options(hass, entry)
+    # Act - open the options menu for a model without the internal sensor.
+    result = await hass.config_entries.options.async_init(entry.entry_id)
 
-    # Assert - the flow stops before presenting either calibration method.
-    assert result["type"] is data_entry_flow.FlowResultType.ABORT
-    assert result["reason"] == "calibration_not_supported"
+    # Assert - calibration is absent rather than leading to a dead-end screen.
+    assert result["type"] is data_entry_flow.FlowResultType.MENU
+    assert result["menu_options"] == ["fan_options"]
     coordinator.async_calibrate_internal_co2.assert_not_awaited()
 
 
@@ -678,7 +704,7 @@ async def test_calibration_failure_does_not_show_success(
         {CONF_CALIBRATION_METHOD: CALIBRATION_METHOD_FRESH_AIR},
     )
     confirm = await hass.config_entries.options.async_configure(
-        exposure["flow_id"], {}
+        exposure["flow_id"], {CONF_REFERENCE_PPM: 450}
     )
 
     # Act - explicitly confirm the command that fails before completion.
@@ -689,4 +715,4 @@ async def test_calibration_failure_does_not_show_success(
     # Assert - failure is visible and no result/success screen is created.
     assert failed["step_id"] == "calibration_confirm"
     assert failed["errors"] == {"base": expected_error}
-    coordinator.async_calibrate_internal_co2.assert_awaited_once_with(400)
+    coordinator.async_calibrate_internal_co2.assert_awaited_once_with(450)

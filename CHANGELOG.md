@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0-rc.6] - 2026-08-29
+
+### Fixed
+
+- Resolve the internal CO₂ sensor's device-table address before sending packet
+  116, matching the official app instead of always targeting master address 0.
+
+### Changed
+
+- Match the current official app with a 450 ppm calibration default and a
+  validated manual 400–2,000 ppm input, while retaining trusted Home Assistant
+  reference-sensor averaging.
+
 ## [0.3.0-rc.5] - 2026-08-28
 
 ### Fixed
@@ -175,7 +188,8 @@ All notable changes to this project are documented here. The format follows
 - Low, Normal, Boost, and Purge timed overrides plus independent cancellation.
 - ESPHome Wi-Fi and Ethernet Bluetooth proxy examples and end-user guides.
 
-[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.5...HEAD
+[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.6...HEAD
+[0.3.0-rc.6]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.5...v0.3.0-rc.6
 [0.3.0-rc.5]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.4...v0.3.0-rc.5
 [0.3.0-rc.4]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.3...v0.3.0-rc.4
 [0.3.0-rc.3]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.2...v0.3.0-rc.3

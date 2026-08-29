@@ -93,9 +93,10 @@ Changing a preset on the fan entity uses this duration.
 ## Internal CO₂ calibration
 
 For validated models with an internal CO₂ sensor, the integration's Configure
-menu includes a guarded calibration flow. The Vent-Axia fresh-air method exposes
-every extracted room to outdoor air for 10–15 minutes and uses the
-manufacturer's fixed 400 ppm assumption. An advanced method can average
+menu includes a guarded calibration flow. The Vent-Axia method exposes every
+extracted room to outdoor air for at least 15 minutes and defaults to 450 ppm,
+matching the current official app. The value can be replaced with a current
+400–2,000 ppm reading from a trusted calibrated measurement device. An advanced method can average
 independent Home Assistant CO₂ sensor entities, but Home Assistant cannot prove
 those sensors are calibrated or even measure true CO₂ rather than eCO₂.
 
@@ -110,9 +111,9 @@ or reach the installed MEV/Multihome unit. The progress is an elapsed-time guide
 rather than device readback because the recovered BLE protocol exposes no
 completion state.
 
-Vent-Axia's fresh-air procedure fixes the reference at 400 ppm. This is the
-manufacturer's documented assumption, not a live worldwide or local outdoor
-measurement; current atmospheric background is higher and local air varies.
+The official app's 450 ppm default is a calibration reference, not a live
+worldwide or local outdoor measurement. Local outdoor air can vary, so use a
+trusted calibrated instrument value when greater accuracy is required.
 
 Calibration may be run again after the five-minute safety cooldown. Home
 Assistant exposes no reset because the recovered general `RestoreDefaults`

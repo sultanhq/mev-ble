@@ -470,6 +470,29 @@ async def test_internal_co2_calibration_uses_validated_target_and_flags() -> Non
     # Arrange - install a send-only transport and an authenticated client.
     client = DeviceClient([])
     sent: list[bytes] = []
+    requested: list[bytes] = []
+    responses = deque(
+        [
+            encode_packet(
+                PacketType.DEVICE_VIEW_HEADER,
+                Operation.RESPONSE,
+                bytes([2, 6, 0]),
+                timestamp=1,
+            ),
+            encode_packet(
+                PacketType.DEVICE_VIEW_ROW,
+                Operation.RESPONSE,
+                bytes([1, 10, 4]) + bytes(31),
+                timestamp=2,
+            ),
+            encode_packet(
+                PacketType.DEVICE_VIEW_ROW,
+                Operation.RESPONSE,
+                bytes([7, 6, 4]) + bytes(31),
+                timestamp=3,
+            ),
+        ]
+    )
 
     class CalibrationTransport:
         name = "test"
@@ -478,7 +501,8 @@ async def test_internal_co2_calibration_uses_validated_target_and_flags() -> Non
             sent.append(packet)
 
         async def request(self, packet: bytes) -> bytes:
-            raise AssertionError("calibration must not claim a readback response")
+            requested.append(packet)
+            return responses.popleft()
 
     device = MultihomeDevice("AA", "MEV", 1234)
     device.device_info = MultihomeDeviceInfo(model="2")
@@ -487,16 +511,23 @@ async def test_internal_co2_calibration_uses_validated_target_and_flags() -> Non
     device._authenticated = True
 
     # Act - start the documented internal-sensor fresh-air calibration.
-    await device.calibrate_internal_co2(object(), 400)
+    await device.calibrate_internal_co2(object(), 450)
 
-    # Assert - packet type, operation, target, and hidden flags are exact.
+    # Assert - the device table resolves address 7 before the exact app command.
     assert len(sent) == 1
+    assert [decode_packet(packet).packet_type for packet in requested] == [
+        PacketType.DEVICE_VIEW_HEADER,
+        PacketType.DEVICE_VIEW_ROW,
+        PacketType.DEVICE_VIEW_ROW,
+    ]
+    assert decode_packet(requested[1]).payload == b"\x00"
+    assert decode_packet(requested[2]).payload == b"\x01"
     packet = decode_packet(sent[0])
     assert packet.packet_type == PacketType.CO2_CALIBRATION
     assert packet.operation == Operation.UPDATE
-    assert packet.target == 0
+    assert packet.target == 7
     assert packet.payload == encode_co2_calibration(
-        400,
+        450,
         automatic_enabled=False,
         start_forced_calibration=True,
     )
@@ -527,6 +558,51 @@ async def test_internal_co2_calibration_rejects_unvalidated_model() -> None:
     # Act / Assert - target validation happens before Bluetooth I/O.
     with pytest.raises(DeviceError, match="not validated"):
         await device.calibrate_internal_co2(object(), 400)
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_internal_co2_calibration_requires_discovered_sensor_target() -> None:
+    """Calibration cannot fall back to the ineffective master target zero."""
+
+    # Arrange - expose one MEV control-unit row but no internal CO2 sensor row.
+    client = DeviceClient([])
+    sent: list[bytes] = []
+    responses = deque(
+        [
+            encode_packet(
+                PacketType.DEVICE_VIEW_HEADER,
+                Operation.RESPONSE,
+                bytes([1, 6, 0]),
+                timestamp=1,
+            ),
+            encode_packet(
+                PacketType.DEVICE_VIEW_ROW,
+                Operation.RESPONSE,
+                bytes([1, 10, 4]) + bytes(31),
+                timestamp=2,
+            ),
+        ]
+    )
+
+    class CalibrationTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            sent.append(packet)
+
+        async def request(self, packet: bytes) -> bytes:
+            return responses.popleft()
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(model="2")
+    device._client = client
+    device._transport = CalibrationTransport()
+    device._authenticated = True
+
+    # Act / Assert - missing routing evidence blocks the calibration write.
+    with pytest.raises(DeviceError, match="no internal CO2 sensor target"):
+        await device.calibrate_internal_co2(object(), 450)
     assert sent == []
 
 

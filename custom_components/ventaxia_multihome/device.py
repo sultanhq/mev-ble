@@ -28,6 +28,7 @@ from .const import (
 )
 from .protocol import (
     AirflowPreset,
+    DeviceType,
     FanState,
     Operation,
     PacketType,
@@ -35,6 +36,8 @@ from .protocol import (
     ProtocolPacket,
     SystemStatus,
     ZoneTelemetry,
+    decode_device_view_header,
+    decode_device_view_row,
     decode_packet,
     decode_system_status,
     decode_zone_telemetry,
@@ -318,6 +321,7 @@ class MultihomeDevice:
             )
         async with self._operation_lock:
             await self.connect(ble_device)
+            target = await self._find_internal_co2_target()
             await self._send(
                 PacketType.CO2_CALIBRATION,
                 Operation.UPDATE,
@@ -326,8 +330,33 @@ class MultihomeDevice:
                     automatic_enabled=False,
                     start_forced_calibration=True,
                 ),
-                target=0,
+                target=target,
             )
+
+    async def _find_internal_co2_target(self) -> int:
+        """Return the internal sensor address used by the official app."""
+
+        header = decode_device_view_header(
+            (
+                await self._request(
+                    PacketType.DEVICE_VIEW_HEADER,
+                    Operation.DATA_REQUEST,
+                )
+            ).payload
+        )
+        for index in range(header.row_count):
+            row = decode_device_view_row(
+                (
+                    await self._request(
+                        PacketType.DEVICE_VIEW_ROW,
+                        Operation.DATA_REQUEST,
+                        bytes([index]),
+                    )
+                ).payload
+            )
+            if row.device_type == DeviceType.INTERNAL_CO2_SENSOR:
+                return row.address
+        raise DeviceError("the MEV device table has no internal CO2 sensor target")
 
     async def _read_data(self) -> MultihomeData:
         """Read one coherent zone/system snapshot while an operation is locked."""

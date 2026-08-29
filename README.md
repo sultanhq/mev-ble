@@ -96,9 +96,9 @@ Internal CO₂ calibration can be run again after its five-minute safety cooldow
 Home Assistant does not expose the unvalidated general `RestoreDefaults` packet
 as a calibration reset because its payload and scope were not recovered and it
 may affect wider unit settings. To correct a previous calibration, repeat the
-guarded flow with a properly prepared reference. The fresh-air option uses
-Vent-Axia's fixed 400 ppm assumption, not a live measurement of today's global
-or local outdoor CO₂. See the
+guarded flow with a properly prepared reference. The Vent-Axia option defaults
+to 450 ppm, accepts a manually entered 400–2,000 ppm value like the official
+app, and can instead use trusted Home Assistant CO₂ references. See the
 [calibration guide](docs/co2-calibration.md#rerunning-or-correcting-calibration).
 
 ## Example action
