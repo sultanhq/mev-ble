@@ -133,23 +133,27 @@ calibration.
 
 ## v0.3 physical validation record
 
-Before v0.3 is promoted from release candidate, record:
+Physical validation completed on 30 August 2026 using a Multihome unit with
+firmware **2.03.08** and hardware **01.00**. Its V6 device table exposed the
+built-in sensor through address 0, device type 10 (`MEVControlUnit`), hardware
+type 4. No separate type-6 sensor row was present.
 
-| Check | Expected result |
+| Check | Result |
 | --- | --- |
-| Open Configure without confirmation | No calibration packet is sent |
-| Vent-Axia preparation screen | Clearly states all extracted rooms, at least 15 minutes, unoccupied, and a 450 ppm default |
-| Manual value | Accepts 400–2,000 ppm and shows the entered value at final confirmation |
-| Calibration routing | Resolves an internal CO₂ device-table row and targets that address, not master 0 |
-| Final confirmation | Defaults to off and names the device/reference |
-| Confirm fresh-air calibration | HA shows three-minute progress immediately after delivery |
-| Progress finishes | Result says elapsed time, not verified firmware completion |
-| Close progress screen | Calibration is not cancelled or repeated |
-| Attempt again within five minutes | Flow reports rate limiting; no second packet is sent |
-| Reference entity becomes unavailable before confirmation | Flow returns to sensor selection; no packet is sent |
-| Select the MEV's own CO₂ entity | Selection is rejected; no packet is sent |
-| Restart/reload integration | No calibration is repeated automatically |
+| Deliberately distinct manual value | 800 ppm calibration produced a reported 799 ppm |
+| Repeat/correction path | A subsequent 450 ppm calibration produced 452 ppm |
+| Calibration routing | Address-zero type-10 MEV control-unit route accepted and applied |
+| Payload serialization | Raw DataObjectArray wrapper accepted and applied |
+| Progress | HA tracked the documented three-minute sampling period for each command |
+| Safety cooldown | The guarded rerun completed without sending overlapping commands |
 
-Report the unit's model number, firmware version, transport (`fragmented` or
-`whole`), reference method, visible LED behaviour, and before/after readings in
-the v0.3 validation issue. Do not include the stored application setup code.
+The large reversible 800-to-450 change proves that the firmware applied both
+manual reference values; it is stronger evidence than transport acknowledgement
+or the time-based progress display alone. The installed unit did not need to be
+seen or reached, so LED behaviour was not required as release evidence.
+
+Automated coverage additionally verifies that no packet is sent before final
+confirmation, unsafe or unavailable reference sensors are rejected, the MEV's
+own CO₂ entity cannot be selected, pre-write failures do not create a false
+cooldown, uncertain final writes do create one, and reload/restart cannot repeat
+or bypass a recorded calibration attempt.

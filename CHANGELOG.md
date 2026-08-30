@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-30
+
+### Added
+
+- Guarded internal CO₂ calibration from the integration's Configure flow,
+  using the official app's 450 ppm default, a manual 400–2,000 ppm reference,
+  or one or more trusted Home Assistant CO₂ sensors.
+- Mandatory preparation and confirmation steps, a five-minute persisted safety
+  cooldown, and an honest three-minute elapsed-time progress display.
+- Calibration routing and outcome evidence in redacted diagnostics.
+
+### Validated
+
+- Physically validated the built-in-sensor route on Multihome firmware 2.03.08:
+  an 800 ppm calibration produced 799 ppm, and a subsequent 450 ppm calibration
+  restored the reading to 452 ppm.
+- Confirmed repeat calibration, manual reference preservation, address-zero
+  MEV control-unit routing, and the required Raw DataObjectArray payload.
+
 ## [0.3.0-rc.10] - 2026-08-30
 
 ### Fixed
