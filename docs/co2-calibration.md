@@ -11,11 +11,13 @@ model number identifies a documented internal-CO₂ model. It is deliberately no
 an entity, action, service, or automation trigger.
 
 The integration requires a separate final confirmation immediately before it
-sends the command. It permits one attempt every five minutes and does not claim
-that calibration succeeded merely because the BLE packet was accepted. The
-firmware does not expose calibration readback. The attempt time is stored in the
-Home Assistant config entry so reloading the integration or restarting Home
-Assistant cannot bypass the cooldown.
+sends the command. It permits one successful or potentially delivered command
+every five minutes and does not claim that calibration succeeded merely because
+the BLE packet was accepted. A failure proven to have happened before the
+calibration write can be retried immediately. The firmware does not expose
+calibration readback. The delivery-attempt time is stored in the Home Assistant
+config entry so reloading the integration or restarting Home Assistant cannot
+bypass the cooldown.
 
 ## Vent-Axia value: 450 ppm default or manual input
 
@@ -90,9 +92,15 @@ The bar tracks elapsed time; it is not live firmware status. The recovered BLE
 protocol exposes no calibration completion readback, so the integration does
 not claim verified success. If accessible, a magenta LED that stops flashing is
 useful optional evidence. Later CO₂ readings should also settle plausibly. Do
-not repeat commands rapidly; the integration enforces a five-minute cooldown
-even after a failed attempt because the device may have received it before the
-connection failed.
+not repeat commands rapidly. A successful send or a failure during the final
+write starts the five-minute cooldown because the device may have received the
+command before the connection failed. Failures during connection or internal
+sensor target discovery are identified as **not sent** and do not start a new
+cooldown.
+
+Integration diagnostics include the non-sensitive device-table routes and the
+last calibration delivery outcome. Download diagnostics after a failure to
+distinguish a missing internal-sensor route from an uncertain Bluetooth write.
 
 The manual's separate five-minute room-condition instruction applies to paired
 room sensors. This integration calibrates only the MEV's internal sensor, whose

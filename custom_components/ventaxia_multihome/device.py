@@ -73,6 +73,14 @@ class MissingCharacteristicError(DeviceError):
     """Raised when required protocol characteristics are unavailable."""
 
 
+class CalibrationTargetDiscoveryError(DeviceError):
+    """Raised when calibration routing fails before its write is attempted."""
+
+
+class CalibrationWriteUncertainError(DeviceError):
+    """Raised when a calibration write may have reached the unit."""
+
+
 @dataclass(frozen=True, slots=True)
 class MultihomeDeviceInfo:
     """Standard BLE Device Information values."""
@@ -123,6 +131,9 @@ class MultihomeDevice:
         self._transaction_lock = asyncio.Lock()
         self._override_deadline: float | None = None
         self._override_preset: AirflowPreset | None = None
+        self.last_calibration_target: int | None = None
+        self.last_calibration_target_scan: list[tuple[int, int, int]] = []
+        self.last_calibration_device_table_version: int | None = None
         self.device_info = MultihomeDeviceInfo()
 
     @property
@@ -320,18 +331,29 @@ class MultihomeDevice:
                 "internal CO2 calibration is not validated for this model"
             )
         async with self._operation_lock:
-            await self.connect(ble_device)
-            target = await self._find_internal_co2_target()
-            await self._send(
-                PacketType.CO2_CALIBRATION,
-                Operation.UPDATE,
-                encode_co2_calibration(
+            self.last_calibration_target = None
+            self.last_calibration_target_scan = []
+            self.last_calibration_device_table_version = None
+            try:
+                await self.connect(ble_device)
+                target = await self._find_internal_co2_target()
+                payload = encode_co2_calibration(
                     reference_ppm,
                     automatic_enabled=False,
                     start_forced_calibration=True,
-                ),
-                target=target,
-            )
+                )
+            except Exception as err:
+                raise CalibrationTargetDiscoveryError(str(err)) from err
+
+            try:
+                await self._send(
+                    PacketType.CO2_CALIBRATION,
+                    Operation.UPDATE,
+                    payload,
+                    target=target,
+                )
+            except Exception as err:
+                raise CalibrationWriteUncertainError(str(err)) from err
 
     async def _find_internal_co2_target(self) -> int:
         """Return the internal sensor address used by the official app."""
@@ -344,6 +366,7 @@ class MultihomeDevice:
                 )
             ).payload
         )
+        self.last_calibration_device_table_version = header.version
         for index in range(header.row_count):
             row = decode_device_view_row(
                 (
@@ -354,9 +377,21 @@ class MultihomeDevice:
                     )
                 ).payload
             )
+            self.last_calibration_target_scan.append(
+                (row.address, row.device_type, row.hardware_type)
+            )
             if row.device_type == DeviceType.INTERNAL_CO2_SENSOR:
+                self.last_calibration_target = row.address
                 return row.address
-        raise DeviceError("the MEV device table has no internal CO2 sensor target")
+        discovered_types = ", ".join(
+            str(device_type)
+            for _, device_type, _ in self.last_calibration_target_scan
+        )
+        raise DeviceError(
+            "the MEV device table has no internal CO2 sensor target "
+            f"(version {header.version}, device types: "
+            f"{discovered_types or 'none'})"
+        )
 
     async def _read_data(self) -> MultihomeData:
         """Read one coherent zone/system snapshot while an operation is locked."""

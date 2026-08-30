@@ -36,6 +36,24 @@ async def async_get_config_entry_diagnostics(
             data.last_successful_update.isoformat() if data else None
         ),
         "last_update_success": coordinator.last_update_success,
+        "calibration": {
+            "last_outcome": coordinator.last_calibration_outcome,
+            "last_error": coordinator.last_calibration_error,
+            "device_table_version": (
+                coordinator.device.last_calibration_device_table_version
+            ),
+            "discovered_routes": [
+                {
+                    "address": address,
+                    "device_type": device_type,
+                    "hardware_type": hardware_type,
+                }
+                for address, device_type, hardware_type in (
+                    coordinator.device.last_calibration_target_scan
+                )
+            ],
+            "selected_target": coordinator.device.last_calibration_target,
+        },
         "state": {
             "fan_state": fan_state_name(data.zone.fan_state) if data else None,
             "fan_level": data.zone.fan_level if data else None,

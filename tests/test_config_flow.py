@@ -38,6 +38,8 @@ from custom_components.ventaxia_multihome.const import (
     DOMAIN,
 )
 from custom_components.ventaxia_multihome.coordinator import (
+    CalibrationCommandNotSentError,
+    CalibrationDeliveryUncertainError,
     CalibrationRateLimitedError,
 )
 from custom_components.ventaxia_multihome.device import SetupCodeRejectedError
@@ -687,6 +689,14 @@ async def test_calibration_hidden_for_unvalidated_model(hass) -> None:
     ("error", "expected_error"),
     [
         (HomeAssistantError("device unavailable"), "calibration_failed"),
+        (
+            CalibrationCommandNotSentError("target unavailable"),
+            "calibration_not_sent",
+        ),
+        (
+            CalibrationDeliveryUncertainError("write timed out"),
+            "calibration_delivery_uncertain",
+        ),
         (CalibrationRateLimitedError("wait"), "calibration_rate_limited"),
     ],
 )

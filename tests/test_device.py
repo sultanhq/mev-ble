@@ -22,6 +22,7 @@ from custom_components.ventaxia_multihome.const import (
     WHOLE_PACKET_CHARACTERISTIC_UUID,
 )
 from custom_components.ventaxia_multihome.device import (
+    CalibrationWriteUncertainError,
     DeviceError,
     MultihomeDevice,
     MultihomeDeviceInfo,
@@ -526,6 +527,9 @@ async def test_internal_co2_calibration_uses_validated_target_and_flags() -> Non
     assert packet.packet_type == PacketType.CO2_CALIBRATION
     assert packet.operation == Operation.UPDATE
     assert packet.target == 7
+    assert device.last_calibration_device_table_version == 6
+    assert device.last_calibration_target_scan == [(1, 10, 4), (7, 6, 4)]
+    assert device.last_calibration_target == 7
     assert packet.payload == encode_co2_calibration(
         450,
         automatic_enabled=False,
@@ -559,6 +563,49 @@ async def test_internal_co2_calibration_rejects_unvalidated_model() -> None:
     with pytest.raises(DeviceError, match="not validated"):
         await device.calibrate_internal_co2(object(), 400)
     assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_internal_co2_calibration_marks_write_failure_as_uncertain() -> None:
+    """A failure inside the final send cannot be classified as unsent."""
+
+    # Arrange - resolve a valid target, then fail after the write is attempted.
+    responses = deque(
+        [
+            encode_packet(
+                PacketType.DEVICE_VIEW_HEADER,
+                Operation.RESPONSE,
+                bytes([1, 6, 0]),
+                timestamp=1,
+            ),
+            encode_packet(
+                PacketType.DEVICE_VIEW_ROW,
+                Operation.RESPONSE,
+                bytes([7, 6, 4]) + bytes(31),
+                timestamp=2,
+            ),
+        ]
+    )
+
+    class CalibrationTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            raise TimeoutError("acknowledgement timed out")
+
+        async def request(self, packet: bytes) -> bytes:
+            return responses.popleft()
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(model="2")
+    device._client = DeviceClient([])
+    device._transport = CalibrationTransport()
+    device._authenticated = True
+
+    # Act / Assert - the caller is told delivery may have occurred.
+    with pytest.raises(CalibrationWriteUncertainError, match="timed out"):
+        await device.calibrate_internal_co2(object(), 450)
+    assert device.last_calibration_target == 7
 
 
 @pytest.mark.asyncio

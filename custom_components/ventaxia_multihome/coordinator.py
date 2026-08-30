@@ -35,6 +35,8 @@ from .const import (
     UPDATE_INTERVAL,
 )
 from .device import (
+    CalibrationTargetDiscoveryError,
+    CalibrationWriteUncertainError,
     DeviceError,
     MultihomeData,
     MultihomeDevice,
@@ -61,6 +63,14 @@ class CalibrationRateLimitedError(HomeAssistantError):
     """Raised when calibration is attempted again too quickly."""
 
 
+class CalibrationCommandNotSentError(HomeAssistantError):
+    """Raised when calibration definitely failed before its write."""
+
+
+class CalibrationDeliveryUncertainError(HomeAssistantError):
+    """Raised when the calibration write may have reached the unit."""
+
+
 class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
     """Coordinate serialized reads and controls for one ventilation unit."""
 
@@ -82,6 +92,8 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         self.device = device
         self._last_ble_device: BLEDevice | None = None
         self._last_calibration_attempt = self._stored_calibration_attempt(entry)
+        self.last_calibration_outcome: str | None = None
+        self.last_calibration_error: str | None = None
 
     @staticmethod
     def _stored_calibration_attempt(entry: ConfigEntry) -> float | None:
@@ -248,11 +260,26 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                     f"Wait {remaining} seconds before another calibration attempt"
                 )
 
-        self._record_calibration_attempt(now)
         try:
             await self.device.calibrate_internal_co2(
                 self._ble_device(), reference_ppm
             )
+        except CalibrationTargetDiscoveryError as err:
+            await self.device.disconnect()
+            self.last_calibration_outcome = "not_sent"
+            self.last_calibration_error = str(err)
+            raise CalibrationCommandNotSentError(
+                f"Calibration was not sent: {err}"
+            ) from err
+        except CalibrationWriteUncertainError as err:
+            self._record_calibration_attempt(now)
+            await self.device.disconnect()
+            self.last_calibration_outcome = "delivery_uncertain"
+            self.last_calibration_error = str(err)
+            raise CalibrationDeliveryUncertainError(
+                "Calibration delivery could not be confirmed; the command may "
+                f"have reached the unit: {err}"
+            ) from err
         except (
             BleakError,
             TransportError,
@@ -261,9 +288,14 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             TimeoutError,
         ) as err:
             await self.device.disconnect()
-            raise HomeAssistantError(
-                f"Unable to start Multihome CO2 calibration: {err}"
+            self.last_calibration_outcome = "not_sent"
+            self.last_calibration_error = str(err)
+            raise CalibrationCommandNotSentError(
+                f"Calibration was not sent: {err}"
             ) from err
+        self._record_calibration_attempt(now)
+        self.last_calibration_outcome = "sent"
+        self.last_calibration_error = None
 
     def _ble_device(self) -> BLEDevice:
         """Get the current or last known connectable HA Bluetooth device."""

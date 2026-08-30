@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0-rc.8] - 2026-08-30
+
+### Fixed
+
+- Distinguish failures that occur before the CO₂ calibration packet is sent
+  from uncertain final-write failures. Pre-write failures can now be retried
+  immediately; only a successful or potentially delivered write starts the
+  five-minute cooldown.
+- Replace the misleading generic retry message with separate not-sent and
+  delivery-uncertain guidance.
+
+### Diagnostics
+
+- Record the device-table version, discovered routing rows, selected internal
+  CO₂ target, outcome, and non-sensitive error from the latest calibration
+  attempt so hardware-specific routing failures can be identified.
+
 ## [0.3.0-rc.7] - 2026-08-30
 
 ### Fixed

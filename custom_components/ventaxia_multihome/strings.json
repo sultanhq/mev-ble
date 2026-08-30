@@ -92,9 +92,11 @@
       "calibration_sampling": "At 100%, the sampling period has elapsed and this screen can be closed"
     },
     "error": {
-      "calibration_failed": "The calibration command failed. No success has been recorded; normal polling will retry automatically.",
+      "calibration_failed": "The calibration command failed unexpectedly. No success was recorded.",
+      "calibration_not_sent": "The calibration command was not sent. You may retry immediately. The technical reason has been recorded in the Home Assistant log and integration diagnostics.",
+      "calibration_delivery_uncertain": "Home Assistant could not confirm delivery. The calibration may have started, so wait five minutes before trying again.",
       "calibration_not_supported": "Internal CO₂ calibration is not validated for this model.",
-      "calibration_rate_limited": "A calibration was attempted recently. Wait five minutes before trying again.",
+      "calibration_rate_limited": "A calibration was sent or its delivery was uncertain recently. Wait five minutes before trying again.",
       "confirmation_required": "Confirm the preparation before starting calibration.",
       "invalid_reference": "Select only numeric CO₂ sensors that report ppm.",
       "reference_out_of_range": "Every reference reading must be between 400 and 2,000 ppm.",

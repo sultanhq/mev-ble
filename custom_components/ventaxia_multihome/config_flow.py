@@ -46,6 +46,8 @@ from .const import (
     SUPPORTED_LOCAL_NAMES,
 )
 from .coordinator import (
+    CalibrationCommandNotSentError,
+    CalibrationDeliveryUncertainError,
     CalibrationNotSupportedError,
     CalibrationRateLimitedError,
 )
@@ -508,8 +510,18 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                     errors["base"] = "calibration_not_supported"
                 except CalibrationRateLimitedError:
                     errors["base"] = "calibration_rate_limited"
+                except CalibrationCommandNotSentError as err:
+                    _LOGGER.warning(
+                        "Multihome CO2 calibration was not sent: %s", err
+                    )
+                    errors["base"] = "calibration_not_sent"
+                except CalibrationDeliveryUncertainError as err:
+                    _LOGGER.warning(
+                        "Multihome CO2 calibration delivery is uncertain: %s", err
+                    )
+                    errors["base"] = "calibration_delivery_uncertain"
                 except HomeAssistantError as err:
-                    _LOGGER.debug(
+                    _LOGGER.warning(
                         "Unable to start Multihome CO2 calibration: %s", err
                     )
                     errors["base"] = "calibration_failed"

@@ -19,9 +19,15 @@ from custom_components.ventaxia_multihome.const import (
     STARTUP_ADVERTISEMENT_TIMEOUT,
 )
 from custom_components.ventaxia_multihome.coordinator import (
+    CalibrationCommandNotSentError,
+    CalibrationDeliveryUncertainError,
     CalibrationNotSupportedError,
     CalibrationRateLimitedError,
     VentaxiaMultihomeCoordinator,
+)
+from custom_components.ventaxia_multihome.device import (
+    CalibrationTargetDiscoveryError,
+    CalibrationWriteUncertainError,
 )
 from custom_components.ventaxia_multihome.protocol import (
     AirflowPreset,
@@ -421,23 +427,15 @@ async def test_calibration_rejects_unvalidated_model_before_bluetooth() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "error",
-    [
-        TransactionTimeoutError("timed out"),
-        BleakError("disconnected"),
-        ProtocolError("malformed acknowledgement"),
-    ],
-)
-async def test_failed_calibration_disconnects_without_false_success(
-    monkeypatch, error
-) -> None:
-    """Transport failures clear the connection and retain the cooldown."""
+async def test_uncertain_calibration_delivery_retains_cooldown(monkeypatch) -> None:
+    """An attempted write remains guarded when delivery cannot be confirmed."""
 
-    # Arrange - fail one validated calibration transport operation.
+    # Arrange - fail after the calibration write has entered its transport.
     device = SimpleNamespace(
         supports_internal_co2_calibration=True,
-        calibrate_internal_co2=AsyncMock(side_effect=error),
+        calibrate_internal_co2=AsyncMock(
+            side_effect=CalibrationWriteUncertainError("timed out")
+        ),
         disconnect=AsyncMock(),
     )
     coordinator = SimpleNamespace(
@@ -451,7 +449,7 @@ async def test_failed_calibration_disconnects_without_false_success(
     monkeypatch.setattr(coordinator_module, "time", lambda: 100.0)
 
     # Act - send the command and receive an uncertain transport outcome.
-    with pytest.raises(HomeAssistantError, match="Unable to start"):
+    with pytest.raises(CalibrationDeliveryUncertainError, match="may have reached"):
         await VentaxiaMultihomeCoordinator.async_calibrate_internal_co2(
             coordinator, 400
         )
@@ -464,6 +462,42 @@ async def test_failed_calibration_disconnects_without_false_success(
 
 
 @pytest.mark.asyncio
+async def test_prewrite_calibration_failure_does_not_start_cooldown(
+    monkeypatch,
+) -> None:
+    """Target discovery failures can be retried without a false lockout."""
+
+    # Arrange - fail while reading routes, before a calibration packet exists.
+    device = SimpleNamespace(
+        supports_internal_co2_calibration=True,
+        calibrate_internal_co2=AsyncMock(
+            side_effect=CalibrationTargetDiscoveryError("no internal target")
+        ),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        _last_calibration_attempt=None,
+        _record_calibration_attempt=lambda value: setattr(
+            coordinator, "_last_calibration_attempt", value
+        ),
+        _ble_device=lambda: object(),
+    )
+    monkeypatch.setattr(coordinator_module, "time", lambda: 100.0)
+
+    # Act - attempt calibration while route discovery is unavailable.
+    with pytest.raises(CalibrationCommandNotSentError, match="not sent"):
+        await VentaxiaMultihomeCoordinator.async_calibrate_internal_co2(
+            coordinator, 400
+        )
+
+    # Assert - no cooldown is created because the write was never attempted.
+    assert coordinator._last_calibration_attempt is None
+    assert coordinator.last_calibration_outcome == "not_sent"
+    device.disconnect.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_polling_recovers_after_failed_calibration(monkeypatch) -> None:
     """A calibration transport failure does not poison the next coordinator poll."""
 
@@ -473,7 +507,7 @@ async def test_polling_recovers_after_failed_calibration(monkeypatch) -> None:
     device = SimpleNamespace(
         supports_internal_co2_calibration=True,
         calibrate_internal_co2=AsyncMock(
-            side_effect=TransactionTimeoutError("timed out")
+            side_effect=CalibrationWriteUncertainError("timed out")
         ),
         disconnect=AsyncMock(),
         update=AsyncMock(return_value=fresh_data),

@@ -37,8 +37,13 @@ async def test_diagnostics_include_control_validation_state() -> None:
     coordinator = SimpleNamespace(
         data=data,
         last_update_success=True,
+        last_calibration_outcome="not_sent",
+        last_calibration_error="no internal target",
         device=SimpleNamespace(
             transport_name="fragmented",
+            last_calibration_device_table_version=6,
+            last_calibration_target_scan=[(1, 10, 4)],
+            last_calibration_target=None,
             device_info=SimpleNamespace(
                 model="11",
                 firmware="1.2.3",
@@ -60,6 +65,15 @@ async def test_diagnostics_include_control_validation_state() -> None:
     assert result["device"]["selected_transport"] == "fragmented"
     assert result["last_successful_update"] == updated.isoformat()
     assert result["last_update_success"] is True
+    assert result["calibration"] == {
+        "last_outcome": "not_sent",
+        "last_error": "no internal target",
+        "device_table_version": 6,
+        "discovered_routes": [
+            {"address": 1, "device_type": 10, "hardware_type": 4}
+        ],
+        "selected_target": None,
+    }
     assert result["state"] == {
         "fan_state": "user_override",
         "fan_level": 3,
