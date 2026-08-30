@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
@@ -9,9 +10,22 @@ from homeassistant.core import HomeAssistant
 
 from . import VentaxiaMultihomeConfigEntry
 from .const import CONF_SETUP_CODE
-from .protocol import fan_state_name
+from .protocol import GlobalSettings, fan_state_name
 
 TO_REDACT = {CONF_SETUP_CODE}
+
+
+def _global_settings_diagnostics(
+    settings: GlobalSettings | None,
+) -> dict[str, Any] | None:
+    """Return every decoded setting plus its lossless raw record."""
+
+    if settings is None:
+        return None
+    result = asdict(settings)
+    result["raw_record"] = settings.raw_record.hex()
+    result["invalid_boolean_fields"] = list(settings.invalid_boolean_fields)
+    return result
 
 
 async def async_get_config_entry_diagnostics(
@@ -54,6 +68,9 @@ async def async_get_config_entry_diagnostics(
             ],
             "selected_target": coordinator.device.last_calibration_target,
         },
+        "global_settings": _global_settings_diagnostics(
+            data.global_settings if data else None
+        ),
         "state": {
             "fan_state": fan_state_name(data.zone.fan_state) if data else None,
             "fan_level": data.zone.fan_level if data else None,

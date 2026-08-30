@@ -20,12 +20,14 @@ from custom_components.ventaxia_multihome.protocol import (
     decode_device_view_header,
     decode_device_view_row,
     decode_faults,
+    decode_global_settings,
     decode_packet,
     decode_system_status,
     decode_zone_telemetry,
     encode_cancel_override,
     encode_co2_calibration,
     encode_data_object_array,
+    encode_global_settings,
     encode_packet,
     encode_setup_code,
     encode_user_override,
@@ -256,6 +258,123 @@ def test_system_status_and_fault_decoding() -> None:
         FaultFlag.MOTOR_NOT_RUNNING,
         FaultFlag.SERVICE_TIMEOUT,
     )
+
+
+def test_global_settings_golden_record_decodes_every_offset_losslessly() -> None:
+    """The complete documented record maps every byte without discarding data."""
+
+    # Arrange - use realistic values while keeping every one-byte field distinct.
+    record = bytes(
+        [
+            10,
+            35,
+            70,
+            100,
+            65,
+            75,
+            1,
+            0,
+            1,
+            0,
+            1,
+            0,
+            2,
+            3,
+            15,
+            25,
+            4,
+            11,
+            12,
+            5,
+            6,
+            7,
+            100,
+            0,
+            150,
+            0,
+            21,
+            91,
+            8,
+            9,
+            22,
+            92,
+            13,
+            14,
+            15,
+            16,
+        ]
+    )
+
+    # Act - decode then serialize the read-only settings snapshot.
+    settings = decode_global_settings(record)
+    serialized = encode_global_settings(settings)
+
+    # Assert - all 36 offsets and the original record are represented exactly.
+    assert settings.raw_record == record
+    assert settings.speed_low == 10
+    assert settings.speed_medium == 35
+    assert settings.speed_boost == 70
+    assert settings.speed_purge == 100
+    assert settings.boost_minimum == 65
+    assert settings.humidity_threshold == 75
+    assert settings.comfort_enabled is True
+    assert settings.delay_enabled is False
+    assert settings.overrun_enabled is True
+    assert settings.rapid_response_enabled is False
+    assert settings.ambient_response_enabled is True
+    assert settings.low_temperature_enabled is False
+    assert settings.low_threshold_action == 2
+    assert settings.high_threshold_action == 3
+    assert settings.low_temperature_threshold == 15
+    assert settings.high_temperature_threshold == 25
+    assert settings.purge_low_mode == 4
+    assert settings.overrun_timeout_minutes == 11
+    assert settings.delay_timeout_minutes == 12
+    assert settings.ls1_action == 5
+    assert settings.ls2_action == 6
+    assert settings.ls3_action == 7
+    assert settings.co2_boost_threshold == 1000
+    assert settings.co2_purge_threshold == 1500
+    assert settings.analogue_input_1_low_value == 21
+    assert settings.analogue_input_1_high_value == 91
+    assert settings.analogue_input_1_low_action == 8
+    assert settings.analogue_input_1_high_action == 9
+    assert settings.analogue_input_2_low_value == 22
+    assert settings.analogue_input_2_high_value == 92
+    assert settings.analogue_input_2_low_action == 13
+    assert settings.analogue_input_2_high_action == 14
+    assert settings.digital_input_1_action == 15
+    assert settings.digital_input_2_action == 16
+    assert settings.invalid_boolean_fields == ()
+    assert serialized == record
+
+
+def test_global_settings_unknown_boolean_is_not_guessed() -> None:
+    """Unexpected flag bytes stay visible as raw data and decode to unknown."""
+
+    # Arrange - place an unsupported value in the comfort-enabled byte.
+    record = bytearray(36)
+    record[6] = 2
+
+    # Act - decode and round-trip the malformed field.
+    settings = decode_global_settings(bytes(record))
+
+    # Assert - semantic state is unknown while the exact byte survives.
+    assert settings.comfort_enabled is None
+    assert settings.invalid_boolean_fields == ("comfort_enabled",)
+    assert encode_global_settings(settings) == bytes(record)
+
+
+@pytest.mark.parametrize("length", [0, 35, 37])
+def test_global_settings_rejects_malformed_record_lengths(length: int) -> None:
+    """Short, empty, and overlong settings records cannot be partially decoded."""
+
+    # Arrange - create a record that is not the documented 36-byte size.
+    record = bytes(length)
+
+    # Act / Assert - malformed input raises the typed protocol error.
+    with pytest.raises(ProtocolError, match="exactly 36 bytes"):
+        decode_global_settings(record)
 
 
 def test_override_and_cancel_encoding() -> None:

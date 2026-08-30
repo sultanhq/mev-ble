@@ -10,6 +10,7 @@ import pytest
 from custom_components.ventaxia_multihome.diagnostics import (
     async_get_config_entry_diagnostics,
 )
+from custom_components.ventaxia_multihome.protocol import decode_global_settings
 
 
 @pytest.mark.asyncio
@@ -20,6 +21,48 @@ async def test_diagnostics_include_control_validation_state() -> None:
     updated = datetime(2026, 8, 27, 8, 30, tzinfo=UTC)
     data = SimpleNamespace(
         last_successful_update=updated,
+        global_settings=decode_global_settings(
+            bytes(
+                [
+                    10,
+                    35,
+                    70,
+                    100,
+                    65,
+                    75,
+                    1,
+                    0,
+                    1,
+                    0,
+                    1,
+                    0,
+                    2,
+                    3,
+                    15,
+                    25,
+                    4,
+                    11,
+                    12,
+                    5,
+                    6,
+                    7,
+                    100,
+                    0,
+                    150,
+                    0,
+                    21,
+                    91,
+                    8,
+                    9,
+                    22,
+                    92,
+                    13,
+                    14,
+                    15,
+                    16,
+                ]
+            )
+        ),
         zone=SimpleNamespace(
             fan_state=2,
             fan_level=3,
@@ -74,6 +117,14 @@ async def test_diagnostics_include_control_validation_state() -> None:
         ],
         "selected_target": None,
     }
+    assert result["global_settings"]["speed_low"] == 10
+    assert result["global_settings"]["speed_purge"] == 100
+    assert result["global_settings"]["co2_boost_threshold"] == 1000
+    assert result["global_settings"]["co2_purge_threshold"] == 1500
+    assert result["global_settings"]["invalid_boolean_fields"] == []
+    assert result["global_settings"]["raw_record"] == (
+        "0a234664414b01000100010002030f19040b0c05060764009600155b0809165c0d0e0f10"
+    )
     assert result["state"] == {
         "fan_state": "user_override",
         "fan_level": 3,

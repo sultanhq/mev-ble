@@ -22,6 +22,7 @@ FRAGMENT_PAYLOAD_SIZE: Final = 17
 MIN_CO2_CALIBRATION_REFERENCE: Final = 400
 MAX_CO2_CALIBRATION_REFERENCE: Final = 2000
 DEFAULT_CO2_CALIBRATION_REFERENCE: Final = 450
+GLOBAL_SETTINGS_SIZE: Final = 36
 
 WHOLE_PACKET_ACK: Final = b"\x00\x00\x01"
 WHOLE_PACKET_CANCEL: Final = b"\x00\x00\xff"
@@ -37,6 +38,8 @@ class PacketType(IntEnum):
     USER_OVERRIDE = 56
     SYSTEM_STATUS = 67
     CO2_CALIBRATION = 116
+    GLOBAL_DATA_FIELD = 136
+    GLOBAL_DATA = 137
     DEVICE_VIEW_HEADER = 141
     DEVICE_VIEW_ROW = 142
     ZONE_VIEW_ROW = 146
@@ -559,6 +562,136 @@ def decode_system_status(data: bytes) -> SystemStatus:
         "<BHI", data_object.payload
     )
     return SystemStatus(fan_speed, override_remaining, fault_mask)
+
+
+@dataclass(frozen=True, slots=True)
+class GlobalSettings:
+    """Losslessly decoded 36-byte MEV global-settings record."""
+
+    raw_record: bytes
+    speed_low: int
+    speed_medium: int
+    speed_boost: int
+    speed_purge: int
+    boost_minimum: int
+    humidity_threshold: int
+    comfort_enabled: bool | None
+    delay_enabled: bool | None
+    overrun_enabled: bool | None
+    rapid_response_enabled: bool | None
+    ambient_response_enabled: bool | None
+    low_temperature_enabled: bool | None
+    low_threshold_action: int
+    high_threshold_action: int
+    low_temperature_threshold: int
+    high_temperature_threshold: int
+    purge_low_mode: int
+    overrun_timeout_minutes: int
+    delay_timeout_minutes: int
+    ls1_action: int
+    ls2_action: int
+    ls3_action: int
+    co2_boost_threshold: int
+    co2_purge_threshold: int
+    analogue_input_1_low_value: int
+    analogue_input_1_high_value: int
+    analogue_input_1_low_action: int
+    analogue_input_1_high_action: int
+    analogue_input_2_low_value: int
+    analogue_input_2_high_value: int
+    analogue_input_2_low_action: int
+    analogue_input_2_high_action: int
+    digital_input_1_action: int
+    digital_input_2_action: int
+
+    @property
+    def invalid_boolean_fields(self) -> tuple[str, ...]:
+        """Return flag fields whose raw byte was neither zero nor one."""
+
+        return tuple(
+            name
+            for name in (
+                "comfort_enabled",
+                "delay_enabled",
+                "overrun_enabled",
+                "rapid_response_enabled",
+                "ambient_response_enabled",
+                "low_temperature_enabled",
+            )
+            if getattr(self, name) is None
+        )
+
+
+def _decode_global_boolean(value: int) -> bool | None:
+    """Decode a strict zero/one flag without inventing unknown semantics."""
+
+    if value == 0:
+        return False
+    if value == 1:
+        return True
+    return None
+
+
+def _decode_global_co2(data: bytes, offset: int) -> int:
+    """Decode the app's two-byte decimal CO2 threshold representation."""
+
+    return data[offset] * 10 + data[offset + 1]
+
+
+def decode_global_settings(data: bytes) -> GlobalSettings:
+    """Decode the documented MEV global-settings record at every offset."""
+
+    if len(data) != GLOBAL_SETTINGS_SIZE:
+        raise ProtocolError(
+            "global settings require exactly "
+            f"{GLOBAL_SETTINGS_SIZE} bytes; got {len(data)}"
+        )
+    raw_record = bytes(data)
+    return GlobalSettings(
+        raw_record=raw_record,
+        speed_low=data[0],
+        speed_medium=data[1],
+        speed_boost=data[2],
+        speed_purge=data[3],
+        boost_minimum=data[4],
+        humidity_threshold=data[5],
+        comfort_enabled=_decode_global_boolean(data[6]),
+        delay_enabled=_decode_global_boolean(data[7]),
+        overrun_enabled=_decode_global_boolean(data[8]),
+        rapid_response_enabled=_decode_global_boolean(data[9]),
+        ambient_response_enabled=_decode_global_boolean(data[10]),
+        low_temperature_enabled=_decode_global_boolean(data[11]),
+        low_threshold_action=data[12],
+        high_threshold_action=data[13],
+        low_temperature_threshold=data[14],
+        high_temperature_threshold=data[15],
+        purge_low_mode=data[16],
+        overrun_timeout_minutes=data[17],
+        delay_timeout_minutes=data[18],
+        ls1_action=data[19],
+        ls2_action=data[20],
+        ls3_action=data[21],
+        co2_boost_threshold=_decode_global_co2(data, 22),
+        co2_purge_threshold=_decode_global_co2(data, 24),
+        analogue_input_1_low_value=data[26],
+        analogue_input_1_high_value=data[27],
+        analogue_input_1_low_action=data[28],
+        analogue_input_1_high_action=data[29],
+        analogue_input_2_low_value=data[30],
+        analogue_input_2_high_value=data[31],
+        analogue_input_2_low_action=data[32],
+        analogue_input_2_high_action=data[33],
+        digital_input_1_action=data[34],
+        digital_input_2_action=data[35],
+    )
+
+
+def encode_global_settings(settings: GlobalSettings) -> bytes:
+    """Serialize a read-only snapshot without losing unknown raw values."""
+
+    if len(settings.raw_record) != GLOBAL_SETTINGS_SIZE:
+        raise ProtocolError("global settings snapshot has an invalid raw record")
+    return settings.raw_record
 
 
 def decode_faults(mask: int) -> tuple[FaultFlag, ...]:

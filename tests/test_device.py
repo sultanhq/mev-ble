@@ -104,10 +104,56 @@ def _responses(
     status = encode_data_object_array(
         DataObjectType.RAW, struct.pack("<BHI", 3, override_remaining, 0)
     )
+    global_settings = bytes(
+        [
+            10,
+            35,
+            70,
+            100,
+            65,
+            75,
+            1,
+            0,
+            1,
+            0,
+            1,
+            0,
+            2,
+            3,
+            15,
+            25,
+            4,
+            11,
+            12,
+            5,
+            6,
+            7,
+            100,
+            0,
+            150,
+            0,
+            21,
+            91,
+            8,
+            9,
+            22,
+            92,
+            13,
+            14,
+            15,
+            16,
+        ]
+    )
     return [
         encode_packet(PacketType.ZONE_VIEW_ROW, Operation.RESPONSE, zone, timestamp=1),
         encode_packet(
             PacketType.SYSTEM_STATUS, Operation.RESPONSE, status, timestamp=2
+        ),
+        encode_packet(
+            PacketType.GLOBAL_DATA,
+            Operation.RESPONSE,
+            global_settings,
+            timestamp=3,
         ),
     ]
 
@@ -167,6 +213,7 @@ async def test_update_authenticates_and_decodes() -> None:
     assert result.zone.temperature == pytest.approx(22.0)
     assert result.system.override_remaining == 60
     assert result.system.override_remaining_source == "device"
+    assert result.global_settings.co2_boost_threshold == 1000
     assert device.transport_name == "whole_packet"
 
 
@@ -457,8 +504,10 @@ async def test_override_controls_send_then_read_fresh_telemetry() -> None:
     assert [decode_packet(packet).packet_type for packet in requested] == [
         PacketType.ZONE_VIEW_ROW,
         PacketType.SYSTEM_STATUS,
+        PacketType.GLOBAL_DATA,
         PacketType.ZONE_VIEW_ROW,
         PacketType.SYSTEM_STATUS,
+        PacketType.GLOBAL_DATA,
     ]
     assert override_data.zone.fan_rpm == 1200
     assert cancel_data.system.fan_speed == 3
@@ -718,7 +767,7 @@ async def test_control_and_readback_have_transport_parity(
     """The same override API sends and reconciles over either BLE transport."""
 
     # Arrange - build the exact acknowledgements/responses for the chosen transport.
-    zone_response, status_response = _responses()
+    zone_response, status_response, global_settings_response = _responses()
     command_template = encode_packet(
         PacketType.USER_OVERRIDE,
         Operation.DATA_REQUEST,
@@ -726,7 +775,9 @@ async def test_control_and_readback_have_transport_parity(
         timestamp=1,
     )
     if transport_name == "whole_packet":
-        client = DeviceClient([zone_response, status_response])
+        client = DeviceClient(
+            [zone_response, status_response, global_settings_response]
+        )
         transport = WholePacketTransport(client, timeout=0.1, poll_interval=0)
         command_frame_count = 1
     else:
@@ -736,9 +787,13 @@ async def test_control_and_readback_have_transport_parity(
         status_request = encode_packet(
             PacketType.SYSTEM_STATUS, Operation.DATA_REQUEST, timestamp=1
         )
+        global_settings_request = encode_packet(
+            PacketType.GLOBAL_DATA, Operation.DATA_REQUEST, timestamp=1
+        )
         command_frames = fragment_packet(command_template)
         zone_request_frames = fragment_packet(zone_request)
         status_request_frames = fragment_packet(status_request)
+        global_settings_request_frames = fragment_packet(global_settings_request)
         client = DeviceClient(
             [
                 *(fragment_ack(index) for index in range(1, len(command_frames) + 1)),
@@ -752,6 +807,11 @@ async def test_control_and_readback_have_transport_parity(
                     for index in range(1, len(status_request_frames) + 1)
                 ),
                 *fragment_packet(status_response),
+                *(
+                    fragment_ack(index)
+                    for index in range(1, len(global_settings_request_frames) + 1)
+                ),
+                *fragment_packet(global_settings_response),
             ],
             FRAGMENT_CHARACTERISTIC_UUID,
         )
@@ -779,6 +839,7 @@ async def test_control_and_readback_have_transport_parity(
     assert decoded.payload == encode_user_override(AirflowPreset.BOOST, 90)
     assert data.zone.fan_rpm == 1200
     assert data.system.override_remaining == 60
+    assert data.global_settings.co2_purge_threshold == 1500
 
 
 @pytest.mark.asyncio
@@ -919,10 +980,12 @@ async def test_active_poll_finishes_before_control_and_its_readback() -> None:
         "connect",
         f"request:{int(PacketType.ZONE_VIEW_ROW)}",
         f"request:{int(PacketType.SYSTEM_STATUS)}",
+        f"request:{int(PacketType.GLOBAL_DATA)}",
         "connect",
         f"send:{int(PacketType.USER_OVERRIDE)}",
         f"request:{int(PacketType.ZONE_VIEW_ROW)}",
         f"request:{int(PacketType.SYSTEM_STATUS)}",
+        f"request:{int(PacketType.GLOBAL_DATA)}",
     ]
     assert poll_data.zone.fan_rpm == 1200
     assert control_data.system.fan_speed == 3

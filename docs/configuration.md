@@ -45,6 +45,19 @@ into setup mode so Home Assistant can repeat the exchange automatically.
 | Cancel override | Ends the current BLE override and returns control to the unit |
 | Fault binary sensors | Motor, sensor, attachment, alarm, firmware, battery, filter, and service diagnostics |
 
+## Read-only global settings
+
+The integration reads the unit's complete 36-byte global-settings record and
+includes it in **Download diagnostics**. This initial v0.4 surface is
+deliberately diagnostic-only: it does not create editable entities or permit a
+settings write.
+
+The diagnostic snapshot includes airflow percentages, humidity and temperature
+options, delay and overrun timeouts, LS/analogue/digital input actions, CO₂
+thresholds, the original raw record, and a list of any boolean fields whose
+firmware value was not the documented zero or one. Unknown action numbers are
+retained numerically instead of being assigned guessed meanings.
+
 ## Supported control scope
 
 The physically inspected MEV RF remote exposes speed levels 1–4 and timer
@@ -162,8 +175,9 @@ Choose the actual entity in the automation editor.
 
 ## Polling and availability
 
-Home Assistant polls zone telemetry and system status every 10 seconds over a
-normally long-lived GATT connection. Failed communication makes the entities
+Home Assistant polls zone telemetry, system status, and the read-only global
+settings every 10 seconds over a normally long-lived GATT connection. Failed
+communication makes the entities
 unavailable, clears stale protocol state, and retries normally. The integration
 retains the last known Bluetooth route so it can reconnect even when the MEV's
 advertisement has expired from Home Assistant's scanner cache.

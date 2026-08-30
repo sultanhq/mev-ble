@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0-rc.1] - 2026-08-30
+
+### Added
+
+- Decode the complete 36-byte MEV global-settings record, including airflow
+  percentages, environmental options, timeouts, input actions, and CO₂
+  thresholds.
+- Include every decoded value, the original raw record, and any invalid
+  boolean fields in redacted Home Assistant diagnostics.
+
+### Safety
+
+- Keep all global settings read-only in this release candidate. Unknown action
+  values and malformed flags remain numeric or unavailable rather than being
+  assigned guessed semantics, and malformed records fail as a complete unit.
+
 ## [0.3.0] - 2026-08-30
 
 ### Added

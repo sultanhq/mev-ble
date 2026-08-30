@@ -30,6 +30,7 @@ from .protocol import (
     AirflowPreset,
     DeviceType,
     FanState,
+    GlobalSettings,
     Operation,
     PacketType,
     ProtocolError,
@@ -38,6 +39,7 @@ from .protocol import (
     ZoneTelemetry,
     decode_device_view_header,
     decode_device_view_row,
+    decode_global_settings,
     decode_packet,
     decode_system_status,
     decode_zone_telemetry,
@@ -99,6 +101,7 @@ class MultihomeData:
 
     zone: ZoneTelemetry
     system: SystemStatus
+    global_settings: GlobalSettings
     last_successful_update: datetime
 
     @property
@@ -403,7 +406,7 @@ class MultihomeDevice:
         )
 
     async def _read_data(self) -> MultihomeData:
-        """Read one coherent zone/system snapshot while an operation is locked."""
+        """Read one coherent telemetry and global-settings snapshot."""
 
         zone_packet = await self._request(
             PacketType.ZONE_VIEW_ROW, Operation.DATA_REQUEST, b"\x00"
@@ -411,9 +414,13 @@ class MultihomeDevice:
         system_packet = await self._request(
             PacketType.SYSTEM_STATUS, Operation.DATA_REQUEST
         )
+        global_settings_packet = await self._request(
+            PacketType.GLOBAL_DATA, Operation.DATA_REQUEST
+        )
         return MultihomeData(
             zone=decode_zone_telemetry(zone_packet.payload),
             system=decode_system_status(system_packet.payload),
+            global_settings=decode_global_settings(global_settings_packet.payload),
             last_successful_update=datetime.now(UTC),
         )
 
