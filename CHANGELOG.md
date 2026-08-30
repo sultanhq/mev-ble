@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0-rc.9] - 2026-08-30
+
+### Fixed
+
+- Route built-in CO₂ calibration through an address-zero MEV control-unit
+  row (device type 10) when a validated CO₂-capable model has no separate
+  internal-sensor row. A standalone internal CO₂ sensor row (device type 6)
+  remains preferred when present. This matches the official app's two routing
+  paths and the device table reported by physical Multihome hardware.
+
 ## [0.3.0-rc.8] - 2026-08-30
 
 ### Fixed

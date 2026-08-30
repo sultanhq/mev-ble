@@ -90,6 +90,7 @@ class DeviceType(IntEnum):
     """Device-table types needed to resolve command destinations."""
 
     INTERNAL_CO2_SENSOR = 6
+    MEV_CONTROL_UNIT = 10
 
 
 class VentilationMode(IntEnum):

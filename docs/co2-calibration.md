@@ -101,6 +101,10 @@ cooldown.
 Integration diagnostics include the non-sensitive device-table routes and the
 last calibration delivery outcome. Download diagnostics after a failure to
 distinguish a missing internal-sensor route from an uncertain Bluetooth write.
+The official app has two internal-calibration routes: a standalone internal
+CO₂ sensor row when present, or the address-zero MEV control-unit row for a
+validated model with a built-in sensor. The integration resolves those explicit
+routes and never falls back to an arbitrary device-table row.
 
 The manual's separate five-minute room-condition instruction applies to paired
 room sensors. This integration calibrates only the MEV's internal sensor, whose

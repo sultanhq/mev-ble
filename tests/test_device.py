@@ -538,6 +538,63 @@ async def test_internal_co2_calibration_uses_validated_target_and_flags() -> Non
 
 
 @pytest.mark.asyncio
+async def test_internal_co2_calibration_uses_mev_control_target_zero() -> None:
+    """Built-in CO2 models route calibration through their MEV control row."""
+
+    # Arrange - reproduce the live V6 table with one address-zero type-10 row.
+    sent: list[bytes] = []
+    responses = deque(
+        [
+            encode_packet(
+                PacketType.DEVICE_VIEW_HEADER,
+                Operation.RESPONSE,
+                bytes([1, 6, 0]),
+                timestamp=1,
+            ),
+            encode_packet(
+                PacketType.DEVICE_VIEW_ROW,
+                Operation.RESPONSE,
+                bytes([0, 10, 4]) + bytes(31),
+                timestamp=2,
+            ),
+        ]
+    )
+
+    class CalibrationTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            sent.append(packet)
+
+        async def request(self, packet: bytes) -> bytes:
+            return responses.popleft()
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(model="10")
+    device._client = DeviceClient([])
+    device._transport = CalibrationTransport()
+    device._authenticated = True
+
+    # Act - start calibration using the official-app default reference.
+    await device.calibrate_internal_co2(object(), 450)
+
+    # Assert - the live MEV control row is selected without a broad fallback.
+    assert len(sent) == 1
+    packet = decode_packet(sent[0])
+    assert packet.packet_type == PacketType.CO2_CALIBRATION
+    assert packet.operation == Operation.UPDATE
+    assert packet.target == 0
+    assert packet.payload == encode_co2_calibration(
+        450,
+        automatic_enabled=False,
+        start_forced_calibration=True,
+    )
+    assert device.last_calibration_device_table_version == 6
+    assert device.last_calibration_target_scan == [(0, 10, 4)]
+    assert device.last_calibration_target == 0
+
+
+@pytest.mark.asyncio
 async def test_internal_co2_calibration_rejects_unvalidated_model() -> None:
     """Unknown and non-CO2 models cannot receive a calibration command."""
 

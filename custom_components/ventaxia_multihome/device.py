@@ -367,6 +367,7 @@ class MultihomeDevice:
             ).payload
         )
         self.last_calibration_device_table_version = header.version
+        mev_control_target: int | None = None
         for index in range(header.row_count):
             row = decode_device_view_row(
                 (
@@ -383,6 +384,14 @@ class MultihomeDevice:
             if row.device_type == DeviceType.INTERNAL_CO2_SENSOR:
                 self.last_calibration_target = row.address
                 return row.address
+            if (
+                row.device_type == DeviceType.MEV_CONTROL_UNIT
+                and row.address == 0
+            ):
+                mev_control_target = row.address
+        if mev_control_target is not None:
+            self.last_calibration_target = mev_control_target
+            return mev_control_target
         discovered_types = ", ".join(
             str(device_type)
             for _, device_type, _ in self.last_calibration_target_scan
