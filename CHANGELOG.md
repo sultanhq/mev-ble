@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0-rc.10] - 2026-08-30
+
+### Fixed
+
+- Wrap the four-byte CO₂ calibration body in the Raw DataObjectArray emitted
+  by the official app. Earlier release candidates produced a valid transport
+  packet that the MEV acknowledged but ignored because its calibration payload
+  omitted this required wrapper.
+
 ## [0.3.0-rc.9] - 2026-08-30
 
 ### Fixed

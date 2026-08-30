@@ -373,7 +373,7 @@ def encode_co2_calibration(
     automatic_enabled: bool,
     start_forced_calibration: bool,
 ) -> bytes:
-    """Encode the recovered four-byte CO2 calibration command body."""
+    """Encode the recovered Raw DataObjectArray CO2 calibration payload."""
 
     if not MIN_CO2_CALIBRATION_REFERENCE <= reference_ppm <= (
         MAX_CO2_CALIBRATION_REFERENCE
@@ -383,12 +383,13 @@ def encode_co2_calibration(
             f"{MIN_CO2_CALIBRATION_REFERENCE}.."
             f"{MAX_CO2_CALIBRATION_REFERENCE} ppm"
         )
-    return struct.pack(
+    body = struct.pack(
         "<HBB",
         reference_ppm,
         automatic_enabled,
         start_forced_calibration,
     )
+    return encode_data_object_array(DataObjectType.RAW, body)
 
 
 @dataclass(frozen=True, slots=True)

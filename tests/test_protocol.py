@@ -273,7 +273,7 @@ def test_override_and_cancel_encoding() -> None:
 
 
 def test_co2_calibration_encoding_and_packet_fixture() -> None:
-    """Calibration uses the recovered UInt16LE value and two flags."""
+    """Calibration wraps the recovered UInt16LE value and flags as Raw data."""
 
     # Arrange - use the documented fresh-air reference and fixed timestamp.
     payload = encode_co2_calibration(
@@ -291,12 +291,36 @@ def test_co2_calibration_encoding_and_packet_fixture() -> None:
     )
     frames = fragment_packet(packet)
 
-    # Assert - payload, whole packet, and fragment are deterministic.
-    assert payload == bytes.fromhex("90010001")
-    assert packet.hex() == "600e007401000102030490010001"
+    # Assert - the official app's Raw wrapper, packet, and frames are exact.
+    data_object = decode_data_object_array(payload)
+    assert data_object.object_type == DataObjectType.RAW
+    assert data_object.payload == bytes.fromhex("90010001")
+    assert payload == bytes.fromhex("ba0a000490010001")
+    assert packet.hex() == "2e120074010001020304ba0a000490010001"
     assert [frame.hex() for frame in frames] == [
-        "117800600e007401000102030490010001000000"
+        "1210002e120074010001020304ba0a0004900100",
+        "2254000100000000000000000000000000000000",
     ]
+
+
+def test_co2_calibration_preserves_manual_800_ppm_reference() -> None:
+    """A manual reference is preserved inside the required Raw wrapper."""
+
+    # Arrange - use the deliberately distinct physical-validation reference.
+    reference_ppm = 800
+
+    # Act - encode and unwrap the official-app calibration payload.
+    data_object = decode_data_object_array(
+        encode_co2_calibration(
+            reference_ppm,
+            automatic_enabled=False,
+            start_forced_calibration=True,
+        )
+    )
+
+    # Assert - 800 ppm and both flags occupy the recovered four-byte body.
+    assert data_object.object_type == DataObjectType.RAW
+    assert data_object.payload == bytes.fromhex("20030001")
 
 
 def test_device_view_routing_decoding() -> None:
