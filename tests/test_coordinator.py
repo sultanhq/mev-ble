@@ -7,14 +7,16 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 from bleak.exc import BleakError
+from homeassistant.components.bluetooth import BluetoothScanningMode
 from homeassistant.const import CONF_ADDRESS
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.ventaxia_multihome import coordinator as coordinator_module
 from custom_components.ventaxia_multihome.bluetooth import TransactionTimeoutError
 from custom_components.ventaxia_multihome.const import (
     CONF_LAST_CO2_CALIBRATION_ATTEMPT,
+    STARTUP_ADVERTISEMENT_TIMEOUT,
 )
 from custom_components.ventaxia_multihome.coordinator import (
     CalibrationNotSupportedError,
@@ -100,6 +102,156 @@ def test_ble_device_reports_unreachable_without_any_known_path(monkeypatch) -> N
     # Act / Assert - setup fails with the useful HA diagnostic instead of guessing.
     with pytest.raises(UpdateFailed, match="never seen by any scanner"):
         coordinator._ble_device()
+
+
+@pytest.mark.asyncio
+async def test_initial_bluetooth_uses_cached_connectable_path(monkeypatch) -> None:
+    """Startup does not wait when HA already knows a connectable route."""
+
+    # Arrange - expose the saved device in Home Assistant's Bluetooth cache.
+    coordinator = _coordinator()
+    ble_device = object()
+    scanner_count = Mock()
+    process_advertisements = AsyncMock()
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_ble_device_from_address",
+        Mock(return_value=ble_device),
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth, "async_scanner_count", scanner_count
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_process_advertisements",
+        process_advertisements,
+    )
+
+    # Act - prepare the coordinator's initial Bluetooth route.
+    await coordinator.async_wait_for_initial_bluetooth()
+
+    # Assert - the cached route is retained without scanning or waiting.
+    assert coordinator._last_ble_device is ble_device
+    scanner_count.assert_not_called()
+    process_advertisements.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_initial_bluetooth_waits_for_saved_address(monkeypatch) -> None:
+    """Startup waits for the proxy to advertise the configured device."""
+
+    # Arrange - make the device appear only after an address-specific scan.
+    coordinator = _coordinator()
+    ble_device = object()
+    discovered = iter([None, ble_device])
+    lookup = Mock(side_effect=lambda hass, address, connectable: next(discovered))
+    process_advertisements = AsyncMock(return_value=object())
+    monkeypatch.setattr(
+        coordinator_module.bluetooth, "async_ble_device_from_address", lookup
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_scanner_count",
+        Mock(return_value=1),
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_process_advertisements",
+        process_advertisements,
+    )
+
+    # Act - wait for Home Assistant's connectable advertisement cache to warm.
+    await coordinator.async_wait_for_initial_bluetooth()
+
+    # Assert - only the configured address is actively awaited and then retained.
+    process_advertisements.assert_awaited_once()
+    args = process_advertisements.await_args.args
+    assert args[0] is coordinator.hass
+    assert args[1](object()) is True
+    assert args[2] == {"address": "AA:BB", "connectable": True}
+    assert args[3] is BluetoothScanningMode.ACTIVE
+    assert args[4] == STARTUP_ADVERTISEMENT_TIMEOUT
+    assert coordinator._last_ble_device is ble_device
+
+
+@pytest.mark.asyncio
+async def test_initial_bluetooth_defers_without_connectable_scanner(
+    monkeypatch,
+) -> None:
+    """Startup remains retryable when no connection-capable route exists."""
+
+    # Arrange - expose no saved device and no connectable local or proxy scanner.
+    coordinator = _coordinator()
+    process_advertisements = AsyncMock()
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_ble_device_from_address",
+        Mock(return_value=None),
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_scanner_count",
+        Mock(return_value=0),
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_process_advertisements",
+        process_advertisements,
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_address_reachability_diagnostics",
+        Mock(return_value="no connectable scanner available"),
+    )
+
+    # Act / Assert - HA receives a retryable error without starting a BLE wait.
+    with pytest.raises(ConfigEntryNotReady, match="no connectable scanner"):
+        await coordinator.async_wait_for_initial_bluetooth()
+    process_advertisements.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_initial_bluetooth_retries_after_advertisement_timeout(
+    monkeypatch,
+) -> None:
+    """A later setup retry succeeds after the proxy sees the saved device."""
+
+    # Arrange - time out once, then expose the device during the next setup retry.
+    coordinator = _coordinator()
+    ble_device = object()
+    discovered = iter([None, None, ble_device])
+    process_advertisements = AsyncMock(
+        side_effect=[TimeoutError, object()]
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_ble_device_from_address",
+        Mock(side_effect=lambda hass, address, connectable: next(discovered)),
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_scanner_count",
+        Mock(return_value=1),
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_process_advertisements",
+        process_advertisements,
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_address_reachability_diagnostics",
+        Mock(return_value="unknown (never seen by any scanner)"),
+    )
+
+    # Act - let the first bounded wait expire, then run HA's later setup retry.
+    with pytest.raises(ConfigEntryNotReady, match="never seen by any scanner"):
+        await coordinator.async_wait_for_initial_bluetooth()
+    await coordinator.async_wait_for_initial_bluetooth()
+
+    # Assert - retry uses another bounded wait and recovers without manual reload.
+    assert process_advertisements.await_count == 2
+    assert coordinator._last_ble_device is ble_device
 
 
 @pytest.mark.asyncio

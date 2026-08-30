@@ -9,11 +9,18 @@ from typing import TYPE_CHECKING
 
 from bleak.exc import BleakError
 from homeassistant.components import bluetooth
-from homeassistant.components.bluetooth import BluetoothReachabilityIntent
+from homeassistant.components.bluetooth import (
+    BluetoothReachabilityIntent,
+    BluetoothScanningMode,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_ADDRESS
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
+    ConfigEntryNotReady,
+    HomeAssistantError,
+)
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .bluetooth import TransportError
@@ -24,6 +31,7 @@ from .const import (
     DEFAULT_OVERRIDE_DURATION,
     MAX_OVERRIDE_DURATION,
     MIN_OVERRIDE_DURATION,
+    STARTUP_ADVERTISEMENT_TIMEOUT,
     UPDATE_INTERVAL,
 )
 from .device import (
@@ -110,6 +118,40 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 CONF_OVERRIDE_DURATION, DEFAULT_OVERRIDE_DURATION
             )
         )
+
+    async def async_wait_for_initial_bluetooth(self) -> None:
+        """Wait briefly for HA to learn a connectable route during startup."""
+
+        address = self.config_entry.data[CONF_ADDRESS]
+        if ble_device := bluetooth.async_ble_device_from_address(
+            self.hass, address, connectable=True
+        ):
+            self._last_ble_device = ble_device
+            return
+
+        if bluetooth.async_scanner_count(self.hass, connectable=True) == 0:
+            raise ConfigEntryNotReady(self._bluetooth_unreachable_message(address))
+
+        try:
+            await bluetooth.async_process_advertisements(
+                self.hass,
+                lambda _service_info: True,
+                {"address": address, "connectable": True},
+                BluetoothScanningMode.ACTIVE,
+                STARTUP_ADVERTISEMENT_TIMEOUT,
+            )
+        except TimeoutError as err:
+            raise ConfigEntryNotReady(
+                self._bluetooth_unreachable_message(address)
+            ) from err
+
+        if ble_device := bluetooth.async_ble_device_from_address(
+            self.hass, address, connectable=True
+        ):
+            self._last_ble_device = ble_device
+            return
+
+        raise ConfigEntryNotReady(self._bluetooth_unreachable_message(address))
 
     async def _async_update_data(self) -> MultihomeData:
         """Fetch zone telemetry and system status."""
@@ -238,7 +280,12 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 address,
             )
             return self._last_ble_device
+        raise UpdateFailed(self._bluetooth_unreachable_message(address))
+
+    def _bluetooth_unreachable_message(self, address: str) -> str:
+        """Return Home Assistant's current Bluetooth reachability diagnosis."""
+
         reason = bluetooth.async_address_reachability_diagnostics(
             self.hass, address, BluetoothReachabilityIntent.CONNECTION
         )
-        raise UpdateFailed(f"Bluetooth device is currently unreachable: {reason}")
+        return f"Bluetooth device is currently unreachable: {reason}"

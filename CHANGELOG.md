@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0-rc.7] - 2026-08-30
+
+### Fixed
+
+- Wait for a bounded, address-specific connectable advertisement during initial
+  setup when an ESPHome Bluetooth proxy is scanning but has not yet populated
+  Home Assistant's device cache. If the proxy or device is still unavailable,
+  defer through Home Assistant's normal setup retry instead of requiring a
+  manual integration reload.
+
 ## [0.3.0-rc.6] - 2026-08-29
 
 ### Fixed
@@ -188,7 +198,8 @@ All notable changes to this project are documented here. The format follows
 - Low, Normal, Boost, and Purge timed overrides plus independent cancellation.
 - ESPHome Wi-Fi and Ethernet Bluetooth proxy examples and end-user guides.
 
-[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.6...HEAD
+[Unreleased]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.7...HEAD
+[0.3.0-rc.7]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.6...v0.3.0-rc.7
 [0.3.0-rc.6]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.5...v0.3.0-rc.6
 [0.3.0-rc.5]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.4...v0.3.0-rc.5
 [0.3.0-rc.4]: https://github.com/sultanhq/mev-ble/compare/v0.3.0-rc.3...v0.3.0-rc.4

@@ -49,6 +49,7 @@ async def async_setup_entry(
         client_factory=async_establish_connection,
     )
     coordinator = VentaxiaMultihomeCoordinator(hass, entry, device)
+    await coordinator.async_wait_for_initial_bluetooth()
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
