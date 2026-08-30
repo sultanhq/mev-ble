@@ -6,6 +6,28 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0-rc.2] - 2026-08-30
+
+### Added
+
+- Add the internal packet 136 field-update codec for all 33 official-app field
+  IDs, including RawWithId framing and the distinct UInt16LE CO₂ encoding.
+- Record whether the device currently has a successful global-settings read
+  that could safely precede a guarded update.
+
+### Safety
+
+- Reject unknown IDs, invalid types, unsafe percentage/threshold values, and
+  non-representable CO₂ increments before any Bluetooth write.
+- Require a current 36-byte settings snapshot, use target zero instead of the
+  decompiled target-byte anomaly, and immediately read packet 137 after every
+  internal update.
+- Commit updated state only when every readback byte matches the expected
+  one-field change. Timeout, disconnect, malformed data, or mismatch retains
+  the last confirmed snapshot and blocks another update until a fresh poll.
+- Keep the update layer internal in this release candidate; Home Assistant
+  does not expose a settings entity, action, service, or flow yet.
+
 ## [0.4.0-rc.1] - 2026-08-30
 
 ### Added

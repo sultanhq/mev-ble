@@ -71,6 +71,7 @@ async def async_get_config_entry_diagnostics(
         "global_settings": _global_settings_diagnostics(
             data.global_settings if data else None
         ),
+        "global_settings_write_ready": (coordinator.device.global_settings_write_ready),
         "state": {
             "fan_state": fan_state_name(data.zone.fan_state) if data else None,
             "fan_level": data.zone.fan_level if data else None,

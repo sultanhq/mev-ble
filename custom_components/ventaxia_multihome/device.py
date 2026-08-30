@@ -30,6 +30,7 @@ from .protocol import (
     AirflowPreset,
     DeviceType,
     FanState,
+    GlobalSettingField,
     GlobalSettings,
     Operation,
     PacketType,
@@ -45,9 +46,11 @@ from .protocol import (
     decode_zone_telemetry,
     encode_cancel_override,
     encode_co2_calibration,
+    encode_global_setting_update,
     encode_packet,
     encode_setup_code,
     encode_user_override,
+    global_settings_after_update,
 )
 
 if TYPE_CHECKING:
@@ -81,6 +84,14 @@ class CalibrationTargetDiscoveryError(DeviceError):
 
 class CalibrationWriteUncertainError(DeviceError):
     """Raised when a calibration write may have reached the unit."""
+
+
+class GlobalSettingsUnavailableError(DeviceError):
+    """Raised when no current settings record is available for a safe write."""
+
+
+class GlobalSettingUpdateError(DeviceError):
+    """Raised when a settings write cannot be confirmed by exact readback."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +148,8 @@ class MultihomeDevice:
         self.last_calibration_target: int | None = None
         self.last_calibration_target_scan: list[tuple[int, int, int]] = []
         self.last_calibration_device_table_version: int | None = None
+        self._confirmed_global_settings: GlobalSettings | None = None
+        self._global_settings_write_ready = False
         self.device_info = MultihomeDeviceInfo()
 
     @property
@@ -167,6 +180,18 @@ class MultihomeDevice:
         """Return whether the recovered model map identifies an internal CO2 sensor."""
 
         return self.model_number in INTERNAL_CO2_CALIBRATION_MODELS
+
+    @property
+    def confirmed_global_settings(self) -> GlobalSettings | None:
+        """Return the last complete settings record confirmed by a read."""
+
+        return self._confirmed_global_settings
+
+    @property
+    def global_settings_write_ready(self) -> bool:
+        """Return whether a current record permits a guarded field write."""
+
+        return self._global_settings_write_ready
 
     async def connect(self, ble_device: BLEDevice) -> None:
         """Connect, authenticate, select a transport, and read device info."""
@@ -224,9 +249,7 @@ class MultihomeDevice:
             self._client = client
             try:
                 self._transport = self._select_transport(client)
-                raw_code = bytes(
-                    await client.read_gatt_char(PIN_CHARACTERISTIC_UUID)
-                )
+                raw_code = bytes(await client.read_gatt_char(PIN_CHARACTERISTIC_UUID))
                 if len(raw_code) != 4:
                     raise DeviceError(
                         "pairing returned an invalid application-code payload"
@@ -358,6 +381,50 @@ class MultihomeDevice:
             except Exception as err:
                 raise CalibrationWriteUncertainError(str(err)) from err
 
+    async def set_global_setting(
+        self,
+        ble_device: BLEDevice,
+        field: GlobalSettingField | int,
+        value: int | bool,
+    ) -> GlobalSettings:
+        """Update one validated field and accept only an exact fresh readback."""
+
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            confirmed = self._confirmed_global_settings
+            if confirmed is None or not self._global_settings_write_ready:
+                raise GlobalSettingsUnavailableError(
+                    "global settings must be read successfully before an update"
+                )
+            expected = global_settings_after_update(confirmed, field, value)
+            payload = encode_global_setting_update(field, value)
+            try:
+                await self._send(
+                    PacketType.GLOBAL_DATA_FIELD,
+                    Operation.UPDATE,
+                    payload,
+                )
+                response = await self._request(
+                    PacketType.GLOBAL_DATA,
+                    Operation.DATA_REQUEST,
+                )
+                received = decode_global_settings(response.payload)
+            except Exception as err:
+                self._global_settings_write_ready = False
+                raise GlobalSettingUpdateError(
+                    "global setting update was not confirmed; "
+                    "the last confirmed snapshot was retained"
+                ) from err
+            if received.raw_record != expected.raw_record:
+                self._global_settings_write_ready = False
+                raise GlobalSettingUpdateError(
+                    "global setting readback did not match the requested update; "
+                    "the last confirmed snapshot was retained"
+                )
+            self._confirmed_global_settings = received
+            self._global_settings_write_ready = True
+            return received
+
     async def _find_internal_co2_target(self) -> int:
         """Return the internal sensor address used by the official app."""
 
@@ -387,17 +454,13 @@ class MultihomeDevice:
             if row.device_type == DeviceType.INTERNAL_CO2_SENSOR:
                 self.last_calibration_target = row.address
                 return row.address
-            if (
-                row.device_type == DeviceType.MEV_CONTROL_UNIT
-                and row.address == 0
-            ):
+            if row.device_type == DeviceType.MEV_CONTROL_UNIT and row.address == 0:
                 mev_control_target = row.address
         if mev_control_target is not None:
             self.last_calibration_target = mev_control_target
             return mev_control_target
         discovered_types = ", ".join(
-            str(device_type)
-            for _, device_type, _ in self.last_calibration_target_scan
+            str(device_type) for _, device_type, _ in self.last_calibration_target_scan
         )
         raise DeviceError(
             "the MEV device table has no internal CO2 sensor target "
@@ -417,12 +480,16 @@ class MultihomeDevice:
         global_settings_packet = await self._request(
             PacketType.GLOBAL_DATA, Operation.DATA_REQUEST
         )
-        return MultihomeData(
+        global_settings = decode_global_settings(global_settings_packet.payload)
+        data = MultihomeData(
             zone=decode_zone_telemetry(zone_packet.payload),
             system=decode_system_status(system_packet.payload),
-            global_settings=decode_global_settings(global_settings_packet.payload),
+            global_settings=global_settings,
             last_successful_update=datetime.now(UTC),
         )
+        self._confirmed_global_settings = global_settings
+        self._global_settings_write_ready = True
+        return data
 
     def _reconcile_override_remaining(self, data: MultihomeData) -> MultihomeData:
         """Use a local deadline only when active firmware reports a false zero."""
@@ -532,12 +599,14 @@ class MultihomeDevice:
         self._client = None
         self._transport = None
         self._authenticated = False
+        self._global_settings_write_ready = False
 
     async def _disconnect_unlocked(self) -> None:
         client = self._client
         self._client = None
         self._transport = None
         self._authenticated = False
+        self._global_settings_write_ready = False
         if client and client.is_connected:
             with contextlib.suppress(Exception):
                 await client.disconnect()

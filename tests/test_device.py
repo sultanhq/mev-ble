@@ -24,6 +24,8 @@ from custom_components.ventaxia_multihome.const import (
 from custom_components.ventaxia_multihome.device import (
     CalibrationWriteUncertainError,
     DeviceError,
+    GlobalSettingsUnavailableError,
+    GlobalSettingUpdateError,
     MultihomeDevice,
     MultihomeDeviceInfo,
     SetupCodeRejectedError,
@@ -31,12 +33,16 @@ from custom_components.ventaxia_multihome.device import (
 from custom_components.ventaxia_multihome.protocol import (
     AirflowPreset,
     DataObjectType,
+    GlobalSettingField,
     Operation,
     PacketType,
+    decode_data_object_array,
+    decode_global_settings,
     decode_packet,
     encode_cancel_override,
     encode_co2_calibration,
     encode_data_object_array,
+    encode_global_setting_update,
     encode_packet,
     encode_user_override,
     fragment_ack,
@@ -419,16 +425,22 @@ async def test_reconnects_with_fresh_client_after_disconnect() -> None:
     device = MultihomeDevice("AA", "MEV", 1234, client_factory=factory)
     await device.update(object())
     first = created[0]
+    confirmed_before_disconnect = device.confirmed_global_settings
 
     # Act - simulate proxy loss, then allow the regular next poll to recover.
     assert first.callback is not None
     first.is_connected = False
     first.callback(first)
     cleared_transport = device.transport_name
+    ready_while_disconnected = device.global_settings_write_ready
+    retained_while_disconnected = device.confirmed_global_settings
     await device.update(object())
 
     # Assert - stale transport cleared immediately; reconnect reauthenticated.
     assert cleared_transport is None
+    assert ready_while_disconnected is False
+    assert retained_while_disconnected == confirmed_before_disconnect
+    assert device.global_settings_write_ready is True
     assert len(created) == 2
     assert any(write[0] == PIN_CHARACTERISTIC_UUID for write in created[1].writes)
 
@@ -511,6 +523,166 @@ async def test_override_controls_send_then_read_fresh_telemetry() -> None:
     ]
     assert override_data.zone.fan_rpm == 1200
     assert cancel_data.system.fan_speed == 3
+
+
+@pytest.mark.asyncio
+async def test_global_setting_write_requires_a_current_confirmed_record() -> None:
+    """Packet 136 remains unavailable until packet 137 has decoded successfully."""
+
+    # Arrange - connect an authenticated device without performing a settings read.
+    sent: list[bytes] = []
+
+    class NoReadTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            sent.append(packet)
+
+        async def request(self, packet: bytes) -> bytes:
+            raise AssertionError("no readback expected")
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device._client = DeviceClient([])
+    device._transport = NoReadTransport()
+    device._authenticated = True
+
+    # Act / Assert - the guard rejects the write before any transport I/O.
+    with pytest.raises(GlobalSettingsUnavailableError, match="must be read"):
+        await device.set_global_setting(object(), GlobalSettingField.SPEED_LOW, 12)
+    assert sent == []
+    assert device.confirmed_global_settings is None
+    assert device.global_settings_write_ready is False
+
+
+@pytest.mark.asyncio
+async def test_global_setting_write_uses_target_zero_and_exact_readback() -> None:
+    """A valid field update is committed only after exact packet 137 readback."""
+
+    # Arrange - prime the confirmed snapshot and prepare its one-field successor.
+    current_record = decode_packet(_responses()[2]).payload
+    expected_record = bytearray(current_record)
+    expected_record[0] = 12
+    sent: list[bytes] = []
+    requested: list[bytes] = []
+
+    class ConfirmingTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            sent.append(packet)
+
+        async def request(self, packet: bytes) -> bytes:
+            requested.append(packet)
+            return encode_packet(
+                PacketType.GLOBAL_DATA,
+                Operation.RESPONSE,
+                bytes(expected_record),
+                timestamp=2,
+            )
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device._client = DeviceClient([])
+    device._transport = ConfirmingTransport()
+    device._authenticated = True
+    device._confirmed_global_settings = decode_global_settings(current_record)
+    device._global_settings_write_ready = True
+
+    # Act - update only the low airflow percentage.
+    result = await device.set_global_setting(object(), GlobalSettingField.SPEED_LOW, 12)
+
+    # Assert - target zero, RawWithId body, one readback, and cache all agree.
+    command = decode_packet(sent[0])
+    request = decode_packet(requested[0])
+    wrapped = decode_data_object_array(command.payload)
+    assert command.packet_type == PacketType.GLOBAL_DATA_FIELD
+    assert command.operation == Operation.UPDATE
+    assert command.target == 0
+    assert command.payload == encode_global_setting_update(
+        GlobalSettingField.SPEED_LOW, 12
+    )
+    assert wrapped.object_id == GlobalSettingField.SPEED_LOW
+    assert wrapped.payload == b"\x0c"
+    assert request.packet_type == PacketType.GLOBAL_DATA
+    assert request.operation == Operation.DATA_REQUEST
+    assert result.raw_record == bytes(expected_record)
+    assert device.confirmed_global_settings == result
+    assert device.global_settings_write_ready is True
+
+
+@pytest.mark.asyncio
+async def test_global_setting_mismatch_retains_last_confirmed_snapshot() -> None:
+    """Unexpected readback never replaces the last confirmed settings state."""
+
+    # Arrange - return an unchanged record after a valid update command.
+    current_record = decode_packet(_responses()[2]).payload
+    confirmed = decode_global_settings(current_record)
+    sent: list[bytes] = []
+
+    class MismatchTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            sent.append(packet)
+
+        async def request(self, packet: bytes) -> bytes:
+            return encode_packet(
+                PacketType.GLOBAL_DATA,
+                Operation.RESPONSE,
+                current_record,
+                timestamp=2,
+            )
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device._client = DeviceClient([])
+    device._transport = MismatchTransport()
+    device._authenticated = True
+    device._confirmed_global_settings = confirmed
+    device._global_settings_write_ready = True
+
+    # Act / Assert - mismatch is explicit and blocks another write until a poll.
+    with pytest.raises(GlobalSettingUpdateError, match="did not match"):
+        await device.set_global_setting(object(), GlobalSettingField.SPEED_LOW, 12)
+    assert len(sent) == 1
+    assert device.confirmed_global_settings == confirmed
+    assert device.global_settings_write_ready is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure_stage", ["send", "readback"])
+async def test_global_setting_failure_retains_confirmed_snapshot(
+    failure_stage: str,
+) -> None:
+    """Send and readback failures preserve state and require a fresh poll."""
+
+    # Arrange - fail either the write or its mandatory packet 137 readback.
+    current_record = decode_packet(_responses()[2]).payload
+    confirmed = decode_global_settings(current_record)
+    sent: list[bytes] = []
+
+    class FailingTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            sent.append(packet)
+            if failure_stage == "send":
+                raise TimeoutError("write acknowledgement timed out")
+
+        async def request(self, packet: bytes) -> bytes:
+            raise ConnectionError("device disconnected during readback")
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device._client = DeviceClient([])
+    device._transport = FailingTransport()
+    device._authenticated = True
+    device._confirmed_global_settings = confirmed
+    device._global_settings_write_ready = True
+
+    # Act / Assert - uncertainty is reported without optimistic state mutation.
+    with pytest.raises(GlobalSettingUpdateError, match="not confirmed"):
+        await device.set_global_setting(object(), GlobalSettingField.SPEED_LOW, 12)
+    assert len(sent) == 1
+    assert device.confirmed_global_settings == confirmed
+    assert device.global_settings_write_ready is False
 
 
 @pytest.mark.asyncio
@@ -898,9 +1070,7 @@ async def test_connection_check_waits_for_active_operation() -> None:
         nonlocal connect_calls
         connect_calls += 1
 
-    responses = iter(
-        decode_packet(packet) for packet in [*_responses(), *_responses()]
-    )
+    responses = iter(decode_packet(packet) for packet in [*_responses(), *_responses()])
 
     async def send(packet_type, operation, payload=b""):
         request_started.set()
@@ -912,9 +1082,7 @@ async def test_connection_check_waits_for_active_operation() -> None:
     device.connect = connect
     device._send = send
     device._request = request
-    first = asyncio.create_task(
-        device.set_override(object(), AirflowPreset.BOOST, 60)
-    )
+    first = asyncio.create_task(device.set_override(object(), AirflowPreset.BOOST, 60))
     await request_started.wait()
 
     # Act - start a coordinator-style telemetry poll during the active control.
@@ -939,9 +1107,7 @@ async def test_active_poll_finishes_before_control_and_its_readback() -> None:
     poll_started = asyncio.Event()
     release_poll = asyncio.Event()
     timeline: list[str] = []
-    responses = iter(
-        decode_packet(packet) for packet in [*_responses(), *_responses()]
-    )
+    responses = iter(decode_packet(packet) for packet in [*_responses(), *_responses()])
     request_count = 0
 
     async def connect(ble_device) -> None:

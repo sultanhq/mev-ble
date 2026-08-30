@@ -23,6 +23,9 @@ MIN_CO2_CALIBRATION_REFERENCE: Final = 400
 MAX_CO2_CALIBRATION_REFERENCE: Final = 2000
 DEFAULT_CO2_CALIBRATION_REFERENCE: Final = 450
 GLOBAL_SETTINGS_SIZE: Final = 36
+MIN_GLOBAL_CO2_THRESHOLD: Final = 0
+MAX_GLOBAL_CO2_THRESHOLD: Final = 2000
+GLOBAL_CO2_THRESHOLD_STEP: Final = 10
 
 WHOLE_PACKET_ACK: Final = b"\x00\x00\x01"
 WHOLE_PACKET_CANCEL: Final = b"\x00\x00\xff"
@@ -70,6 +73,44 @@ class DataObjectType(IntEnum):
     INT_ARRAY = 5
     FLOAT_ARRAY = 6
     RAW_WITH_ID = 7
+
+
+class GlobalSettingField(IntEnum):
+    """Official-app field identifiers for packet 136 updates."""
+
+    SPEED_LOW = 0
+    SPEED_MEDIUM = 1
+    SPEED_BOOST = 2
+    SPEED_PURGE = 3
+    BOOST_MINIMUM = 4
+    HUMIDITY_THRESHOLD = 5
+    COMFORT_ENABLED = 6
+    DELAY_ENABLED = 7
+    OVERRUN_ENABLED = 8
+    OVERRUN_TIMEOUT_MINUTES = 9
+    DELAY_TIMEOUT_MINUTES = 10
+    LS1_ACTION = 11
+    LS2_ACTION = 12
+    LS3_ACTION = 13
+    RAPID_RESPONSE_ENABLED = 14
+    AMBIENT_RESPONSE_ENABLED = 15
+    LOW_TEMPERATURE_ENABLED = 16
+    LOW_THRESHOLD_ACTION = 17
+    HIGH_THRESHOLD_ACTION = 18
+    LOW_TEMPERATURE_THRESHOLD = 19
+    HIGH_TEMPERATURE_THRESHOLD = 20
+    CO2_BOOST_THRESHOLD = 21
+    CO2_PURGE_THRESHOLD = 22
+    ANALOGUE_INPUT_1_LOW_ACTION = 23
+    ANALOGUE_INPUT_1_HIGH_ACTION = 24
+    ANALOGUE_INPUT_1_LOW_VALUE = 25
+    ANALOGUE_INPUT_1_HIGH_VALUE = 26
+    ANALOGUE_INPUT_2_LOW_ACTION = 27
+    ANALOGUE_INPUT_2_HIGH_ACTION = 28
+    ANALOGUE_INPUT_2_LOW_VALUE = 29
+    ANALOGUE_INPUT_2_HIGH_VALUE = 30
+    DIGITAL_INPUT_1_ACTION = 31
+    DIGITAL_INPUT_2_ACTION = 32
 
 
 class MevCommand(IntEnum):
@@ -378,8 +419,10 @@ def encode_co2_calibration(
 ) -> bytes:
     """Encode the recovered Raw DataObjectArray CO2 calibration payload."""
 
-    if not MIN_CO2_CALIBRATION_REFERENCE <= reference_ppm <= (
-        MAX_CO2_CALIBRATION_REFERENCE
+    if (
+        not MIN_CO2_CALIBRATION_REFERENCE
+        <= reference_ppm
+        <= (MAX_CO2_CALIBRATION_REFERENCE)
     ):
         raise ProtocolError(
             "CO2 calibration reference must be "
@@ -622,6 +665,115 @@ class GlobalSettings:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class GlobalSettingFieldSpec:
+    """Encoding and readback location for one packet 136 field."""
+
+    attribute: str
+    record_offset: int
+    minimum: int
+    maximum: int
+    boolean: bool = False
+    co2: bool = False
+
+
+_GLOBAL_SETTING_FIELD_SPECS: Final = {
+    GlobalSettingField.SPEED_LOW: GlobalSettingFieldSpec("speed_low", 0, 0, 100),
+    GlobalSettingField.SPEED_MEDIUM: GlobalSettingFieldSpec("speed_medium", 1, 0, 100),
+    GlobalSettingField.SPEED_BOOST: GlobalSettingFieldSpec("speed_boost", 2, 0, 100),
+    GlobalSettingField.SPEED_PURGE: GlobalSettingFieldSpec("speed_purge", 3, 0, 100),
+    GlobalSettingField.BOOST_MINIMUM: GlobalSettingFieldSpec(
+        "boost_minimum", 4, 0, 100
+    ),
+    GlobalSettingField.HUMIDITY_THRESHOLD: GlobalSettingFieldSpec(
+        "humidity_threshold", 5, 0, 100
+    ),
+    GlobalSettingField.COMFORT_ENABLED: GlobalSettingFieldSpec(
+        "comfort_enabled", 6, 0, 1, boolean=True
+    ),
+    GlobalSettingField.DELAY_ENABLED: GlobalSettingFieldSpec(
+        "delay_enabled", 7, 0, 1, boolean=True
+    ),
+    GlobalSettingField.OVERRUN_ENABLED: GlobalSettingFieldSpec(
+        "overrun_enabled", 8, 0, 1, boolean=True
+    ),
+    GlobalSettingField.OVERRUN_TIMEOUT_MINUTES: GlobalSettingFieldSpec(
+        "overrun_timeout_minutes", 17, 0, 0xFF
+    ),
+    GlobalSettingField.DELAY_TIMEOUT_MINUTES: GlobalSettingFieldSpec(
+        "delay_timeout_minutes", 18, 0, 0xFF
+    ),
+    GlobalSettingField.LS1_ACTION: GlobalSettingFieldSpec("ls1_action", 19, 0, 0xFF),
+    GlobalSettingField.LS2_ACTION: GlobalSettingFieldSpec("ls2_action", 20, 0, 0xFF),
+    GlobalSettingField.LS3_ACTION: GlobalSettingFieldSpec("ls3_action", 21, 0, 0xFF),
+    GlobalSettingField.RAPID_RESPONSE_ENABLED: GlobalSettingFieldSpec(
+        "rapid_response_enabled", 9, 0, 1, boolean=True
+    ),
+    GlobalSettingField.AMBIENT_RESPONSE_ENABLED: GlobalSettingFieldSpec(
+        "ambient_response_enabled", 10, 0, 1, boolean=True
+    ),
+    GlobalSettingField.LOW_TEMPERATURE_ENABLED: GlobalSettingFieldSpec(
+        "low_temperature_enabled", 11, 0, 1, boolean=True
+    ),
+    GlobalSettingField.LOW_THRESHOLD_ACTION: GlobalSettingFieldSpec(
+        "low_threshold_action", 12, 0, 0xFF
+    ),
+    GlobalSettingField.HIGH_THRESHOLD_ACTION: GlobalSettingFieldSpec(
+        "high_threshold_action", 13, 0, 0xFF
+    ),
+    GlobalSettingField.LOW_TEMPERATURE_THRESHOLD: GlobalSettingFieldSpec(
+        "low_temperature_threshold", 14, 0, 0xFF
+    ),
+    GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD: GlobalSettingFieldSpec(
+        "high_temperature_threshold", 15, 0, 0xFF
+    ),
+    GlobalSettingField.CO2_BOOST_THRESHOLD: GlobalSettingFieldSpec(
+        "co2_boost_threshold",
+        22,
+        MIN_GLOBAL_CO2_THRESHOLD,
+        MAX_GLOBAL_CO2_THRESHOLD,
+        co2=True,
+    ),
+    GlobalSettingField.CO2_PURGE_THRESHOLD: GlobalSettingFieldSpec(
+        "co2_purge_threshold",
+        24,
+        MIN_GLOBAL_CO2_THRESHOLD,
+        MAX_GLOBAL_CO2_THRESHOLD,
+        co2=True,
+    ),
+    GlobalSettingField.ANALOGUE_INPUT_1_LOW_ACTION: GlobalSettingFieldSpec(
+        "analogue_input_1_low_action", 28, 0, 0xFF
+    ),
+    GlobalSettingField.ANALOGUE_INPUT_1_HIGH_ACTION: GlobalSettingFieldSpec(
+        "analogue_input_1_high_action", 29, 0, 0xFF
+    ),
+    GlobalSettingField.ANALOGUE_INPUT_1_LOW_VALUE: GlobalSettingFieldSpec(
+        "analogue_input_1_low_value", 26, 0, 100
+    ),
+    GlobalSettingField.ANALOGUE_INPUT_1_HIGH_VALUE: GlobalSettingFieldSpec(
+        "analogue_input_1_high_value", 27, 0, 100
+    ),
+    GlobalSettingField.ANALOGUE_INPUT_2_LOW_ACTION: GlobalSettingFieldSpec(
+        "analogue_input_2_low_action", 32, 0, 0xFF
+    ),
+    GlobalSettingField.ANALOGUE_INPUT_2_HIGH_ACTION: GlobalSettingFieldSpec(
+        "analogue_input_2_high_action", 33, 0, 0xFF
+    ),
+    GlobalSettingField.ANALOGUE_INPUT_2_LOW_VALUE: GlobalSettingFieldSpec(
+        "analogue_input_2_low_value", 30, 0, 100
+    ),
+    GlobalSettingField.ANALOGUE_INPUT_2_HIGH_VALUE: GlobalSettingFieldSpec(
+        "analogue_input_2_high_value", 31, 0, 100
+    ),
+    GlobalSettingField.DIGITAL_INPUT_1_ACTION: GlobalSettingFieldSpec(
+        "digital_input_1_action", 34, 0, 0xFF
+    ),
+    GlobalSettingField.DIGITAL_INPUT_2_ACTION: GlobalSettingFieldSpec(
+        "digital_input_2_action", 35, 0, 0xFF
+    ),
+}
+
+
 def _decode_global_boolean(value: int) -> bool | None:
     """Decode a strict zero/one flag without inventing unknown semantics."""
 
@@ -692,6 +844,77 @@ def encode_global_settings(settings: GlobalSettings) -> bytes:
     if len(settings.raw_record) != GLOBAL_SETTINGS_SIZE:
         raise ProtocolError("global settings snapshot has an invalid raw record")
     return settings.raw_record
+
+
+def _normalize_global_setting_field(
+    field: GlobalSettingField | int,
+) -> GlobalSettingField:
+    """Return a known setting field or reject an unsupported numeric ID."""
+
+    if isinstance(field, bool) or not isinstance(field, int):
+        raise ProtocolError(f"unknown global setting field ID {field}")
+    try:
+        return GlobalSettingField(field)
+    except (TypeError, ValueError) as err:
+        raise ProtocolError(f"unknown global setting field ID {field}") from err
+
+
+def encode_global_setting_value(
+    field: GlobalSettingField | int, value: int | bool
+) -> bytes:
+    """Encode one strictly validated packet 136 field value."""
+
+    normalized_field = _normalize_global_setting_field(field)
+    spec = _GLOBAL_SETTING_FIELD_SPECS[normalized_field]
+    if spec.boolean:
+        if not isinstance(value, bool):
+            raise ProtocolError(f"{spec.attribute} requires a boolean value")
+        normalized_value = int(value)
+    else:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ProtocolError(f"{spec.attribute} requires an integer value")
+        normalized_value = value
+    if not spec.minimum <= normalized_value <= spec.maximum:
+        raise ProtocolError(f"{spec.attribute} must be {spec.minimum}..{spec.maximum}")
+    if spec.co2:
+        if normalized_value % GLOBAL_CO2_THRESHOLD_STEP:
+            raise ProtocolError(
+                f"{spec.attribute} must use {GLOBAL_CO2_THRESHOLD_STEP} ppm increments"
+            )
+        return struct.pack("<H", normalized_value // GLOBAL_CO2_THRESHOLD_STEP)
+    return bytes([normalized_value])
+
+
+def encode_global_setting_update(
+    field: GlobalSettingField | int, value: int | bool
+) -> bytes:
+    """Encode the official app's RawWithId body for one setting update."""
+
+    normalized_field = _normalize_global_setting_field(field)
+    return encode_data_object_array(
+        DataObjectType.RAW_WITH_ID,
+        encode_global_setting_value(normalized_field, value),
+        object_id=int(normalized_field),
+    )
+
+
+def global_settings_after_update(
+    settings: GlobalSettings,
+    field: GlobalSettingField | int,
+    value: int | bool,
+) -> GlobalSettings:
+    """Return the exact record expected after one isolated field update."""
+
+    if len(settings.raw_record) != GLOBAL_SETTINGS_SIZE:
+        raise ProtocolError("global settings snapshot has an invalid raw record")
+    normalized_field = _normalize_global_setting_field(field)
+    spec = _GLOBAL_SETTING_FIELD_SPECS[normalized_field]
+    encoded_value = encode_global_setting_value(normalized_field, value)
+    expected = bytearray(settings.raw_record)
+    expected[spec.record_offset : spec.record_offset + len(encoded_value)] = (
+        encoded_value
+    )
+    return decode_global_settings(bytes(expected))
 
 
 def decode_faults(mask: int) -> tuple[FaultFlag, ...]:

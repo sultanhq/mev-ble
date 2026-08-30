@@ -84,6 +84,7 @@ async def test_diagnostics_include_control_validation_state() -> None:
         last_calibration_error="no internal target",
         device=SimpleNamespace(
             transport_name="fragmented",
+            global_settings_write_ready=True,
             last_calibration_device_table_version=6,
             last_calibration_target_scan=[(1, 10, 4)],
             last_calibration_target=None,
@@ -112,9 +113,7 @@ async def test_diagnostics_include_control_validation_state() -> None:
         "last_outcome": "not_sent",
         "last_error": "no internal target",
         "device_table_version": 6,
-        "discovered_routes": [
-            {"address": 1, "device_type": 10, "hardware_type": 4}
-        ],
+        "discovered_routes": [{"address": 1, "device_type": 10, "hardware_type": 4}],
         "selected_target": None,
     }
     assert result["global_settings"]["speed_low"] == 10
@@ -125,6 +124,7 @@ async def test_diagnostics_include_control_validation_state() -> None:
     assert result["global_settings"]["raw_record"] == (
         "0a234664414b01000100010002030f19040b0c05060764009600155b0809165c0d0e0f10"
     )
+    assert result["global_settings_write_ready"] is True
     assert result["state"] == {
         "fan_state": "user_override",
         "fan_level": 3,

@@ -63,6 +63,7 @@ Detailed instructions:
 - [Choose and configure an ESPHome Bluetooth proxy](docs/esphome-bluetooth-proxy.md)
 - [Configure the integration and use its entities/actions](docs/configuration.md)
 - [Safely calibrate an internal CO₂ sensor](docs/co2-calibration.md)
+- [Global-settings safety model](docs/global-settings.md)
 - [Troubleshooting and diagnostics](docs/troubleshooting.md)
 - [v0.2 physical validation procedure and evidence](docs/validation-v0.2.md)
 
@@ -91,7 +92,9 @@ Cancel override is retained as a separate official-app protocol operation; it
 returns control to the unit and is not a power action. Internal CO₂ calibration
 is available only through a guarded Configure flow on validated CO₂-equipped
 models. Configuration and global airflow values are decoded read-only in
-diagnostics. Their writes, schedules, resets, and installer controls remain
+diagnostics. The internal update layer requires strict validation and exact
+immediate readback, but no settings write is exposed through Home Assistant in
+the current release candidate. Schedules, resets, and installer controls remain
 unavailable.
 
 Internal CO₂ calibration can be run again after its five-minute safety cooldown.

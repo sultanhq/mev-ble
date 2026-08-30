@@ -10,6 +10,7 @@ from custom_components.ventaxia_multihome.protocol import (
     AirflowPreset,
     DataObjectType,
     FaultFlag,
+    GlobalSettingField,
     MevCommand,
     Operation,
     PacketType,
@@ -27,12 +28,15 @@ from custom_components.ventaxia_multihome.protocol import (
     encode_cancel_override,
     encode_co2_calibration,
     encode_data_object_array,
+    encode_global_setting_update,
+    encode_global_setting_value,
     encode_global_settings,
     encode_packet,
     encode_setup_code,
     encode_user_override,
     fragment_ack,
     fragment_packet,
+    global_settings_after_update,
     reassemble_fragments,
 )
 
@@ -375,6 +379,128 @@ def test_global_settings_rejects_malformed_record_lengths(length: int) -> None:
     # Act / Assert - malformed input raises the typed protocol error.
     with pytest.raises(ProtocolError, match="exactly 36 bytes"):
         decode_global_settings(record)
+
+
+def test_global_setting_update_uses_rawwithid_and_exact_field_encoding() -> None:
+    """One-byte and CO2 fields use the recovered packet 136 body formats."""
+
+    # Arrange - choose a percentage field and a two-byte CO2 field.
+    speed_field = GlobalSettingField.SPEED_LOW
+    co2_field = GlobalSettingField.CO2_BOOST_THRESHOLD
+
+    # Act - encode both update bodies and decode their object wrappers.
+    speed_payload = encode_global_setting_update(speed_field, 20)
+    co2_payload = encode_global_setting_update(co2_field, 1500)
+    decoded_speed = decode_data_object_array(speed_payload)
+    decoded_co2 = decode_data_object_array(co2_payload)
+
+    # Assert - IDs are UInt32LE and CO2 is stored as ppm divided by ten.
+    assert speed_payload == bytes.fromhex("ba0a07050000000014")
+    assert decoded_speed.object_type == DataObjectType.RAW_WITH_ID
+    assert decoded_speed.object_id == speed_field
+    assert decoded_speed.payload == b"\x14"
+    assert co2_payload == bytes.fromhex("ba0a0706150000009600")
+    assert decoded_co2.object_id == co2_field
+    assert decoded_co2.payload == bytes.fromhex("9600")
+
+
+def test_global_setting_expected_record_uses_field_map_not_enum_offset() -> None:
+    """Nonlinear field IDs update only their documented record offsets."""
+
+    # Arrange - decode a distinct record and select IDs whose offsets differ.
+    record = bytes(range(36))
+    settings = decode_global_settings(record)
+
+    # Act - model an overrun timeout and an analogue-input action update.
+    timeout = global_settings_after_update(
+        settings, GlobalSettingField.OVERRUN_TIMEOUT_MINUTES, 60
+    )
+    analogue = global_settings_after_update(
+        settings, GlobalSettingField.ANALOGUE_INPUT_1_LOW_ACTION, 4
+    )
+
+    # Assert - only offsets 17 and 28 change; IDs 9 and 23 are not offsets.
+    expected_timeout = bytearray(record)
+    expected_timeout[17] = 60
+    expected_analogue = bytearray(record)
+    expected_analogue[28] = 4
+    assert timeout.raw_record == bytes(expected_timeout)
+    assert analogue.raw_record == bytes(expected_analogue)
+
+
+def test_every_global_setting_field_preserves_all_unrelated_bytes() -> None:
+    """All 33 update IDs map to their documented byte span and no other bytes."""
+
+    # Arrange - keep every unrelated byte visibly distinct from update values.
+    settings = decode_global_settings(bytes([0x55] * 36))
+    cases = [
+        (GlobalSettingField.SPEED_LOW, 0, 50, b"\x32"),
+        (GlobalSettingField.SPEED_MEDIUM, 1, 50, b"\x32"),
+        (GlobalSettingField.SPEED_BOOST, 2, 50, b"\x32"),
+        (GlobalSettingField.SPEED_PURGE, 3, 50, b"\x32"),
+        (GlobalSettingField.BOOST_MINIMUM, 4, 50, b"\x32"),
+        (GlobalSettingField.HUMIDITY_THRESHOLD, 5, 50, b"\x32"),
+        (GlobalSettingField.COMFORT_ENABLED, 6, True, b"\x01"),
+        (GlobalSettingField.DELAY_ENABLED, 7, True, b"\x01"),
+        (GlobalSettingField.OVERRUN_ENABLED, 8, True, b"\x01"),
+        (GlobalSettingField.OVERRUN_TIMEOUT_MINUTES, 17, 200, b"\xc8"),
+        (GlobalSettingField.DELAY_TIMEOUT_MINUTES, 18, 200, b"\xc8"),
+        (GlobalSettingField.LS1_ACTION, 19, 200, b"\xc8"),
+        (GlobalSettingField.LS2_ACTION, 20, 200, b"\xc8"),
+        (GlobalSettingField.LS3_ACTION, 21, 200, b"\xc8"),
+        (GlobalSettingField.RAPID_RESPONSE_ENABLED, 9, True, b"\x01"),
+        (GlobalSettingField.AMBIENT_RESPONSE_ENABLED, 10, True, b"\x01"),
+        (GlobalSettingField.LOW_TEMPERATURE_ENABLED, 11, True, b"\x01"),
+        (GlobalSettingField.LOW_THRESHOLD_ACTION, 12, 200, b"\xc8"),
+        (GlobalSettingField.HIGH_THRESHOLD_ACTION, 13, 200, b"\xc8"),
+        (GlobalSettingField.LOW_TEMPERATURE_THRESHOLD, 14, 200, b"\xc8"),
+        (GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD, 15, 200, b"\xc8"),
+        (GlobalSettingField.CO2_BOOST_THRESHOLD, 22, 1500, b"\x96\x00"),
+        (GlobalSettingField.CO2_PURGE_THRESHOLD, 24, 1500, b"\x96\x00"),
+        (GlobalSettingField.ANALOGUE_INPUT_1_LOW_ACTION, 28, 200, b"\xc8"),
+        (GlobalSettingField.ANALOGUE_INPUT_1_HIGH_ACTION, 29, 200, b"\xc8"),
+        (GlobalSettingField.ANALOGUE_INPUT_1_LOW_VALUE, 26, 50, b"\x32"),
+        (GlobalSettingField.ANALOGUE_INPUT_1_HIGH_VALUE, 27, 50, b"\x32"),
+        (GlobalSettingField.ANALOGUE_INPUT_2_LOW_ACTION, 32, 200, b"\xc8"),
+        (GlobalSettingField.ANALOGUE_INPUT_2_HIGH_ACTION, 33, 200, b"\xc8"),
+        (GlobalSettingField.ANALOGUE_INPUT_2_LOW_VALUE, 30, 50, b"\x32"),
+        (GlobalSettingField.ANALOGUE_INPUT_2_HIGH_VALUE, 31, 50, b"\x32"),
+        (GlobalSettingField.DIGITAL_INPUT_1_ACTION, 34, 200, b"\xc8"),
+        (GlobalSettingField.DIGITAL_INPUT_2_ACTION, 35, 200, b"\xc8"),
+    ]
+
+    # Act / Assert - compare the complete record for every official field ID.
+    assert {field for field, *_rest in cases} == set(GlobalSettingField)
+    for field, offset, value, encoded in cases:
+        expected = bytearray(settings.raw_record)
+        expected[offset : offset + len(encoded)] = encoded
+        result = global_settings_after_update(settings, field, value)
+        assert result.raw_record == bytes(expected)
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        (33, 1, "unknown global setting field ID"),
+        (True, 1, "unknown global setting field ID"),
+        (GlobalSettingField.SPEED_LOW, 101, "speed_low must be 0..100"),
+        (GlobalSettingField.COMFORT_ENABLED, 1, "requires a boolean"),
+        (GlobalSettingField.CO2_BOOST_THRESHOLD, -10, "must be 0..2000"),
+        (
+            GlobalSettingField.CO2_BOOST_THRESHOLD,
+            5,
+            "must use 10 ppm increments",
+        ),
+    ],
+)
+def test_global_setting_update_rejects_unknown_or_unsafe_values(
+    field: GlobalSettingField | int, value: int, message: str
+) -> None:
+    """Unknown IDs, wrong types, and values outside safe bounds never encode."""
+
+    # Arrange / Act / Assert - validation fails before a packet can be built.
+    with pytest.raises(ProtocolError, match=message):
+        encode_global_setting_value(field, value)
 
 
 def test_override_and_cancel_encoding() -> None:
