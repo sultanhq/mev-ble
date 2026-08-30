@@ -6,6 +6,33 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0-rc.3] - 2026-08-30
+
+### Added
+
+- Add a guarded **Configure airflow levels** options flow for validated
+  four-speed MEV models, with one review screen and explicit confirmation.
+- Show the current and proposed Low, Normal, Boost, and Purge motor-speed
+  percentages without presenting measured fan RPM as a configuration value.
+
+### Safety
+
+- Enforce the official per-level ranges (Low 1–97%, Normal 2–98%, Boost
+  3–99%, Purge 4–100%) and strict `Low < Normal < Boost < Purge` ordering.
+- Plan changed fields so every intermediate one-field update also retains valid
+  ordering, and require exact packet-137 readback before sending the next field.
+- Recheck the complete settings record at final confirmation and reject stale,
+  unavailable, unsupported, fractional, unchanged, or unconfirmed updates.
+- Keep environmental, input-action, timeout, and CO₂-threshold settings
+  read-only while their model semantics and physical write behaviour remain
+  unvalidated.
+
+### Validation
+
+- Mark this prerelease for a minimal reversible physical test on the recorded
+  model 10 / firmware 2.03.08 unit: Low 6% → 7% → 6%. Stable v0.4.0 remains
+  blocked until the packet-136 write and unrelated-byte preservation are proven.
+
 ## [0.4.0-rc.2] - 2026-08-30
 
 ### Added

@@ -46,6 +46,8 @@ from .const import (
     SUPPORTED_LOCAL_NAMES,
 )
 from .coordinator import (
+    AirflowConfigurationNotSupportedError,
+    AirflowConfigurationUnavailableError,
     CalibrationCommandNotSentError,
     CalibrationDeliveryUncertainError,
     CalibrationNotSupportedError,
@@ -60,10 +62,13 @@ from .device import (
 )
 from .entity import format_identifier
 from .protocol import (
+    AIRFLOW_SPEED_LIMITS,
     DEFAULT_CO2_CALIBRATION_REFERENCE,
     MAX_CO2_CALIBRATION_REFERENCE,
     MIN_CO2_CALIBRATION_REFERENCE,
+    GlobalSettings,
     ProtocolError,
+    validate_airflow_profile,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -72,6 +77,11 @@ CONF_CALIBRATION_METHOD = "calibration_method"
 CONF_REFERENCE_PPM = "reference_ppm"
 CONF_REFERENCE_SENSORS = "reference_sensors"
 CONF_CONFIRM_CALIBRATION = "confirm_calibration"
+CONF_AIRFLOW_LOW = "airflow_low"
+CONF_AIRFLOW_NORMAL = "airflow_normal"
+CONF_AIRFLOW_BOOST = "airflow_boost"
+CONF_AIRFLOW_PURGE = "airflow_purge"
+CONF_CONFIRM_AIRFLOW = "confirm_airflow"
 
 CALIBRATION_METHOD_FRESH_AIR = "fresh_air"
 CALIBRATION_METHOD_REFERENCE_SENSORS = "reference_sensors"
@@ -151,9 +161,7 @@ class VentaxiaMultihomeConfigFlow(ConfigFlow, domain=DOMAIN):
             and format_identifier(info.address) not in configured
         }
         if not self._discovered:
-            return self._show_pairing_instructions(
-                errors={"base": "no_devices_found"}
-            )
+            return self._show_pairing_instructions(errors={"base": "no_devices_found"})
         if len(self._discovered) == 1:
             self._set_discovery(next(iter(self._discovered.values())))
             await self.async_set_unique_id(format_identifier(self._address or ""))
@@ -329,6 +337,8 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._reference_ppm: int | None = None
         self._reference_summary = ""
         self._calibration_progress_task: asyncio.Task[None] | None = None
+        self._airflow_profile: tuple[int, int, int, int] | None = None
+        self._airflow_baseline_raw: bytes | None = None
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -336,6 +346,14 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         """Show the integration options menu."""
 
         menu_options = ["fan_options"]
+        coordinator = self.config_entry.runtime_data
+        if (
+            coordinator.device.supports_global_airflow_configuration
+            and coordinator.data is not None
+            and coordinator.last_update_success
+            and coordinator.device.global_settings_write_ready
+        ):
+            menu_options.append("airflow_profile")
         if self.config_entry.runtime_data.device.supports_internal_co2_calibration:
             menu_options.append("calibrate_co2")
         return self.async_show_menu(
@@ -371,6 +389,209 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                 }
             ),
         )
+
+    async def async_step_airflow_profile(
+        self,
+        user_input: dict[str, Any] | None = None,
+        *,
+        errors: dict[str, str] | None = None,
+    ) -> ConfigFlowResult:
+        """Collect one complete, ordered motor-speed percentage profile."""
+
+        coordinator = self.config_entry.runtime_data
+        if not coordinator.device.supports_global_airflow_configuration:
+            return self.async_abort(reason="airflow_not_supported")
+        settings = self._current_airflow_settings()
+        if settings is None:
+            return self.async_abort(reason="global_settings_unavailable")
+
+        if user_input is not None:
+            try:
+                profile = tuple(
+                    self._integer_percentage(user_input[key])
+                    for key in (
+                        CONF_AIRFLOW_LOW,
+                        CONF_AIRFLOW_NORMAL,
+                        CONF_AIRFLOW_BOOST,
+                        CONF_AIRFLOW_PURGE,
+                    )
+                )
+                validate_airflow_profile(*profile)
+            except (KeyError, ProtocolError, TypeError, ValueError):
+                errors = {"base": "airflow_profile_invalid"}
+            else:
+                current = (
+                    settings.speed_low,
+                    settings.speed_medium,
+                    settings.speed_boost,
+                    settings.speed_purge,
+                )
+                if profile == current:
+                    errors = {"base": "airflow_profile_unchanged"}
+                else:
+                    self._airflow_profile = profile
+                    self._airflow_baseline_raw = settings.raw_record
+                    return await self.async_step_airflow_confirm()
+
+        return self.async_show_form(
+            step_id="airflow_profile",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_AIRFLOW_LOW, default=settings.speed_low
+                    ): self._airflow_selector("low"),
+                    vol.Required(
+                        CONF_AIRFLOW_NORMAL, default=settings.speed_medium
+                    ): self._airflow_selector("normal"),
+                    vol.Required(
+                        CONF_AIRFLOW_BOOST, default=settings.speed_boost
+                    ): self._airflow_selector("boost"),
+                    vol.Required(
+                        CONF_AIRFLOW_PURGE, default=settings.speed_purge
+                    ): self._airflow_selector("purge"),
+                }
+            ),
+            errors=errors or {},
+            description_placeholders={
+                "current_profile": self._format_airflow_profile(
+                    settings.speed_low,
+                    settings.speed_medium,
+                    settings.speed_boost,
+                    settings.speed_purge,
+                )
+            },
+        )
+
+    async def async_step_airflow_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Recheck the baseline and require confirmation before any BLE write."""
+
+        assert self._airflow_profile is not None
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input[CONF_CONFIRM_AIRFLOW]:
+                errors["base"] = "airflow_confirmation_required"
+            else:
+                settings = self._current_airflow_settings()
+                if settings is None:
+                    errors["base"] = "global_settings_unavailable"
+                elif settings.raw_record != self._airflow_baseline_raw:
+                    self._airflow_profile = None
+                    self._airflow_baseline_raw = None
+                    return await self.async_step_airflow_profile(
+                        errors={"base": "airflow_settings_changed"}
+                    )
+                else:
+                    low, normal, boost, purge = self._airflow_profile
+                    try:
+                        await self.config_entry.runtime_data.async_set_airflow_profile(
+                            low=low,
+                            normal=normal,
+                            boost=boost,
+                            purge=purge,
+                        )
+                    except AirflowConfigurationNotSupportedError:
+                        return self.async_abort(reason="airflow_not_supported")
+                    except AirflowConfigurationUnavailableError:
+                        errors["base"] = "global_settings_unavailable"
+                    except HomeAssistantError as err:
+                        _LOGGER.warning(
+                            "Unable to update Multihome airflow profile: %s", err
+                        )
+                        errors["base"] = "airflow_update_failed"
+                    else:
+                        return await self.async_step_airflow_result()
+
+        settings = self._current_airflow_settings()
+        current_profile = (
+            self._format_airflow_profile(
+                settings.speed_low,
+                settings.speed_medium,
+                settings.speed_boost,
+                settings.speed_purge,
+            )
+            if settings is not None
+            else "Unavailable"
+        )
+        return self.async_show_form(
+            step_id="airflow_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONFIRM_AIRFLOW, default=False
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "device": self.config_entry.title,
+                "current_profile": current_profile,
+                "new_profile": self._format_airflow_profile(*self._airflow_profile),
+            },
+        )
+
+    async def async_step_airflow_result(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report the exact profile confirmed through packet-137 readback."""
+
+        assert self._airflow_profile is not None
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        return self.async_show_form(
+            step_id="airflow_result",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "device": self.config_entry.title,
+                "new_profile": self._format_airflow_profile(*self._airflow_profile),
+            },
+        )
+
+    def _current_airflow_settings(self) -> GlobalSettings | None:
+        """Return a current writable settings record or no capability."""
+
+        coordinator = self.config_entry.runtime_data
+        if (
+            coordinator.data is None
+            or not coordinator.last_update_success
+            or not coordinator.device.global_settings_write_ready
+        ):
+            return None
+        return coordinator.data.global_settings
+
+    @staticmethod
+    def _integer_percentage(value: Any) -> int:
+        """Accept only whole-number selector values without truncation."""
+
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("airflow percentage must be numeric")
+        if not math.isfinite(float(value)) or not float(value).is_integer():
+            raise ValueError("airflow percentage must be a whole number")
+        return int(value)
+
+    @staticmethod
+    def _airflow_selector(name: str) -> selector.NumberSelector:
+        """Return the exact official commissioning selector for one level."""
+
+        minimum, maximum = AIRFLOW_SPEED_LIMITS[name]
+        return selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=minimum,
+                max=maximum,
+                step=1,
+                mode=selector.NumberSelectorMode.BOX,
+                unit_of_measurement="%",
+            )
+        )
+
+    @staticmethod
+    def _format_airflow_profile(low: int, normal: int, boost: int, purge: int) -> str:
+        """Return one unambiguous review string for the four percentages."""
+
+        return f"Low {low}% · Normal {normal}% · Boost {boost}% · Purge {purge}%"
 
     async def async_step_calibrate_co2(
         self, user_input: dict[str, Any] | None = None
@@ -452,9 +673,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
 
         if user_input is not None:
             selected = user_input[CONF_REFERENCE_SENSORS]
-            raw_entity_ids = (
-                [selected] if isinstance(selected, str) else list(selected)
-            )
+            raw_entity_ids = [selected] if isinstance(selected, str) else list(selected)
             entity_ids = list(dict.fromkeys(raw_entity_ids))
             try:
                 reference_ppm, summary = self._read_reference_sensors(entity_ids)
@@ -511,9 +730,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                 except CalibrationRateLimitedError:
                     errors["base"] = "calibration_rate_limited"
                 except CalibrationCommandNotSentError as err:
-                    _LOGGER.warning(
-                        "Multihome CO2 calibration was not sent: %s", err
-                    )
+                    _LOGGER.warning("Multihome CO2 calibration was not sent: %s", err)
                     errors["base"] = "calibration_not_sent"
                 except CalibrationDeliveryUncertainError as err:
                     _LOGGER.warning(
@@ -573,8 +790,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         steps = max(
             1,
             math.ceil(
-                CO2_CALIBRATION_SAMPLING_DURATION
-                / CO2_CALIBRATION_PROGRESS_INTERVAL
+                CO2_CALIBRATION_SAMPLING_DURATION / CO2_CALIBRATION_PROGRESS_INTERVAL
             ),
         )
         for step in range(1, steps + 1):
@@ -599,9 +815,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             },
         )
 
-    def _read_reference_sensors(
-        self, entity_ids: list[str]
-    ) -> tuple[int, str]:
+    def _read_reference_sensors(self, entity_ids: list[str]) -> tuple[int, str]:
         """Return the rounded mean and display summary for trusted references."""
 
         if not entity_ids:
@@ -634,9 +848,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             except ValueError as err:
                 raise CalibrationReferenceError("invalid_reference") from err
             if not math.isfinite(value) or not (
-                MIN_CO2_CALIBRATION_REFERENCE
-                <= value
-                <= MAX_CO2_CALIBRATION_REFERENCE
+                MIN_CO2_CALIBRATION_REFERENCE <= value <= MAX_CO2_CALIBRATION_REFERENCE
             ):
                 raise CalibrationReferenceError("reference_out_of_range")
             values.append(value)

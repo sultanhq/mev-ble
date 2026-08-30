@@ -12,6 +12,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import IntEnum, IntFlag
+from itertools import permutations
 from typing import Final
 
 MAX_PACKET_SIZE: Final = 128
@@ -26,6 +27,13 @@ GLOBAL_SETTINGS_SIZE: Final = 36
 MIN_GLOBAL_CO2_THRESHOLD: Final = 0
 MAX_GLOBAL_CO2_THRESHOLD: Final = 2000
 GLOBAL_CO2_THRESHOLD_STEP: Final = 10
+
+AIRFLOW_SPEED_LIMITS: Final = {
+    "low": (1, 97),
+    "normal": (2, 98),
+    "boost": (3, 99),
+    "purge": (4, 100),
+}
 
 WHOLE_PACKET_ACK: Final = b"\x00\x00\x01"
 WHOLE_PACKET_CANCEL: Final = b"\x00\x00\xff"
@@ -678,10 +686,10 @@ class GlobalSettingFieldSpec:
 
 
 _GLOBAL_SETTING_FIELD_SPECS: Final = {
-    GlobalSettingField.SPEED_LOW: GlobalSettingFieldSpec("speed_low", 0, 0, 100),
-    GlobalSettingField.SPEED_MEDIUM: GlobalSettingFieldSpec("speed_medium", 1, 0, 100),
-    GlobalSettingField.SPEED_BOOST: GlobalSettingFieldSpec("speed_boost", 2, 0, 100),
-    GlobalSettingField.SPEED_PURGE: GlobalSettingFieldSpec("speed_purge", 3, 0, 100),
+    GlobalSettingField.SPEED_LOW: GlobalSettingFieldSpec("speed_low", 0, 1, 97),
+    GlobalSettingField.SPEED_MEDIUM: GlobalSettingFieldSpec("speed_medium", 1, 2, 98),
+    GlobalSettingField.SPEED_BOOST: GlobalSettingFieldSpec("speed_boost", 2, 3, 99),
+    GlobalSettingField.SPEED_PURGE: GlobalSettingFieldSpec("speed_purge", 3, 4, 100),
     GlobalSettingField.BOOST_MINIMUM: GlobalSettingFieldSpec(
         "boost_minimum", 4, 0, 100
     ),
@@ -915,6 +923,82 @@ def global_settings_after_update(
         encoded_value
     )
     return decode_global_settings(bytes(expected))
+
+
+def validate_airflow_profile(
+    low: int,
+    normal: int,
+    boost: int,
+    purge: int,
+) -> None:
+    """Validate the official commissioning ranges and strict speed ordering."""
+
+    values = {
+        "low": low,
+        "normal": normal,
+        "boost": boost,
+        "purge": purge,
+    }
+    for name, value in values.items():
+        minimum, maximum = AIRFLOW_SPEED_LIMITS[name]
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ProtocolError(f"airflow {name} requires an integer percentage")
+        if not minimum <= value <= maximum:
+            raise ProtocolError(f"airflow {name} must be {minimum}..{maximum} percent")
+    if not low < normal < boost < purge:
+        raise ProtocolError("airflow speeds must satisfy Low < Normal < Boost < Purge")
+
+
+def plan_airflow_profile_updates(
+    settings: GlobalSettings,
+    *,
+    low: int,
+    normal: int,
+    boost: int,
+    purge: int,
+) -> tuple[tuple[GlobalSettingField, int], ...]:
+    """Plan one-field writes without creating an invalid intermediate profile."""
+
+    validate_airflow_profile(low, normal, boost, purge)
+    validate_airflow_profile(
+        settings.speed_low,
+        settings.speed_medium,
+        settings.speed_boost,
+        settings.speed_purge,
+    )
+    desired = {
+        GlobalSettingField.SPEED_LOW: low,
+        GlobalSettingField.SPEED_MEDIUM: normal,
+        GlobalSettingField.SPEED_BOOST: boost,
+        GlobalSettingField.SPEED_PURGE: purge,
+    }
+    current = {
+        GlobalSettingField.SPEED_LOW: settings.speed_low,
+        GlobalSettingField.SPEED_MEDIUM: settings.speed_medium,
+        GlobalSettingField.SPEED_BOOST: settings.speed_boost,
+        GlobalSettingField.SPEED_PURGE: settings.speed_purge,
+    }
+    changed = tuple(
+        field for field, value in desired.items() if current[field] != value
+    )
+    for order in permutations(changed):
+        candidate = dict(current)
+        for field in order:
+            candidate[field] = desired[field]
+            try:
+                validate_airflow_profile(
+                    candidate[GlobalSettingField.SPEED_LOW],
+                    candidate[GlobalSettingField.SPEED_MEDIUM],
+                    candidate[GlobalSettingField.SPEED_BOOST],
+                    candidate[GlobalSettingField.SPEED_PURGE],
+                )
+            except ProtocolError:
+                break
+        else:
+            return tuple((field, desired[field]) for field in order)
+    raise ProtocolError(
+        "airflow profile cannot be applied safely as isolated field updates"
+    )
 
 
 def decode_faults(mask: int) -> tuple[FaultFlag, ...]:

@@ -51,6 +51,7 @@ from .protocol import (
     encode_setup_code,
     encode_user_override,
     global_settings_after_update,
+    plan_airflow_profile_updates,
 )
 
 if TYPE_CHECKING:
@@ -59,6 +60,7 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 INTERNAL_CO2_CALIBRATION_MODELS: Final = frozenset({2, 10})
+GLOBAL_AIRFLOW_CONFIGURATION_MODELS: Final = frozenset({1, 2, 9, 10})
 
 ClientFactory = Callable[
     ["BLEDevice", str, Callable[[BluetoothClient], None]],
@@ -180,6 +182,12 @@ class MultihomeDevice:
         """Return whether the recovered model map identifies an internal CO2 sensor."""
 
         return self.model_number in INTERNAL_CO2_CALIBRATION_MODELS
+
+    @property
+    def supports_global_airflow_configuration(self) -> bool:
+        """Return whether the official model map identifies four settable speeds."""
+
+        return self.model_number in GLOBAL_AIRFLOW_CONFIGURATION_MODELS
 
     @property
     def confirmed_global_settings(self) -> GlobalSettings | None:
@@ -391,39 +399,82 @@ class MultihomeDevice:
 
         async with self._operation_lock:
             await self.connect(ble_device)
+            return await self._set_global_setting_locked(field, value)
+
+    async def set_airflow_profile(
+        self,
+        ble_device: BLEDevice,
+        *,
+        low: int,
+        normal: int,
+        boost: int,
+        purge: int,
+    ) -> GlobalSettings:
+        """Apply a validated four-speed profile without invalid intermediates."""
+
+        if not self.supports_global_airflow_configuration:
+            raise DeviceError(
+                "global airflow configuration is not validated for this model"
+            )
+        async with self._operation_lock:
+            await self.connect(ble_device)
             confirmed = self._confirmed_global_settings
             if confirmed is None or not self._global_settings_write_ready:
                 raise GlobalSettingsUnavailableError(
                     "global settings must be read successfully before an update"
                 )
-            expected = global_settings_after_update(confirmed, field, value)
-            payload = encode_global_setting_update(field, value)
-            try:
-                await self._send(
-                    PacketType.GLOBAL_DATA_FIELD,
-                    Operation.UPDATE,
-                    payload,
-                )
-                response = await self._request(
-                    PacketType.GLOBAL_DATA,
-                    Operation.DATA_REQUEST,
-                )
-                received = decode_global_settings(response.payload)
-            except Exception as err:
-                self._global_settings_write_ready = False
-                raise GlobalSettingUpdateError(
-                    "global setting update was not confirmed; "
-                    "the last confirmed snapshot was retained"
-                ) from err
-            if received.raw_record != expected.raw_record:
-                self._global_settings_write_ready = False
-                raise GlobalSettingUpdateError(
-                    "global setting readback did not match the requested update; "
-                    "the last confirmed snapshot was retained"
-                )
-            self._confirmed_global_settings = received
-            self._global_settings_write_ready = True
-            return received
+            plan = plan_airflow_profile_updates(
+                confirmed,
+                low=low,
+                normal=normal,
+                boost=boost,
+                purge=purge,
+            )
+            result = confirmed
+            for field, value in plan:
+                result = await self._set_global_setting_locked(field, value)
+            return result
+
+    async def _set_global_setting_locked(
+        self,
+        field: GlobalSettingField | int,
+        value: int | bool,
+    ) -> GlobalSettings:
+        """Send and confirm one field while the operation lock is held."""
+
+        confirmed = self._confirmed_global_settings
+        if confirmed is None or not self._global_settings_write_ready:
+            raise GlobalSettingsUnavailableError(
+                "global settings must be read successfully before an update"
+            )
+        expected = global_settings_after_update(confirmed, field, value)
+        payload = encode_global_setting_update(field, value)
+        try:
+            await self._send(
+                PacketType.GLOBAL_DATA_FIELD,
+                Operation.UPDATE,
+                payload,
+            )
+            response = await self._request(
+                PacketType.GLOBAL_DATA,
+                Operation.DATA_REQUEST,
+            )
+            received = decode_global_settings(response.payload)
+        except Exception as err:
+            self._global_settings_write_ready = False
+            raise GlobalSettingUpdateError(
+                "global setting update was not confirmed; "
+                "the last confirmed snapshot was retained"
+            ) from err
+        if received.raw_record != expected.raw_record:
+            self._global_settings_write_ready = False
+            raise GlobalSettingUpdateError(
+                "global setting readback did not match the requested update; "
+                "the last confirmed snapshot was retained"
+            )
+        self._confirmed_global_settings = received
+        self._global_settings_write_ready = True
+        return received
 
     async def _find_internal_co2_target(self) -> int:
         """Return the internal sensor address used by the official app."""

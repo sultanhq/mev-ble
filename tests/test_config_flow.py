@@ -27,7 +27,12 @@ from custom_components.ventaxia_multihome import config_flow as config_flow_modu
 from custom_components.ventaxia_multihome.config_flow import (
     CALIBRATION_METHOD_FRESH_AIR,
     CALIBRATION_METHOD_REFERENCE_SENSORS,
+    CONF_AIRFLOW_BOOST,
+    CONF_AIRFLOW_LOW,
+    CONF_AIRFLOW_NORMAL,
+    CONF_AIRFLOW_PURGE,
     CONF_CALIBRATION_METHOD,
+    CONF_CONFIRM_AIRFLOW,
     CONF_CONFIRM_CALIBRATION,
     CONF_REFERENCE_PPM,
     CONF_REFERENCE_SENSORS,
@@ -38,11 +43,13 @@ from custom_components.ventaxia_multihome.const import (
     DOMAIN,
 )
 from custom_components.ventaxia_multihome.coordinator import (
+    AirflowConfigurationUnavailableError,
     CalibrationCommandNotSentError,
     CalibrationDeliveryUncertainError,
     CalibrationRateLimitedError,
 )
 from custom_components.ventaxia_multihome.device import SetupCodeRejectedError
+from custom_components.ventaxia_multihome.protocol import decode_global_settings
 
 
 @pytest.fixture(autouse=True)
@@ -59,14 +66,30 @@ def _discovery(name: str = "mEv") -> SimpleNamespace:
     )
 
 
-def _options_entry(hass, *, supports_calibration: bool = True):
+def _options_entry(
+    hass,
+    *,
+    supports_calibration: bool = True,
+    supports_airflow: bool = False,
+    airflow_available: bool = True,
+):
     """Create a loaded-looking entry without starting Bluetooth I/O."""
 
+    settings = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
     coordinator = SimpleNamespace(
         device=SimpleNamespace(
-            supports_internal_co2_calibration=supports_calibration
+            supports_internal_co2_calibration=supports_calibration,
+            supports_global_airflow_configuration=supports_airflow,
+            global_settings_write_ready=airflow_available,
         ),
+        data=(SimpleNamespace(global_settings=settings) if airflow_available else None),
+        last_update_success=airflow_available,
         async_calibrate_internal_co2=AsyncMock(),
+        async_set_airflow_profile=AsyncMock(),
     )
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -81,6 +104,17 @@ def _options_entry(hass, *, supports_calibration: bool = True):
     entry.runtime_data = coordinator
     entry.add_to_hass(hass)
     return entry, coordinator
+
+
+async def _open_airflow_options(hass, entry):
+    """Open the four-level airflow screen from the options menu."""
+
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    assert initial["type"] is data_entry_flow.FlowResultType.MENU
+    assert initial["step_id"] == "init"
+    return await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "airflow_profile"}
+    )
 
 
 async def _open_calibration_options(hass, entry):
@@ -98,12 +132,8 @@ async def _open_calibration_options(hass, entry):
 def fast_calibration_progress(monkeypatch):
     """Keep end-to-end progress-flow tests fast."""
 
-    monkeypatch.setattr(
-        config_flow_module, "CO2_CALIBRATION_SAMPLING_DURATION", 0.001
-    )
-    monkeypatch.setattr(
-        config_flow_module, "CO2_CALIBRATION_PROGRESS_INTERVAL", 0.001
-    )
+    monkeypatch.setattr(config_flow_module, "CO2_CALIBRATION_SAMPLING_DURATION", 0.001)
+    monkeypatch.setattr(config_flow_module, "CO2_CALIBRATION_PROGRESS_INTERVAL", 0.001)
 
 
 async def _complete_calibration_progress(hass, progress):
@@ -116,6 +146,247 @@ async def _complete_calibration_progress(hass, progress):
         await task
     await hass.async_block_till_done()
     return hass.config_entries.options.async_get(progress["flow_id"])
+
+
+@pytest.mark.asyncio
+async def test_airflow_profile_menu_requires_supported_current_settings(hass) -> None:
+    """Airflow commissioning appears only with a validated writable snapshot."""
+
+    # Arrange - create separate supported, unsupported, and unavailable entries.
+    supported, _ = _options_entry(hass, supports_airflow=True, airflow_available=True)
+    unsupported, _ = _options_entry(
+        hass, supports_airflow=False, airflow_available=True
+    )
+    unavailable, _ = _options_entry(
+        hass, supports_airflow=True, airflow_available=False
+    )
+
+    # Act - open each entry's top-level options menu.
+    supported_menu = await hass.config_entries.options.async_init(supported.entry_id)
+    unsupported_menu = await hass.config_entries.options.async_init(
+        unsupported.entry_id
+    )
+    unavailable_menu = await hass.config_entries.options.async_init(
+        unavailable.entry_id
+    )
+
+    # Assert - only the proven model with current packet-137 data exposes writes.
+    assert "airflow_profile" in supported_menu["menu_options"]
+    assert "airflow_profile" not in unsupported_menu["menu_options"]
+    assert "airflow_profile" not in unavailable_menu["menu_options"]
+
+
+@pytest.mark.asyncio
+async def test_airflow_profile_uses_documented_percent_ranges(hass) -> None:
+    """The commissioning form labels motor percentages with exact limits."""
+
+    # Arrange - open the airflow form with the user's confirmed current profile.
+    entry, _ = _options_entry(hass, supports_airflow=True)
+
+    # Act - inspect the rendered Home Assistant selector definitions.
+    result = await _open_airflow_options(hass, entry)
+    fields = {
+        marker.schema: field for marker, field in result["data_schema"].schema.items()
+    }
+
+    # Assert - defaults, units, limits, and step match the official manual.
+    assert result["description_placeholders"]["current_profile"] == (
+        "Low 6% · Normal 8% · Boost 37% · Purge 50%"
+    )
+    expected = {
+        CONF_AIRFLOW_LOW: (1, 97, 6),
+        CONF_AIRFLOW_NORMAL: (2, 98, 8),
+        CONF_AIRFLOW_BOOST: (3, 99, 37),
+        CONF_AIRFLOW_PURGE: (4, 100, 50),
+    }
+    for name, (minimum, maximum, default) in expected.items():
+        assert fields[name].config["min"] == minimum
+        assert fields[name].config["max"] == maximum
+        assert fields[name].config["step"] == 1
+        assert fields[name].config["unit_of_measurement"] == "%"
+        marker = next(
+            item for item in result["data_schema"].schema if item.schema == name
+        )
+        assert marker.default() == default
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "profile",
+    [
+        (8, 8, 37, 50),
+        (6.5, 8, 37, 50),
+    ],
+)
+async def test_airflow_profile_rejects_invalid_values(hass, profile) -> None:
+    """Unsafe ordering, range, and fractional values never reach Bluetooth."""
+
+    # Arrange - open a writable airflow profile form.
+    entry, coordinator = _options_entry(hass, supports_airflow=True)
+    form = await _open_airflow_options(hass, entry)
+
+    # Act - submit a profile that cannot be a valid commissioned profile.
+    result = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        dict(
+            zip(
+                (
+                    CONF_AIRFLOW_LOW,
+                    CONF_AIRFLOW_NORMAL,
+                    CONF_AIRFLOW_BOOST,
+                    CONF_AIRFLOW_PURGE,
+                ),
+                profile,
+                strict=True,
+            )
+        ),
+    )
+
+    # Assert - validation remains in the form and sends no packet-136 update.
+    assert result["step_id"] == "airflow_profile"
+    assert result["errors"] == {"base": "airflow_profile_invalid"}
+    coordinator.async_set_airflow_profile.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_airflow_selector_rejects_out_of_range_value(hass) -> None:
+    """Home Assistant enforces the documented field bounds before the flow."""
+
+    # Arrange - open the profile whose Low selector permits only 1..97 percent.
+    entry, coordinator = _options_entry(hass, supports_airflow=True)
+    form = await _open_airflow_options(hass, entry)
+
+    # Act / Assert - HA's schema rejects zero before calling the write flow.
+    with pytest.raises(data_entry_flow.InvalidData):
+        await hass.config_entries.options.async_configure(
+            form["flow_id"],
+            {
+                CONF_AIRFLOW_LOW: 0,
+                CONF_AIRFLOW_NORMAL: 8,
+                CONF_AIRFLOW_BOOST: 37,
+                CONF_AIRFLOW_PURGE: 50,
+            },
+        )
+    coordinator.async_set_airflow_profile.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_airflow_profile_requires_review_and_exact_confirmation(hass) -> None:
+    """A valid profile is reviewed and written only after positive confirmation."""
+
+    # Arrange - open a supported profile and prepare a minimal Low change.
+    entry, coordinator = _options_entry(hass, supports_airflow=True)
+    form = await _open_airflow_options(hass, entry)
+
+    # Act - submit 7/8/37/50, then decline and finally confirm the review.
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {
+            CONF_AIRFLOW_LOW: 7,
+            CONF_AIRFLOW_NORMAL: 8,
+            CONF_AIRFLOW_BOOST: 37,
+            CONF_AIRFLOW_PURGE: 50,
+        },
+    )
+
+    # Assert - reaching review is not itself a write operation.
+    assert confirm["step_id"] == "airflow_confirm"
+    assert confirm["description_placeholders"]["new_profile"] == (
+        "Low 7% · Normal 8% · Boost 37% · Purge 50%"
+    )
+    coordinator.async_set_airflow_profile.assert_not_awaited()
+
+    # Act - refuse once, then explicitly authorize the exact reviewed profile.
+    declined = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_AIRFLOW: False}
+    )
+    result = await hass.config_entries.options.async_configure(
+        declined["flow_id"], {CONF_CONFIRM_AIRFLOW: True}
+    )
+
+    # Assert - only positive confirmation writes, then shows confirmed readback.
+    assert declined["errors"] == {"base": "airflow_confirmation_required"}
+    coordinator.async_set_airflow_profile.assert_awaited_once_with(
+        low=7, normal=8, boost=37, purge=50
+    )
+    assert result["step_id"] == "airflow_result"
+    completed = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert completed["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert completed["data"] == {CONF_OVERRIDE_DURATION: 1800}
+
+
+@pytest.mark.asyncio
+async def test_airflow_profile_rechecks_snapshot_at_confirmation(hass) -> None:
+    """An independently changed settings record invalidates a stale review."""
+
+    # Arrange - reach review with the user's original 6/8/37/50 record.
+    entry, coordinator = _options_entry(hass, supports_airflow=True)
+    form = await _open_airflow_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {
+            CONF_AIRFLOW_LOW: 7,
+            CONF_AIRFLOW_NORMAL: 8,
+            CONF_AIRFLOW_BOOST: 37,
+            CONF_AIRFLOW_PURGE: 50,
+        },
+    )
+    changed = bytearray(coordinator.data.global_settings.raw_record)
+    changed[5] = 82
+    coordinator.data = SimpleNamespace(
+        global_settings=decode_global_settings(bytes(changed))
+    )
+
+    # Act - confirm after another client has changed the global record.
+    result = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_AIRFLOW: True}
+    )
+
+    # Assert - HA returns to fresh inputs instead of overwriting stale state.
+    assert result["step_id"] == "airflow_profile"
+    assert result["errors"] == {"base": "airflow_settings_changed"}
+    coordinator.async_set_airflow_profile.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "expected_error"),
+    [
+        (
+            AirflowConfigurationUnavailableError("poll first"),
+            "global_settings_unavailable",
+        ),
+        (HomeAssistantError("readback mismatch"), "airflow_update_failed"),
+    ],
+)
+async def test_airflow_profile_failure_never_shows_success(
+    hass, error, expected_error
+) -> None:
+    """Unavailable and failed writes remain on the review without false success."""
+
+    # Arrange - reach final review with a coordinator that will reject the write.
+    entry, coordinator = _options_entry(hass, supports_airflow=True)
+    coordinator.async_set_airflow_profile.side_effect = error
+    form = await _open_airflow_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {
+            CONF_AIRFLOW_LOW: 7,
+            CONF_AIRFLOW_NORMAL: 8,
+            CONF_AIRFLOW_BOOST: 37,
+            CONF_AIRFLOW_PURGE: 50,
+        },
+    )
+
+    # Act - authorize the command that cannot produce confirmed readback.
+    failed = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_AIRFLOW: True}
+    )
+
+    # Assert - the review reports failure and does not create a result screen.
+    assert failed["step_id"] == "airflow_confirm"
+    assert failed["errors"] == {"base": expected_error}
+    coordinator.async_set_airflow_profile.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -160,9 +431,7 @@ async def test_user_flow_retries_when_no_device_is_found(hass) -> None:
         )
 
         # Act - submit the pairing instructions screen to scan.
-        result = await hass.config_entries.flow.async_configure(
-            initial["flow_id"], {}
-        )
+        result = await hass.config_entries.flow.async_configure(initial["flow_id"], {})
 
     # Assert - setup stays open with a useful retry error.
     assert result["type"] is data_entry_flow.FlowResultType.FORM
@@ -204,9 +473,7 @@ async def test_user_flow_pairs_after_finding_one_device(hass) -> None:
         )
 
         # Act - submit the pairing instructions screen to scan.
-        result = await hass.config_entries.flow.async_configure(
-            initial["flow_id"], {}
-        )
+        result = await hass.config_entries.flow.async_configure(initial["flow_id"], {})
 
     # Assert - pairing stores the internal code without showing it to the user.
     assert result["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
@@ -275,9 +542,7 @@ async def test_automatic_pairing_failure(hass) -> None:
         )
 
         # Act - submit the physical pairing instructions.
-        rejected = await hass.config_entries.flow.async_configure(
-            result["flow_id"], {}
-        )
+        rejected = await hass.config_entries.flow.async_configure(result["flow_id"], {})
 
     # Assert - the flow stays open with a specific retry error.
     assert rejected["type"] is data_entry_flow.FlowResultType.FORM
@@ -325,8 +590,9 @@ async def test_fresh_air_calibration_requires_final_confirmation(
     assert exposure["step_id"] == "calibration_exposure"
     assert confirm["step_id"] == "calibration_confirm"
     assert confirm["description_placeholders"]["reference_ppm"] == "450"
-    assert "official app defaults to 450" in (
-        confirm["description_placeholders"]["reference_summary"]
+    assert (
+        "official app defaults to 450"
+        in (confirm["description_placeholders"]["reference_summary"])
     )
     coordinator.async_calibrate_internal_co2.assert_not_awaited()
 
@@ -346,9 +612,7 @@ async def test_fresh_air_calibration_requires_final_confirmation(
 
     result = await _complete_calibration_progress(hass, progress)
     assert result["step_id"] == "calibration_result"
-    completed = await hass.config_entries.options.async_configure(
-        result["flow_id"], {}
-    )
+    completed = await hass.config_entries.options.async_configure(result["flow_id"], {})
     assert completed["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     assert completed["data"] == {CONF_OVERRIDE_DURATION: 1800}
 
@@ -459,8 +723,9 @@ async def test_single_reference_calibration_is_supported_with_warning(
     )
 
     # Assert - placement warning is visible and exactly 450 ppm is sent once.
-    assert "must represent the air entering" in (
-        confirm["description_placeholders"]["reference_summary"]
+    assert (
+        "must represent the air entering"
+        in (confirm["description_placeholders"]["reference_summary"])
     )
     assert progress["step_id"] == "calibration_progress"
     coordinator.async_calibrate_internal_co2.assert_awaited_once_with(450)
@@ -495,9 +760,7 @@ def test_calibration_progress_copy_is_safe_when_client_stays_at_100() -> None:
     # Arrange - load the source and shipped English option-flow translations.
     integration_dir = Path("custom_components/ventaxia_multihome")
     source = json.loads((integration_dir / "strings.json").read_text())
-    english = json.loads(
-        (integration_dir / "translations/en.json").read_text()
-    )
+    english = json.loads((integration_dir / "translations/en.json").read_text())
 
     # Act - read the progress page and progress-action copy from both files.
     source_step = source["options"]["step"]["calibration_progress"]

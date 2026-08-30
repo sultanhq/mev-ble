@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -19,6 +20,8 @@ from custom_components.ventaxia_multihome.const import (
     STARTUP_ADVERTISEMENT_TIMEOUT,
 )
 from custom_components.ventaxia_multihome.coordinator import (
+    AirflowConfigurationNotSupportedError,
+    AirflowConfigurationUnavailableError,
     CalibrationCommandNotSentError,
     CalibrationDeliveryUncertainError,
     CalibrationNotSupportedError,
@@ -28,10 +31,13 @@ from custom_components.ventaxia_multihome.coordinator import (
 from custom_components.ventaxia_multihome.device import (
     CalibrationTargetDiscoveryError,
     CalibrationWriteUncertainError,
+    GlobalSettingsUnavailableError,
+    MultihomeData,
 )
 from custom_components.ventaxia_multihome.protocol import (
     AirflowPreset,
     ProtocolError,
+    decode_global_settings,
 )
 
 
@@ -226,9 +232,7 @@ async def test_initial_bluetooth_retries_after_advertisement_timeout(
     coordinator = _coordinator()
     ble_device = object()
     discovered = iter([None, None, ble_device])
-    process_advertisements = AsyncMock(
-        side_effect=[TimeoutError, object()]
-    )
+    process_advertisements = AsyncMock(side_effect=[TimeoutError, object()])
     monkeypatch.setattr(
         coordinator_module.bluetooth,
         "async_ble_device_from_address",
@@ -341,6 +345,152 @@ async def test_failed_control_retains_data_and_updates_availability(
     device.disconnect.assert_awaited_once()
 
 
+def _settings(raw: str = "06082532"):
+    """Decode a complete settings record with a selectable airflow prefix."""
+
+    suffix = "005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+    return decode_global_settings(bytes.fromhex(raw + suffix))
+
+
+@pytest.mark.asyncio
+async def test_airflow_profile_publishes_only_confirmed_settings() -> None:
+    """A successful profile write replaces settings after exact readback."""
+
+    # Arrange - retain telemetry and return a distinct confirmed 7/8/37/50 record.
+    current = MultihomeData(
+        zone=object(),
+        system=object(),
+        global_settings=_settings(),
+        last_successful_update=datetime.now(UTC),
+    )
+    confirmed = _settings("07082532")
+    ble_device = object()
+    device = SimpleNamespace(
+        supports_global_airflow_configuration=True,
+        global_settings_write_ready=True,
+        set_airflow_profile=AsyncMock(return_value=confirmed),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=current,
+        last_update_success=True,
+        _ble_device=lambda: ble_device,
+        async_set_updated_data=Mock(),
+        async_set_update_error=Mock(),
+    )
+
+    # Act - apply one reviewed four-level commissioning profile.
+    await VentaxiaMultihomeCoordinator.async_set_airflow_profile(
+        coordinator, low=7, normal=8, boost=37, purge=50
+    )
+
+    # Assert - exactly one device operation runs and publishes its fresh readback.
+    device.set_airflow_profile.assert_awaited_once_with(
+        ble_device, low=7, normal=8, boost=37, purge=50
+    )
+    published = coordinator.async_set_updated_data.call_args.args[0]
+    assert published.global_settings is confirmed
+    assert published.zone is current.zone
+    assert published.system is current.system
+    coordinator.async_set_update_error.assert_not_called()
+    device.disconnect.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_airflow_profile_rejects_unsupported_model_before_bluetooth() -> None:
+    """Unknown models cannot reach packet-136 writes through the coordinator."""
+
+    # Arrange - expose current data but no validated airflow capability.
+    device = SimpleNamespace(
+        supports_global_airflow_configuration=False,
+        global_settings_write_ready=True,
+        set_airflow_profile=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=object(),
+        last_update_success=True,
+        _ble_device=Mock(),
+    )
+
+    # Act / Assert - the model gate rejects the operation before Bluetooth lookup.
+    with pytest.raises(AirflowConfigurationNotSupportedError):
+        await VentaxiaMultihomeCoordinator.async_set_airflow_profile(
+            coordinator, low=7, normal=8, boost=37, purge=50
+        )
+    coordinator._ble_device.assert_not_called()
+    device.set_airflow_profile.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("data", "last_success", "write_ready"),
+    [
+        (None, True, True),
+        (object(), False, True),
+        (object(), True, False),
+    ],
+)
+async def test_airflow_profile_requires_current_writable_snapshot(
+    data, last_success, write_ready
+) -> None:
+    """Missing, stale, or unconfirmed global data cannot be configured."""
+
+    # Arrange - vary each condition that makes packet-137 state untrustworthy.
+    device = SimpleNamespace(
+        supports_global_airflow_configuration=True,
+        global_settings_write_ready=write_ready,
+        set_airflow_profile=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=data,
+        last_update_success=last_success,
+        _ble_device=Mock(),
+    )
+
+    # Act / Assert - the write remains blocked before resolving a BLE route.
+    with pytest.raises(AirflowConfigurationUnavailableError):
+        await VentaxiaMultihomeCoordinator.async_set_airflow_profile(
+            coordinator, low=7, normal=8, boost=37, purge=50
+        )
+    coordinator._ble_device.assert_not_called()
+    device.set_airflow_profile.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_airflow_profile_maps_device_snapshot_loss_to_unavailable() -> None:
+    """A snapshot invalidated inside the serialized operation is not success."""
+
+    # Arrange - pass the coordinator gate, then lose the device snapshot at write time.
+    device = SimpleNamespace(
+        supports_global_airflow_configuration=True,
+        global_settings_write_ready=True,
+        set_airflow_profile=AsyncMock(
+            side_effect=GlobalSettingsUnavailableError("snapshot changed")
+        ),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=object(),
+        last_update_success=True,
+        _ble_device=lambda: object(),
+        async_set_updated_data=Mock(),
+        async_set_update_error=Mock(),
+    )
+
+    # Act / Assert - HA reports unavailable without publishing false settings.
+    with pytest.raises(AirflowConfigurationUnavailableError, match="snapshot"):
+        await VentaxiaMultihomeCoordinator.async_set_airflow_profile(
+            coordinator, low=7, normal=8, boost=37, purge=50
+        )
+    coordinator.async_set_updated_data.assert_not_called()
+    coordinator.async_set_update_error.assert_not_called()
+    device.disconnect.assert_not_awaited()
+
+
 @pytest.mark.asyncio
 async def test_calibration_uses_validated_device_and_reference(monkeypatch) -> None:
     """A valid calibration command reaches the device exactly once."""
@@ -363,9 +513,7 @@ async def test_calibration_uses_validated_device_and_reference(monkeypatch) -> N
     monkeypatch.setattr(coordinator_module, "time", lambda: 100.0)
 
     # Act - start a fresh-air reference calibration.
-    await VentaxiaMultihomeCoordinator.async_calibrate_internal_co2(
-        coordinator, 400
-    )
+    await VentaxiaMultihomeCoordinator.async_calibrate_internal_co2(coordinator, 400)
 
     # Assert - the coordinator records the attempt and delegates once.
     assert coordinator._last_calibration_attempt == 100.0
@@ -559,9 +707,7 @@ async def test_polling_continues_after_successful_calibration(monkeypatch) -> No
     monkeypatch.setattr(coordinator_module, "time", lambda: 100.0)
 
     # Act - send calibration, then run the next ordinary refresh.
-    await VentaxiaMultihomeCoordinator.async_calibrate_internal_co2(
-        coordinator, 400
-    )
+    await VentaxiaMultihomeCoordinator.async_calibrate_internal_co2(coordinator, 400)
     result = await VentaxiaMultihomeCoordinator._async_update_data(coordinator)
 
     # Assert - no forced disconnect occurred and polling returned normally.
@@ -601,9 +747,7 @@ def test_invalid_persisted_calibration_attempt_is_ignored(stored_value) -> None:
     """Corrupt or legacy config data cannot create an invalid cooldown."""
 
     # Arrange - load a config entry containing an invalid internal timestamp.
-    entry = SimpleNamespace(
-        data={CONF_LAST_CO2_CALIBRATION_ATTEMPT: stored_value}
-    )
+    entry = SimpleNamespace(data={CONF_LAST_CO2_CALIBRATION_ATTEMPT: stored_value})
 
     # Act - parse the optional persisted calibration-attempt value.
     restored = VentaxiaMultihomeCoordinator._stored_calibration_attempt(entry)

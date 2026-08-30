@@ -42,6 +42,7 @@
         "title": "Configure Vent-Axia Multihome",
         "menu_options": {
           "fan_options": "Fan override options",
+          "airflow_profile": "Configure airflow levels",
           "calibrate_co2": "Calibrate internal CO₂ sensor"
         }
       },
@@ -50,6 +51,27 @@
         "data": {
           "override_duration": "Default override duration"
         }
+      },
+      "airflow_profile": {
+        "title": "Configure airflow levels",
+        "description": "Current profile: **{current_profile}**\n\nThese are the unit's four commissioned **motor-speed percentages**, not measured fan RPM. Actual RPM is shown by the Fan RPM sensor and can vary with duct resistance and load. The levels must remain ordered Low < Normal < Boost < Purge.\n\nChanging commissioned airflow can affect ventilation performance and building-compliance rates. Record the current values and change them only if you understand the required airflow for the installation.",
+        "data": {
+          "airflow_low": "Low motor speed",
+          "airflow_normal": "Normal motor speed",
+          "airflow_boost": "Boost motor speed",
+          "airflow_purge": "Purge motor speed"
+        }
+      },
+      "airflow_confirm": {
+        "title": "Confirm airflow levels",
+        "description": "Device: **{device}**\n\nCurrent profile: **{current_profile}**\n\nNew profile: **{new_profile}**\n\nHome Assistant will update only the changed fields, in an order that keeps Low < Normal < Boost < Purge valid after every write. Each field must be returned exactly by a fresh settings read before the next field is sent. If any write or readback fails, the flow reports failure rather than claiming the complete profile was applied.",
+        "data": {
+          "confirm_airflow": "I understand these are commissioned motor-speed percentages and want to apply the reviewed profile"
+        }
+      },
+      "airflow_result": {
+        "title": "Airflow levels confirmed",
+        "description": "The installed unit returned **{new_profile}** through fresh settings readback. Measured Fan RPM may take time to settle and can differ with duct resistance and load."
       },
       "calibrate_co2": {
         "title": "Choose a CO₂ calibration method",
@@ -97,6 +119,12 @@
       "calibration_delivery_uncertain": "Home Assistant could not confirm delivery. The calibration may have started, so wait five minutes before trying again.",
       "calibration_not_supported": "Internal CO₂ calibration is not validated for this model.",
       "calibration_rate_limited": "A calibration was sent or its delivery was uncertain recently. Wait five minutes before trying again.",
+      "airflow_confirmation_required": "Confirm the reviewed airflow profile before changing the commissioned settings.",
+      "airflow_profile_invalid": "Enter whole-number percentages in the documented ranges and keep Low < Normal < Boost < Purge.",
+      "airflow_profile_unchanged": "The entered airflow profile is already active.",
+      "airflow_settings_changed": "The unit's settings changed after the review was opened. Review the current values and try again.",
+      "airflow_update_failed": "The complete airflow profile could not be confirmed. Check the current values before trying again.",
+      "global_settings_unavailable": "Current settings are unavailable or not yet confirmed. Wait for the integration to complete a successful update, then reopen this flow.",
       "confirmation_required": "Confirm the preparation before starting calibration.",
       "invalid_reference": "Select only numeric CO₂ sensors that report ppm.",
       "reference_out_of_range": "Every reference reading must be between 400 and 2,000 ppm.",
@@ -104,6 +132,8 @@
       "self_reference": "The MEV cannot use its own CO₂ entity as a calibration reference."
     },
     "abort": {
+      "airflow_not_supported": "Airflow configuration is not validated for this model. No setting was changed.",
+      "global_settings_unavailable": "Current settings are unavailable or not yet confirmed. No setting was changed.",
       "calibration_not_supported": "Internal CO₂ calibration is not validated for this model. No command was sent."
     }
   },

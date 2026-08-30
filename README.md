@@ -82,7 +82,9 @@ Detailed instructions:
 - Serialized controls/polling and automatic reconnection after a dropped link
 - Guarded internal CO₂ calibration for validated CO₂-equipped models, using
   either documented fresh-air exposure or trusted Home Assistant references
-- Lossless read-only global-settings snapshots in redacted diagnostics
+- Lossless global-settings snapshots in redacted diagnostics
+- Guarded four-level airflow commissioning for validated models, with exact
+  readback and explicit review
 - Redacted Home Assistant diagnostics
 
 The physically inspected MEV remote exposes speed levels 1–4 and timers for 30,
@@ -91,11 +93,11 @@ integration therefore does not expose inferred ventilation-mode power commands.
 Cancel override is retained as a separate official-app protocol operation; it
 returns control to the unit and is not a power action. Internal CO₂ calibration
 is available only through a guarded Configure flow on validated CO₂-equipped
-models. Configuration and global airflow values are decoded read-only in
-diagnostics. The internal update layer requires strict validation and exact
-immediate readback, but no settings write is exposed through Home Assistant in
-the current release candidate. Schedules, resets, and installer controls remain
-unavailable.
+models. Validated four-speed models can configure Low, Normal, Boost, and Purge
+through a guarded Configure flow. These values are commissioned motor-speed
+percentages, not measured RPM; the flow applies documented limits, preserves
+strict ordering, and requires exact immediate readback. Environmental options,
+schedules, resets, and unvalidated installer controls remain unavailable.
 
 Internal CO₂ calibration can be run again after its five-minute safety cooldown.
 Home Assistant does not expose the unvalidated general `RestoreDefaults` packet

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from math import ceil, isfinite
 from time import time
 from typing import TYPE_CHECKING
@@ -38,6 +39,7 @@ from .device import (
     CalibrationTargetDiscoveryError,
     CalibrationWriteUncertainError,
     DeviceError,
+    GlobalSettingsUnavailableError,
     MultihomeData,
     MultihomeDevice,
     SetupCodeRejectedError,
@@ -69,6 +71,14 @@ class CalibrationCommandNotSentError(HomeAssistantError):
 
 class CalibrationDeliveryUncertainError(HomeAssistantError):
     """Raised when the calibration write may have reached the unit."""
+
+
+class AirflowConfigurationNotSupportedError(HomeAssistantError):
+    """Raised when a model is not validated for airflow configuration."""
+
+
+class AirflowConfigurationUnavailableError(HomeAssistantError):
+    """Raised when no current settings record permits an airflow update."""
 
 
 class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
@@ -232,11 +242,59 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             ) from err
         self.async_set_updated_data(data)
 
+    async def async_set_airflow_profile(
+        self,
+        *,
+        low: int,
+        normal: int,
+        boost: int,
+        purge: int,
+    ) -> None:
+        """Apply and publish one confirmed four-level airflow profile."""
+
+        if not self.device.supports_global_airflow_configuration:
+            raise AirflowConfigurationNotSupportedError(
+                "Global airflow configuration is not validated for this model"
+            )
+        if (
+            self.data is None
+            or not self.last_update_success
+            or not self.device.global_settings_write_ready
+        ):
+            raise AirflowConfigurationUnavailableError(
+                "Current global settings are unavailable; wait for a successful poll"
+            )
+        try:
+            settings = await self.device.set_airflow_profile(
+                self._ble_device(),
+                low=low,
+                normal=normal,
+                boost=boost,
+                purge=purge,
+            )
+        except GlobalSettingsUnavailableError as err:
+            raise AirflowConfigurationUnavailableError(str(err)) from err
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            await self.device.disconnect()
+            self.async_set_update_error(err)
+            raise HomeAssistantError(
+                f"Unable to update Multihome airflow profile: {err}"
+            ) from err
+        self.async_set_updated_data(replace(self.data, global_settings=settings))
+
     async def async_calibrate_internal_co2(self, reference_ppm: int) -> None:
         """Start one guarded internal-sensor calibration command."""
 
-        if not MIN_CO2_CALIBRATION_REFERENCE <= reference_ppm <= (
-            MAX_CO2_CALIBRATION_REFERENCE
+        if (
+            not MIN_CO2_CALIBRATION_REFERENCE
+            <= reference_ppm
+            <= (MAX_CO2_CALIBRATION_REFERENCE)
         ):
             raise HomeAssistantError(
                 "CO2 calibration reference must be "
@@ -251,19 +309,14 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         now = time()
         if self._last_calibration_attempt is not None:
             elapsed = max(0.0, now - self._last_calibration_attempt)
-            remaining = ceil(
-                CO2_CALIBRATION_COOLDOWN
-                - elapsed
-            )
+            remaining = ceil(CO2_CALIBRATION_COOLDOWN - elapsed)
             if remaining > 0:
                 raise CalibrationRateLimitedError(
                     f"Wait {remaining} seconds before another calibration attempt"
                 )
 
         try:
-            await self.device.calibrate_internal_co2(
-                self._ble_device(), reference_ppm
-            )
+            await self.device.calibrate_internal_co2(self._ble_device(), reference_ppm)
         except CalibrationTargetDiscoveryError as err:
             await self.device.disconnect()
             self.last_calibration_outcome = "not_sent"

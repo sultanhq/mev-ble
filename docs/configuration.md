@@ -45,18 +45,34 @@ into setup mode so Home Assistant can repeat the exchange automatically.
 | Cancel override | Ends the current BLE override and returns control to the unit |
 | Fault binary sensors | Motor, sensor, attachment, alarm, firmware, battery, filter, and service diagnostics |
 
-## Read-only global settings
+## Global settings and airflow commissioning
 
 The integration reads the unit's complete 36-byte global-settings record and
-includes it in **Download diagnostics**. This initial v0.4 surface is
-deliberately diagnostic-only: it does not create editable entities or permit a
-settings write.
+includes it in **Download diagnostics**. On validated four-speed models with a
+current successful read, **Configure → Configure airflow levels** provides one
+guarded four-field flow for Low, Normal, Boost, and Purge.
+
+The form values are commissioned motor-speed percentages, not the measured
+**Fan RPM** sensor. They use the official ranges Low 1–97%, Normal 2–98%, Boost
+3–99%, and Purge 4–100%, in 1% steps. They must remain strictly ordered
+`Low < Normal < Boost < Purge`.
+
+The flow shows the current and proposed complete profile before it writes. At
+final confirmation it checks that the original 36-byte record is still current,
+then applies only changed fields in a safe order. Every individual write must be
+returned exactly by an immediate fresh read before the next field is sent. If
+the settings are unavailable, stale, unsupported, or change during review, the
+flow does not expose or perform a write.
 
 The diagnostic snapshot includes airflow percentages, humidity and temperature
 options, delay and overrun timeouts, LS/analogue/digital input actions, CO₂
 thresholds, the original raw record, and a list of any boolean fields whose
 firmware value was not the documented zero or one. Unknown action numbers are
 retained numerically instead of being assigned guessed meanings.
+
+All non-airflow global fields remain read-only. See the
+[global-settings safety model and supported-field matrix](global-settings.md)
+for the current confidence and hardware-validation status.
 
 ## Supported control scope
 
@@ -175,8 +191,8 @@ Choose the actual entity in the automation editor.
 
 ## Polling and availability
 
-Home Assistant polls zone telemetry, system status, and the read-only global
-settings every 10 seconds over a normally long-lived GATT connection. Failed
+Home Assistant polls zone telemetry, system status, and global settings every
+10 seconds over a normally long-lived GATT connection. Failed
 communication makes the entities
 unavailable, clears stale protocol state, and retries normally. The integration
 retains the last known Bluetooth route so it can reconnect even when the MEV's

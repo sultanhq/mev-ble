@@ -47,6 +47,7 @@ from custom_components.ventaxia_multihome.protocol import (
     encode_user_override,
     fragment_ack,
     fragment_packet,
+    global_settings_after_update,
     reassemble_fragments,
 )
 
@@ -683,6 +684,125 @@ async def test_global_setting_failure_retains_confirmed_snapshot(
     assert len(sent) == 1
     assert device.confirmed_global_settings == confirmed
     assert device.global_settings_write_ready is False
+
+
+@pytest.mark.parametrize(
+    ("model", "supported"),
+    [("1", True), ("2", True), ("9", True), ("10", True), ("11", False), (None, False)],
+)
+def test_global_airflow_capability_uses_official_four_speed_model_map(
+    model: str | None, supported: bool
+) -> None:
+    """Only recognised four-speed MEV models expose airflow commissioning."""
+
+    # Arrange - apply one official or unknown model number.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(model=model)
+
+    # Act - evaluate the user-facing capability gate.
+    result = device.supports_global_airflow_configuration
+
+    # Assert - four-speed models pass and unsupported/unknown models stay hidden.
+    assert result is supported
+
+
+@pytest.mark.asyncio
+async def test_airflow_profile_updates_each_field_with_exact_readback() -> None:
+    """A four-level profile stays serialized and confirms every intermediate."""
+
+    # Arrange - emulate firmware applying each one-byte RawWithId update.
+    record = bytearray(decode_packet(_responses()[2]).payload)
+    record[:4] = bytes([10, 20, 30, 40])
+    current = decode_global_settings(bytes(record))
+    sent: list[bytes] = []
+    requested: list[bytes] = []
+
+    class ApplyingTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            nonlocal current
+            sent.append(packet)
+            command = decode_packet(packet)
+            wrapped = decode_data_object_array(command.payload)
+            assert wrapped.object_id is not None
+            current = global_settings_after_update(
+                current,
+                GlobalSettingField(wrapped.object_id),
+                wrapped.payload[0],
+            )
+
+        async def request(self, packet: bytes) -> bytes:
+            requested.append(packet)
+            return encode_packet(
+                PacketType.GLOBAL_DATA,
+                Operation.RESPONSE,
+                current.raw_record,
+                timestamp=2,
+            )
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(model="10")
+    device._client = DeviceClient([])
+    device._transport = ApplyingTransport()
+    device._authenticated = True
+    device._confirmed_global_settings = current
+    device._global_settings_write_ready = True
+
+    # Act - raise every level while preserving strict ordering throughout.
+    result = await device.set_airflow_profile(
+        object(), low=20, normal=30, boost=40, purge=50
+    )
+
+    # Assert - all four writes use target zero and each has its own readback.
+    assert len(sent) == 4
+    assert len(requested) == 4
+    assert all(
+        decode_packet(packet).packet_type == PacketType.GLOBAL_DATA_FIELD
+        and decode_packet(packet).target == 0
+        for packet in sent
+    )
+    assert all(
+        decode_packet(packet).packet_type == PacketType.GLOBAL_DATA
+        for packet in requested
+    )
+    assert (
+        result.speed_low,
+        result.speed_medium,
+        result.speed_boost,
+        result.speed_purge,
+    ) == (20, 30, 40, 50)
+    assert device.confirmed_global_settings == result
+
+
+@pytest.mark.asyncio
+async def test_airflow_profile_rejects_unsupported_model_before_write() -> None:
+    """An unknown/non-MEV model cannot receive packet-136 airflow writes."""
+
+    # Arrange - connect an unsupported model and record any attempted send.
+    sent: list[bytes] = []
+
+    class RecordingTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            sent.append(packet)
+
+        async def request(self, packet: bytes) -> bytes:
+            raise AssertionError("no readback expected")
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(model="11")
+    device._client = DeviceClient([])
+    device._transport = RecordingTransport()
+    device._authenticated = True
+
+    # Act / Assert - capability validation fails before connection or write use.
+    with pytest.raises(DeviceError, match="not validated for this model"):
+        await device.set_airflow_profile(
+            object(), low=10, normal=20, boost=30, purge=40
+        )
+    assert sent == []
 
 
 @pytest.mark.asyncio

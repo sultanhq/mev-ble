@@ -37,7 +37,9 @@ from custom_components.ventaxia_multihome.protocol import (
     fragment_ack,
     fragment_packet,
     global_settings_after_update,
+    plan_airflow_profile_updates,
     reassemble_fragments,
+    validate_airflow_profile,
 )
 
 
@@ -483,7 +485,7 @@ def test_every_global_setting_field_preserves_all_unrelated_bytes() -> None:
     [
         (33, 1, "unknown global setting field ID"),
         (True, 1, "unknown global setting field ID"),
-        (GlobalSettingField.SPEED_LOW, 101, "speed_low must be 0..100"),
+        (GlobalSettingField.SPEED_LOW, 101, "speed_low must be 1..97"),
         (GlobalSettingField.COMFORT_ENABLED, 1, "requires a boolean"),
         (GlobalSettingField.CO2_BOOST_THRESHOLD, -10, "must be 0..2000"),
         (
@@ -501,6 +503,95 @@ def test_global_setting_update_rejects_unknown_or_unsafe_values(
     # Arrange / Act / Assert - validation fails before a packet can be built.
     with pytest.raises(ProtocolError, match=message):
         encode_global_setting_value(field, value)
+
+
+@pytest.mark.parametrize(
+    ("profile", "message"),
+    [
+        ((0, 25, 35, 50), "low must be 1..97"),
+        ((10, 99, 100, 101), "normal must be 2..98"),
+        ((10, 25, 25, 50), "Low < Normal < Boost < Purge"),
+        ((10, 25, 35, True), "purge requires an integer"),
+    ],
+)
+def test_airflow_profile_rejects_invalid_ranges_or_order(
+    profile: tuple[int, int, int, int], message: str
+) -> None:
+    """Official commissioning limits and strict ordering are mandatory."""
+
+    # Arrange / Act / Assert - reject the invalid profile before planning writes.
+    with pytest.raises(ProtocolError, match=message):
+        validate_airflow_profile(*profile)
+
+
+@pytest.mark.parametrize(
+    ("current", "desired"),
+    [
+        ((10, 20, 30, 40), (20, 30, 40, 50)),
+        ((20, 30, 40, 50), (10, 20, 30, 40)),
+        ((10, 25, 60, 80), (15, 20, 70, 75)),
+    ],
+)
+def test_airflow_profile_plan_keeps_every_intermediate_profile_valid(
+    current: tuple[int, int, int, int],
+    desired: tuple[int, int, int, int],
+) -> None:
+    """Multi-field changes are ordered so the MEV never sees crossed speeds."""
+
+    # Arrange - place the current profile in an otherwise opaque settings record.
+    record = bytearray(36)
+    record[:4] = bytes(current)
+    settings = decode_global_settings(bytes(record))
+
+    # Act - plan and replay each isolated packet-136 field update.
+    plan = plan_airflow_profile_updates(
+        settings,
+        low=desired[0],
+        normal=desired[1],
+        boost=desired[2],
+        purge=desired[3],
+    )
+    replayed = settings
+    for field, value in plan:
+        replayed = global_settings_after_update(replayed, field, value)
+        validate_airflow_profile(
+            replayed.speed_low,
+            replayed.speed_medium,
+            replayed.speed_boost,
+            replayed.speed_purge,
+        )
+
+    # Assert - all requested values are reached exactly once without extra fields.
+    assert len(plan) == len(
+        [pair for pair in zip(current, desired, strict=True) if pair[0] != pair[1]]
+    )
+    assert (
+        replayed.speed_low,
+        replayed.speed_medium,
+        replayed.speed_boost,
+        replayed.speed_purge,
+    ) == desired
+
+
+def test_airflow_profile_plan_is_empty_when_values_are_unchanged() -> None:
+    """Submitting the current profile does not create unnecessary writes."""
+
+    # Arrange - decode one valid four-speed profile.
+    record = bytearray(36)
+    record[:4] = bytes([10, 25, 35, 50])
+    settings = decode_global_settings(bytes(record))
+
+    # Act - plan an identical profile.
+    plan = plan_airflow_profile_updates(
+        settings,
+        low=10,
+        normal=25,
+        boost=35,
+        purge=50,
+    )
+
+    # Assert - no packet-136 updates are needed.
+    assert plan == ()
 
 
 def test_override_and_cancel_encoding() -> None:
