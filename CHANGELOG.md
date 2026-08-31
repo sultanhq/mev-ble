@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0-rc.1
+
+- Read all six packet-49 silent-hours slots during each serialized device poll.
+- Add lossless nine-byte record and thirteen-byte indexed-table codecs, including
+  daytime, overnight, empty, malformed and unknown-record handling.
+- Add guarded create, edit and delete operations with exact full-table readback.
+- Retain the previous confirmed table and disable further writes after rejection,
+  timeout, disconnect or mismatched readback until a successful poll recovers it.
+- Add a Home Assistant management flow with time selectors, named weekdays,
+  explicit overnight semantics and confirmed deletion of populated slots.
+- Enable the release-candidate flow only on model 10 while physical validation is
+  completed. Other models retain read-only safety behaviour.
+
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).

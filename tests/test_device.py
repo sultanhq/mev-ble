@@ -6,6 +6,7 @@ import asyncio
 import struct
 from collections import deque
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -29,6 +30,8 @@ from custom_components.ventaxia_multihome.device import (
     MultihomeDevice,
     MultihomeDeviceInfo,
     SetupCodeRejectedError,
+    SilentHoursUnavailableError,
+    SilentHourUpdateError,
 )
 from custom_components.ventaxia_multihome.protocol import (
     AirflowPreset,
@@ -39,17 +42,137 @@ from custom_components.ventaxia_multihome.protocol import (
     decode_data_object_array,
     decode_global_settings,
     decode_packet,
+    decode_silent_hour,
+    decode_silent_hour_slot,
     encode_cancel_override,
     encode_co2_calibration,
     encode_data_object_array,
     encode_global_setting_update,
     encode_packet,
+    encode_silent_hour,
+    encode_silent_hour_request,
+    encode_silent_hour_update,
     encode_user_override,
     fragment_ack,
     fragment_packet,
     global_settings_after_update,
     reassemble_fragments,
 )
+
+
+def _silent_slots(
+    populated: dict[int, bytes] | None = None,
+) -> tuple:
+    """Build one deterministic six-slot decoded table."""
+
+    populated = populated or {}
+    return tuple(
+        decode_silent_hour_slot(
+            struct.pack("<HH", index, 0) + populated.get(index, bytes(9))
+        )
+        for index in range(6)
+    )
+
+
+@pytest.mark.asyncio
+async def test_set_silent_hour_accepts_only_exact_full_table_readback() -> None:
+    """A slot update becomes current only after all six slots are reread."""
+
+    # Arrange - prepare model 10 with one complete confirmed empty table.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(model="10")
+    device._confirmed_silent_hours = _silent_slots()
+    device._silent_hours_write_ready = True
+    device.connect = AsyncMock()
+    device._send = AsyncMock()
+    record = decode_silent_hour(encode_silent_hour(22 * 3600, 6 * 3600, 0x1F))
+    readback = _silent_slots({2: record.raw_record})
+    device._read_silent_hours = AsyncMock(return_value=readback)
+
+    # Act - update slot two through the serialized device operation.
+    result = await device.set_silent_hour(object(), 2, record)
+
+    # Assert - packet 49 was written and only matching readback was published.
+    device._send.assert_awaited_once_with(
+        PacketType.SILENT_HOURS,
+        Operation.UPDATE,
+        encode_silent_hour_update(2, record),
+    )
+    device._read_silent_hours.assert_awaited_once()
+    assert result == readback
+    assert device.confirmed_silent_hours == readback
+    assert device.silent_hours_write_ready
+
+
+@pytest.mark.asyncio
+async def test_delete_silent_hour_confirms_empty_slot() -> None:
+    """Deletion uses 0xffff and succeeds only when the slot rereads empty."""
+
+    # Arrange - start with one populated slot and an empty-table readback.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(model="10")
+    record = encode_silent_hour(9 * 3600, 17 * 3600, 0x7F)
+    previous = _silent_slots({4: record})
+    device._confirmed_silent_hours = previous
+    device._silent_hours_write_ready = True
+    device.connect = AsyncMock()
+    device._send = AsyncMock()
+    device._read_silent_hours = AsyncMock(return_value=_silent_slots())
+
+    # Act - delete slot four.
+    result = await device.delete_silent_hour(object(), 4)
+
+    # Assert - the marker is exact and confirmed state now reports empty.
+    device._send.assert_awaited_once_with(
+        PacketType.SILENT_HOURS, Operation.UPDATE, bytes.fromhex("0400ffff")
+    )
+    assert result[4].record is None
+    assert device.confirmed_silent_hours == result
+
+
+@pytest.mark.asyncio
+async def test_silent_hour_mismatch_retains_previous_confirmed_table() -> None:
+    """A rejected or ignored write never replaces the previous snapshot."""
+
+    # Arrange - return an unchanged empty table after requesting a populated slot.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(model="10")
+    previous = _silent_slots()
+    device._confirmed_silent_hours = previous
+    device._silent_hours_write_ready = True
+    device.connect = AsyncMock()
+    device._send = AsyncMock()
+    device._read_silent_hours = AsyncMock(return_value=previous)
+    record = decode_silent_hour(encode_silent_hour(3600, 7200, 1))
+
+    # Act - attempt the update whose readback remains unchanged.
+    with pytest.raises(SilentHourUpdateError, match="did not match") as raised:
+        await device.set_silent_hour(object(), 0, record)
+
+    # Assert - mismatch is explicit and disables another stale write.
+    assert raised.value
+    assert device.confirmed_silent_hours is previous
+    assert not device.silent_hours_write_ready
+
+
+@pytest.mark.asyncio
+async def test_silent_hour_requires_complete_current_table() -> None:
+    """No mutation is sent before all six slots have been confirmed."""
+
+    # Arrange - use supported hardware with no current schedule snapshot.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(model="10")
+    device.connect = AsyncMock()
+    device._send = AsyncMock()
+    record = decode_silent_hour(encode_silent_hour(3600, 7200, 1))
+
+    # Act - attempt a mutation without a complete current table.
+    with pytest.raises(SilentHoursUnavailableError) as raised:
+        await device.set_silent_hour(object(), 0, record)
+
+    # Assert - the precondition fails without a packet-49 write.
+    assert raised.value
+    device._send.assert_not_awaited()
 
 
 class FakeServices:
@@ -106,6 +229,7 @@ def _responses(
     fan_level: int = 3,
     fan_state: int = 2,
     override_remaining: int = 60,
+    schedules: bool = False,
 ) -> list[bytes]:
     zone = struct.pack("<BBBHfffI", 1, fan_level, fan_state, 1200, 22.0, 55.0, co2, 0)
     status = encode_data_object_array(
@@ -151,7 +275,7 @@ def _responses(
             16,
         ]
     )
-    return [
+    responses = [
         encode_packet(PacketType.ZONE_VIEW_ROW, Operation.RESPONSE, zone, timestamp=1),
         encode_packet(
             PacketType.SYSTEM_STATUS, Operation.RESPONSE, status, timestamp=2
@@ -163,6 +287,17 @@ def _responses(
             timestamp=3,
         ),
     ]
+    if schedules:
+        for index in range(6):
+            responses.append(
+                encode_packet(
+                    PacketType.SILENT_HOURS,
+                    Operation.RESPONSE,
+                    struct.pack("<HH", index, 0) + bytes(9),
+                    timestamp=4 + index,
+                )
+            )
+    return responses
 
 
 @pytest.mark.asyncio
@@ -1066,7 +1201,9 @@ async def test_control_and_readback_have_transport_parity(
     """The same override API sends and reconciles over either BLE transport."""
 
     # Arrange - build the exact acknowledgements/responses for the chosen transport.
-    zone_response, status_response, global_settings_response = _responses()
+    all_responses = _responses(schedules=True)
+    zone_response, status_response, global_settings_response = all_responses[:3]
+    silent_hour_responses = all_responses[3:]
     command_template = encode_packet(
         PacketType.USER_OVERRIDE,
         Operation.DATA_REQUEST,
@@ -1074,9 +1211,7 @@ async def test_control_and_readback_have_transport_parity(
         timestamp=1,
     )
     if transport_name == "whole_packet":
-        client = DeviceClient(
-            [zone_response, status_response, global_settings_response]
-        )
+        client = DeviceClient(all_responses)
         transport = WholePacketTransport(client, timeout=0.1, poll_interval=0)
         command_frame_count = 1
     else:
@@ -1093,32 +1228,40 @@ async def test_control_and_readback_have_transport_parity(
         zone_request_frames = fragment_packet(zone_request)
         status_request_frames = fragment_packet(status_request)
         global_settings_request_frames = fragment_packet(global_settings_request)
-        client = DeviceClient(
-            [
-                *(fragment_ack(index) for index in range(1, len(command_frames) + 1)),
-                *(
-                    fragment_ack(index)
-                    for index in range(1, len(zone_request_frames) + 1)
-                ),
-                *fragment_packet(zone_response),
-                *(
-                    fragment_ack(index)
-                    for index in range(1, len(status_request_frames) + 1)
-                ),
-                *fragment_packet(status_response),
-                *(
-                    fragment_ack(index)
-                    for index in range(1, len(global_settings_request_frames) + 1)
-                ),
-                *fragment_packet(global_settings_response),
-            ],
-            FRAGMENT_CHARACTERISTIC_UUID,
-        )
+        protocol_reads = [
+            *(fragment_ack(index) for index in range(1, len(command_frames) + 1)),
+            *(fragment_ack(index) for index in range(1, len(zone_request_frames) + 1)),
+            *fragment_packet(zone_response),
+            *(
+                fragment_ack(index)
+                for index in range(1, len(status_request_frames) + 1)
+            ),
+            *fragment_packet(status_response),
+            *(
+                fragment_ack(index)
+                for index in range(1, len(global_settings_request_frames) + 1)
+            ),
+            *fragment_packet(global_settings_response),
+        ]
+        for index, response in enumerate(silent_hour_responses):
+            request = encode_packet(
+                PacketType.SILENT_HOURS,
+                Operation.DATA_REQUEST,
+                encode_silent_hour_request(index),
+                timestamp=1,
+            )
+            request_frames = fragment_packet(request)
+            protocol_reads.extend(
+                fragment_ack(sequence) for sequence in range(1, len(request_frames) + 1)
+            )
+            protocol_reads.extend(fragment_packet(response))
+        client = DeviceClient(protocol_reads, FRAGMENT_CHARACTERISTIC_UUID)
         transport = FragmentedTransport(
             client, timeout=0.1, poll_interval=0, write_delay=0
         )
         command_frame_count = len(command_frames)
     device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(model="10")
     device._client = client
     device._transport = transport
     device._authenticated = True
@@ -1139,6 +1282,8 @@ async def test_control_and_readback_have_transport_parity(
     assert data.zone.fan_rpm == 1200
     assert data.system.override_remaining == 60
     assert data.global_settings.co2_purge_threshold == 1500
+    assert [slot.index for slot in data.silent_hours] == list(range(6))
+    assert all(slot.record is None for slot in data.silent_hours)
 
 
 @pytest.mark.asyncio

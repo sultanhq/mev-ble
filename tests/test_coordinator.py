@@ -26,6 +26,8 @@ from custom_components.ventaxia_multihome.coordinator import (
     CalibrationDeliveryUncertainError,
     CalibrationNotSupportedError,
     CalibrationRateLimitedError,
+    SilentHoursConfigurationUnavailableError,
+    SilentHoursNotSupportedError,
     VentaxiaMultihomeCoordinator,
 )
 from custom_components.ventaxia_multihome.device import (
@@ -38,7 +40,19 @@ from custom_components.ventaxia_multihome.protocol import (
     AirflowPreset,
     ProtocolError,
     decode_global_settings,
+    decode_silent_hour,
+    decode_silent_hour_slot,
+    encode_silent_hour,
 )
+
+
+def _silent_hours():
+    """Return one complete empty six-slot table."""
+
+    return tuple(
+        decode_silent_hour_slot(index.to_bytes(2, "little") + bytes(11))
+        for index in range(6)
+    )
 
 
 def _coordinator() -> VentaxiaMultihomeCoordinator:
@@ -457,6 +471,131 @@ async def test_airflow_profile_requires_current_writable_snapshot(
         )
     coordinator._ble_device.assert_not_called()
     device.set_airflow_profile.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_silent_hour_publishes_only_confirmed_full_table() -> None:
+    """A successful schedule update replaces only the schedule snapshot."""
+
+    # Arrange - retain telemetry/settings and return a newly confirmed table.
+    current = MultihomeData(
+        zone=object(),
+        system=object(),
+        global_settings=_settings(),
+        last_successful_update=datetime.now(UTC),
+        silent_hours=_silent_hours(),
+    )
+    record = decode_silent_hour(encode_silent_hour(22 * 3600, 7 * 3600, 0x7F))
+    confirmed = list(_silent_hours())
+    confirmed[0] = decode_silent_hour_slot(bytes(4) + record.raw_record)
+    confirmed = tuple(confirmed)
+    ble_device = object()
+    device = SimpleNamespace(
+        supports_silent_hours_management=True,
+        silent_hours_write_ready=True,
+        set_silent_hour=AsyncMock(return_value=confirmed),
+        delete_silent_hour=AsyncMock(),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=current,
+        last_update_success=True,
+        _ble_device=lambda: ble_device,
+        async_set_updated_data=Mock(),
+        async_set_update_error=Mock(),
+    )
+
+    # Act - apply one reviewed overnight schedule.
+    await VentaxiaMultihomeCoordinator.async_set_silent_hour(coordinator, 0, record)
+
+    # Assert - only exact device readback is published with other state retained.
+    device.set_silent_hour.assert_awaited_once_with(ble_device, 0, record)
+    published = coordinator.async_set_updated_data.call_args.args[0]
+    assert published.silent_hours is confirmed
+    assert published.global_settings is current.global_settings
+    assert published.zone is current.zone
+    coordinator.async_set_update_error.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_silent_hour_delete_uses_same_guarded_publish_path() -> None:
+    """Deletion publishes the complete readback returned by the device."""
+
+    # Arrange - prepare a current table and an empty confirmed deletion result.
+    current = MultihomeData(
+        zone=object(),
+        system=object(),
+        global_settings=_settings(),
+        last_successful_update=datetime.now(UTC),
+        silent_hours=_silent_hours(),
+    )
+    confirmed = _silent_hours()
+    device = SimpleNamespace(
+        supports_silent_hours_management=True,
+        silent_hours_write_ready=True,
+        set_silent_hour=AsyncMock(),
+        delete_silent_hour=AsyncMock(return_value=confirmed),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=current,
+        last_update_success=True,
+        _ble_device=lambda: object(),
+        async_set_updated_data=Mock(),
+        async_set_update_error=Mock(),
+    )
+
+    # Act - delete slot five.
+    await VentaxiaMultihomeCoordinator.async_delete_silent_hour(coordinator, 5)
+
+    # Assert - deletion and publication occur exactly once.
+    device.delete_silent_hour.assert_awaited_once()
+    published = coordinator.async_set_updated_data.call_args.args[0]
+    assert published.silent_hours is confirmed
+
+
+@pytest.mark.asyncio
+async def test_silent_hours_rejects_unsupported_or_unavailable_before_ble() -> None:
+    """Capability and current-state gates prevent unsafe schedule writes."""
+
+    # Arrange - create one unsupported and one stale coordinator facade.
+    record = decode_silent_hour(encode_silent_hour(3600, 7200, 1))
+    unsupported_device = SimpleNamespace(
+        supports_silent_hours_management=False,
+        silent_hours_write_ready=True,
+        set_silent_hour=AsyncMock(),
+    )
+    unsupported = SimpleNamespace(
+        device=unsupported_device,
+        data=SimpleNamespace(silent_hours=_silent_hours()),
+        last_update_success=True,
+        _ble_device=Mock(),
+    )
+    stale_device = SimpleNamespace(
+        supports_silent_hours_management=True,
+        silent_hours_write_ready=False,
+        set_silent_hour=AsyncMock(),
+    )
+    stale = SimpleNamespace(
+        device=stale_device,
+        data=SimpleNamespace(silent_hours=_silent_hours()),
+        last_update_success=True,
+        _ble_device=Mock(),
+    )
+
+    # Act - attempt one mutation through each unsafe coordinator state.
+    with pytest.raises(SilentHoursNotSupportedError) as unsupported_error:
+        await VentaxiaMultihomeCoordinator.async_set_silent_hour(unsupported, 0, record)
+    with pytest.raises(SilentHoursConfigurationUnavailableError) as unavailable_error:
+        await VentaxiaMultihomeCoordinator.async_set_silent_hour(stale, 0, record)
+
+    # Assert - both gates fail before a Bluetooth route or packet write.
+    assert unsupported_error.value
+    assert unavailable_error.value
+    unsupported._ble_device.assert_not_called()
+    stale._ble_device.assert_not_called()
 
 
 @pytest.mark.asyncio

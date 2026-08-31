@@ -10,7 +10,10 @@ import pytest
 from custom_components.ventaxia_multihome.diagnostics import (
     async_get_config_entry_diagnostics,
 )
-from custom_components.ventaxia_multihome.protocol import decode_global_settings
+from custom_components.ventaxia_multihome.protocol import (
+    decode_global_settings,
+    decode_silent_hour_slot,
+)
 
 
 @pytest.mark.asyncio
@@ -63,6 +66,10 @@ async def test_diagnostics_include_control_validation_state() -> None:
                 ]
             )
         ),
+        silent_hours=tuple(
+            decode_silent_hour_slot(index.to_bytes(2, "little") + bytes(11))
+            for index in range(6)
+        ),
         zone=SimpleNamespace(
             fan_state=2,
             fan_level=3,
@@ -85,6 +92,7 @@ async def test_diagnostics_include_control_validation_state() -> None:
         device=SimpleNamespace(
             transport_name="fragmented",
             global_settings_write_ready=True,
+            silent_hours_write_ready=True,
             last_calibration_device_table_version=6,
             last_calibration_target_scan=[(1, 10, 4)],
             last_calibration_target=None,
@@ -125,6 +133,17 @@ async def test_diagnostics_include_control_validation_state() -> None:
         "0a234664414b01000100010002030f19040b0c05060764009600155b0809165c0d0e0f10"
     )
     assert result["global_settings_write_ready"] is True
+    assert len(result["silent_hours"]) == 6
+    assert result["silent_hours"][0] == {
+        "index": 0,
+        "total_count": 0,
+        "start_seconds": None,
+        "end_seconds": None,
+        "weekdays_mask": None,
+        "valid": True,
+        "raw_payload": "00000000000000000000000000",
+    }
+    assert result["silent_hours_write_ready"] is True
     assert result["state"] == {
         "fan_state": "user_override",
         "fan_level": 3,

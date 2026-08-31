@@ -318,18 +318,24 @@ def serialize_co2_calibration(
 
 
 def serialize_silent_hour(start_seconds: int, end_seconds: int, weekdays_mask: int) -> bytes:
-    if not 0 <= weekdays_mask <= 0x7F:
-        raise ValueError("weekdays_mask uses bits 0..6 for Monday..Sunday")
+    if not 0 <= start_seconds < 86_400 or not 0 <= end_seconds < 86_400:
+        raise ValueError("silent-hour times must be seconds within one day")
+    if not 0 < weekdays_mask <= 0x7F:
+        raise ValueError("weekdays_mask must select Monday..Sunday bits 0..6")
     return struct.pack("<IIB", start_seconds, end_seconds, weekdays_mask)
 
 
 def serialize_silent_hour_table(item_index: int, total_count: int, record: bytes) -> bytes:
+    if not 0 <= item_index < 6:
+        raise ValueError("silent-hour item index must be 0..5")
     if len(record) != 9:
         raise ValueError("silent-hour record must be nine bytes")
     return struct.pack("<HH", item_index, total_count) + record
 
 
 def serialize_silent_hour_delete(item_index: int) -> bytes:
+    if not 0 <= item_index < 6:
+        raise ValueError("silent-hour item index must be 0..5")
     return struct.pack("<HH", item_index, 0xFFFF)
 
 
@@ -454,7 +460,12 @@ def _hex_bytes(value: str) -> bytes:
 def _self_test() -> None:
     assert crc8_zirconia(b"") == 0
     assert crc8_zirconia(bytes.fromhex("010203")) == 0xF7
-    assert len(serialize_silent_hour(0, 3600, 0x7F)) == 9
+    silent_hour = serialize_silent_hour(22 * 3600, 7 * 3600, 0x7F)
+    assert silent_hour.hex() == "60350100706200007f"
+    assert serialize_silent_hour_table(5, 0, silent_hour).hex() == (
+        "0500000060350100706200007f"
+    )
+    assert serialize_silent_hour_delete(5).hex() == "0500ffff"
     override = serialize_user_override(AirflowPreset.BOOST, 1800)
     obj = deserialize_data_object_array(override)
     assert obj.object_type == DataObjectArrayType.RAW

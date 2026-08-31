@@ -97,7 +97,9 @@ models. Validated four-speed models can configure Low, Normal, Boost, and Purge
 through a guarded Configure flow. These values are commissioned motor-speed
 percentages, not measured RPM; the flow applies documented limits, preserves
 strict ordering, and requires exact immediate readback. Environmental options,
-schedules, resets, and unvalidated installer controls remain unavailable.
+resets and unvalidated installer controls remain unavailable. Version 0.5 release
+candidates add guarded six-slot silent-hours management for model 10 hardware;
+see [Silent-hours schedules](docs/silent-hours.md) for semantics and validation.
 
 Internal CO₂ calibration can be run again after its five-minute safety cooldown.
 Home Assistant does not expose the unvalidated general `RestoreDefaults` packet

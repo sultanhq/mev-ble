@@ -43,6 +43,7 @@
         "menu_options": {
           "fan_options": "Fan override options",
           "airflow_profile": "Configure airflow levels",
+          "silent_hours": "Manage silent hours",
           "calibrate_co2": "Calibrate internal CO₂ sensor"
         }
       },
@@ -72,6 +73,34 @@
       "airflow_result": {
         "title": "Airflow levels confirmed",
         "description": "The installed unit returned **{new_profile}** through fresh settings readback. Measured Fan RPM may take time to settle and can differ with duct resistance and load."
+      },
+      "silent_hours": {
+        "title": "Manage silent hours",
+        "description": "The installed unit returned this complete six-slot table:\n\n{schedule_table}\n\nChoose a slot and whether to create/edit or delete it. Times use the Home Assistant server's local wall clock. An end time equal to or earlier than the start time is treated as an overnight schedule ending on the following day.",
+        "data": {
+          "silent_hour_slot": "Schedule slot",
+          "silent_hour_action": "Action"
+        }
+      },
+      "silent_hour_edit": {
+        "title": "Configure silent-hours slot {slot}",
+        "description": "Current schedule: **{current_schedule}**\n\nSelect the days on which this schedule starts. For an overnight schedule, the end time is on the following day. Home Assistant will write only this slot, reread all six slots, and report success only if the selected slot matches exactly.",
+        "data": {
+          "silent_hour_start": "Start time",
+          "silent_hour_end": "End time",
+          "silent_hour_weekdays": "Days when the schedule starts"
+        }
+      },
+      "silent_hour_delete": {
+        "title": "Delete silent-hours slot {slot}",
+        "description": "Schedule to delete: **{current_schedule}**\n\nDeletion uses the unit's recovered slot-deletion command. Home Assistant will reread all six slots and report success only when this slot is returned as empty.",
+        "data": {
+          "confirm_silent_hour_delete": "I want to delete this populated schedule slot"
+        }
+      },
+      "silent_hour_result": {
+        "title": "Silent-hours slot {slot} confirmed",
+        "description": "The installed unit returned the requested result through a complete fresh table read: **{result}**."
       },
       "calibrate_co2": {
         "title": "Choose a CO₂ calibration method",
@@ -125,6 +154,14 @@
       "airflow_settings_changed": "The unit's settings changed after the review was opened. Review the current values and try again.",
       "airflow_update_failed": "The complete airflow profile could not be confirmed. Check the current values before trying again.",
       "global_settings_unavailable": "Current settings are unavailable or not yet confirmed. Wait for the integration to complete a successful update, then reopen this flow.",
+      "silent_hours_unavailable": "The complete six-slot schedule table is unavailable or not yet confirmed. Wait for a successful integration update, then reopen this flow.",
+      "silent_hour_invalid": "Select a valid slot, start time, end time and at least one weekday.",
+      "silent_hour_unknown": "This slot contains an unknown firmware record and is read-only to avoid discarding data.",
+      "silent_hour_empty": "The selected slot is already empty and cannot be deleted.",
+      "silent_hour_unchanged": "The entered schedule is already stored in this slot.",
+      "silent_hour_busy": "A silent-hours transaction is already active. Wait for it to finish.",
+      "silent_hour_delete_confirmation_required": "Confirm deletion of the populated schedule slot.",
+      "silent_hour_update_failed": "The schedule change could not be confirmed. The previous confirmed table was retained; wait for recovery and check all slots before retrying.",
       "confirmation_required": "Confirm the preparation before starting calibration.",
       "invalid_reference": "Select only numeric CO₂ sensors that report ppm.",
       "reference_out_of_range": "Every reference reading must be between 400 and 2,000 ppm.",
@@ -134,6 +171,10 @@
     "abort": {
       "airflow_not_supported": "Airflow configuration is not validated for this model. No setting was changed.",
       "global_settings_unavailable": "Current settings are unavailable or not yet confirmed. No setting was changed.",
+      "silent_hours_not_supported": "Silent-hours management is not validated for this model. No schedule was changed.",
+      "silent_hours_unavailable": "The complete six-slot schedule table is unavailable or not yet confirmed. No schedule was changed.",
+      "silent_hour_empty": "The selected slot is already empty. No schedule was changed.",
+      "silent_hours_changed": "The schedule table changed after review. No schedule was changed; reopen the flow and review the current slots.",
       "calibration_not_supported": "Internal CO₂ calibration is not validated for this model. No command was sent."
     }
   },
@@ -142,6 +183,23 @@
       "options": {
         "fresh_air": "Vent-Axia value (default 450 ppm)",
         "reference_sensors": "Home Assistant CO₂ sensor (advanced)"
+      }
+    },
+    "silent_hour_action": {
+      "options": {
+        "edit": "Create or edit",
+        "delete": "Delete"
+      }
+    },
+    "silent_hour_weekdays": {
+      "options": {
+        "monday": "Monday",
+        "tuesday": "Tuesday",
+        "wednesday": "Wednesday",
+        "thursday": "Thursday",
+        "friday": "Friday",
+        "saturday": "Saturday",
+        "sunday": "Sunday"
       }
     }
   },

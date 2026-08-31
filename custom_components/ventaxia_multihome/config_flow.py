@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from datetime import time as dt_time
 from statistics import fmean
 from typing import Any, override
 
@@ -52,6 +53,8 @@ from .coordinator import (
     CalibrationDeliveryUncertainError,
     CalibrationNotSupportedError,
     CalibrationRateLimitedError,
+    SilentHoursConfigurationUnavailableError,
+    SilentHoursNotSupportedError,
 )
 from .device import (
     DeviceError,
@@ -68,6 +71,10 @@ from .protocol import (
     MIN_CO2_CALIBRATION_REFERENCE,
     GlobalSettings,
     ProtocolError,
+    SilentHour,
+    SilentHourSlot,
+    decode_silent_hour,
+    encode_silent_hour,
     validate_airflow_profile,
 )
 
@@ -82,9 +89,26 @@ CONF_AIRFLOW_NORMAL = "airflow_normal"
 CONF_AIRFLOW_BOOST = "airflow_boost"
 CONF_AIRFLOW_PURGE = "airflow_purge"
 CONF_CONFIRM_AIRFLOW = "confirm_airflow"
+CONF_SILENT_HOUR_SLOT = "silent_hour_slot"
+CONF_SILENT_HOUR_ACTION = "silent_hour_action"
+CONF_SILENT_HOUR_START = "silent_hour_start"
+CONF_SILENT_HOUR_END = "silent_hour_end"
+CONF_SILENT_HOUR_WEEKDAYS = "silent_hour_weekdays"
+CONF_CONFIRM_SILENT_HOUR_DELETE = "confirm_silent_hour_delete"
 
 CALIBRATION_METHOD_FRESH_AIR = "fresh_air"
 CALIBRATION_METHOD_REFERENCE_SENSORS = "reference_sensors"
+SILENT_HOUR_ACTION_EDIT = "edit"
+SILENT_HOUR_ACTION_DELETE = "delete"
+WEEKDAYS = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
 
 
 class CalibrationReferenceError(ValueError):
@@ -339,6 +363,10 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._calibration_progress_task: asyncio.Task[None] | None = None
         self._airflow_profile: tuple[int, int, int, int] | None = None
         self._airflow_baseline_raw: bytes | None = None
+        self._silent_hour_index: int | None = None
+        self._silent_hours_baseline: tuple[bytes, ...] | None = None
+        self._silent_hour_result = ""
+        self._silent_hour_operation_active = False
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -356,6 +384,14 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             menu_options.append("airflow_profile")
         if self.config_entry.runtime_data.device.supports_internal_co2_calibration:
             menu_options.append("calibrate_co2")
+        if (
+            coordinator.device.supports_silent_hours_management
+            and coordinator.data is not None
+            and coordinator.last_update_success
+            and coordinator.device.silent_hours_write_ready
+            and len(coordinator.data.silent_hours) == 6
+        ):
+            menu_options.append("silent_hours")
         return self.async_show_menu(
             step_id="init",
             menu_options=menu_options,
@@ -592,6 +628,312 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         """Return one unambiguous review string for the four percentages."""
 
         return f"Low {low}% · Normal {normal}% · Boost {boost}% · Purge {purge}%"
+
+    async def async_step_silent_hours(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show all six slots and choose one guarded operation."""
+
+        slots = self._current_silent_hours()
+        if slots is None:
+            return self.async_abort(reason="silent_hours_unavailable")
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            try:
+                index = int(user_input[CONF_SILENT_HOUR_SLOT])
+                action = user_input[CONF_SILENT_HOUR_ACTION]
+                slot = slots[index]
+            except (IndexError, KeyError, TypeError, ValueError):
+                errors["base"] = "silent_hour_invalid"
+            else:
+                if slot.record is not None and not slot.record.is_valid:
+                    errors["base"] = "silent_hour_unknown"
+                elif action == SILENT_HOUR_ACTION_DELETE and slot.record is None:
+                    errors["base"] = "silent_hour_empty"
+                else:
+                    self._silent_hour_index = index
+                    self._silent_hours_baseline = tuple(
+                        item.raw_payload for item in slots
+                    )
+                    if action == SILENT_HOUR_ACTION_DELETE:
+                        return await self.async_step_silent_hour_delete()
+                    return await self.async_step_silent_hour_edit()
+
+        return self.async_show_form(
+            step_id="silent_hours",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_SILENT_HOUR_SLOT, default="0"
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                {"value": str(index), "label": f"Slot {index + 1}"}
+                                for index in range(6)
+                            ]
+                        )
+                    ),
+                    vol.Required(
+                        CONF_SILENT_HOUR_ACTION,
+                        default=SILENT_HOUR_ACTION_EDIT,
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=[
+                                SILENT_HOUR_ACTION_EDIT,
+                                SILENT_HOUR_ACTION_DELETE,
+                            ],
+                            translation_key="silent_hour_action",
+                        )
+                    ),
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "schedule_table": self._format_silent_hours(slots)
+            },
+        )
+
+    async def async_step_silent_hour_edit(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Create or edit one schedule using times and named weekdays."""
+
+        assert self._silent_hour_index is not None
+        slots = self._current_silent_hours()
+        if slots is None:
+            return self.async_abort(reason="silent_hours_unavailable")
+        current = slots[self._silent_hour_index].record
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            try:
+                start = self._time_to_seconds(user_input[CONF_SILENT_HOUR_START])
+                end = self._time_to_seconds(user_input[CONF_SILENT_HOUR_END])
+                weekdays = list(user_input[CONF_SILENT_HOUR_WEEKDAYS])
+                mask = self._weekdays_to_mask(weekdays)
+                record = decode_silent_hour(encode_silent_hour(start, end, mask))
+            except (KeyError, ProtocolError, TypeError, ValueError):
+                errors["base"] = "silent_hour_invalid"
+            else:
+                if not self._silent_hours_unchanged(slots):
+                    return self.async_abort(reason="silent_hours_changed")
+                if current is not None and current.raw_record == record.raw_record:
+                    errors["base"] = "silent_hour_unchanged"
+                elif self._silent_hour_operation_active:
+                    errors["base"] = "silent_hour_busy"
+                else:
+                    self._silent_hour_operation_active = True
+                    try:
+                        await self.config_entry.runtime_data.async_set_silent_hour(
+                            self._silent_hour_index, record
+                        )
+                    except SilentHoursNotSupportedError:
+                        return self.async_abort(reason="silent_hours_not_supported")
+                    except SilentHoursConfigurationUnavailableError:
+                        errors["base"] = "silent_hours_unavailable"
+                    except HomeAssistantError as err:
+                        _LOGGER.warning(
+                            "Unable to update Multihome silent hours: %s", err
+                        )
+                        errors["base"] = "silent_hour_update_failed"
+                    else:
+                        self._silent_hour_result = self._format_silent_hour(record)
+                        return await self.async_step_silent_hour_result()
+                    finally:
+                        self._silent_hour_operation_active = False
+
+        default_start = self._seconds_to_time(
+            current.start_seconds if current else 22 * 3600
+        )
+        default_end = self._seconds_to_time(
+            current.end_seconds if current else 7 * 3600
+        )
+        default_weekdays = self._mask_to_weekdays(
+            current.weekdays_mask if current else 0x7F
+        )
+        return self.async_show_form(
+            step_id="silent_hour_edit",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_SILENT_HOUR_START, default=default_start
+                    ): selector.TimeSelector(),
+                    vol.Required(
+                        CONF_SILENT_HOUR_END, default=default_end
+                    ): selector.TimeSelector(),
+                    vol.Required(
+                        CONF_SILENT_HOUR_WEEKDAYS, default=default_weekdays
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=list(WEEKDAYS),
+                            multiple=True,
+                            translation_key="silent_hour_weekdays",
+                        )
+                    ),
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "slot": str(self._silent_hour_index + 1),
+                "current_schedule": self._format_silent_hour(current),
+            },
+        )
+
+    async def async_step_silent_hour_delete(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Require explicit confirmation before deleting a populated slot."""
+
+        assert self._silent_hour_index is not None
+        slots = self._current_silent_hours()
+        if slots is None:
+            return self.async_abort(reason="silent_hours_unavailable")
+        record = slots[self._silent_hour_index].record
+        if record is None:
+            return self.async_abort(reason="silent_hour_empty")
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input[CONF_CONFIRM_SILENT_HOUR_DELETE]:
+                errors["base"] = "silent_hour_delete_confirmation_required"
+            elif not self._silent_hours_unchanged(slots):
+                return self.async_abort(reason="silent_hours_changed")
+            elif self._silent_hour_operation_active:
+                errors["base"] = "silent_hour_busy"
+            else:
+                self._silent_hour_operation_active = True
+                try:
+                    await self.config_entry.runtime_data.async_delete_silent_hour(
+                        self._silent_hour_index
+                    )
+                except SilentHoursNotSupportedError:
+                    return self.async_abort(reason="silent_hours_not_supported")
+                except SilentHoursConfigurationUnavailableError:
+                    errors["base"] = "silent_hours_unavailable"
+                except HomeAssistantError as err:
+                    _LOGGER.warning("Unable to delete Multihome silent hour: %s", err)
+                    errors["base"] = "silent_hour_update_failed"
+                else:
+                    self._silent_hour_result = "Deleted"
+                    return await self.async_step_silent_hour_result()
+                finally:
+                    self._silent_hour_operation_active = False
+
+        return self.async_show_form(
+            step_id="silent_hour_delete",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONFIRM_SILENT_HOUR_DELETE, default=False
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "slot": str(self._silent_hour_index + 1),
+                "current_schedule": self._format_silent_hour(record),
+            },
+        )
+
+    async def async_step_silent_hour_result(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report the schedule state confirmed by complete table readback."""
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        assert self._silent_hour_index is not None
+        return self.async_show_form(
+            step_id="silent_hour_result",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "slot": str(self._silent_hour_index + 1),
+                "result": self._silent_hour_result,
+            },
+        )
+
+    def _current_silent_hours(self) -> tuple[SilentHourSlot, ...] | None:
+        """Return one current complete writable schedule table."""
+
+        coordinator = self.config_entry.runtime_data
+        if (
+            coordinator.data is None
+            or not coordinator.last_update_success
+            or not coordinator.device.silent_hours_write_ready
+            or len(coordinator.data.silent_hours) != 6
+        ):
+            return None
+        return coordinator.data.silent_hours
+
+    def _silent_hours_unchanged(self, slots: tuple[SilentHourSlot, ...]) -> bool:
+        """Return whether the table still matches the selection-screen baseline."""
+
+        return self._silent_hours_baseline == tuple(slot.raw_payload for slot in slots)
+
+    @staticmethod
+    def _time_to_seconds(value: Any) -> int:
+        """Convert an HA time selector value to seconds since midnight."""
+
+        if isinstance(value, dt_time):
+            return value.hour * 3600 + value.minute * 60 + value.second
+        if not isinstance(value, str):
+            raise ValueError("time must be an HH:MM[:SS] value")
+        parts = value.split(":")
+        if len(parts) not in (2, 3):
+            raise ValueError("time must be HH:MM[:SS]")
+        hour, minute = (int(part) for part in parts[:2])
+        second = int(parts[2]) if len(parts) == 3 else 0
+        if not (0 <= hour <= 23 and 0 <= minute <= 59 and 0 <= second <= 59):
+            raise ValueError("time is outside a day")
+        return hour * 3600 + minute * 60 + second
+
+    @staticmethod
+    def _seconds_to_time(value: int) -> str:
+        """Format seconds since midnight for the HA time selector."""
+
+        hour, remainder = divmod(value, 3600)
+        minute, second = divmod(remainder, 60)
+        return f"{hour:02d}:{minute:02d}:{second:02d}"
+
+    @staticmethod
+    def _weekdays_to_mask(weekdays: list[str]) -> int:
+        """Encode named weekdays as the recovered Monday-first bitmask."""
+
+        if not weekdays or any(day not in WEEKDAYS for day in weekdays):
+            raise ValueError("at least one known weekday is required")
+        return sum(1 << WEEKDAYS.index(day) for day in set(weekdays))
+
+    @staticmethod
+    def _mask_to_weekdays(mask: int) -> list[str]:
+        """Decode the Monday-first mask for an HA multi-select."""
+
+        return [day for index, day in enumerate(WEEKDAYS) if mask & (1 << index)]
+
+    @classmethod
+    def _format_silent_hour(cls, record: SilentHour | None) -> str:
+        """Return one readable schedule including overnight semantics."""
+
+        if record is None:
+            return "Empty"
+        if not record.is_valid:
+            return "Unknown firmware record (read-only)"
+        days = ", ".join(
+            day[:3].title() for day in cls._mask_to_weekdays(record.weekdays_mask)
+        )
+        overnight = " · overnight" if record.is_overnight else ""
+        return (
+            f"{cls._seconds_to_time(record.start_seconds)[:5]}–"
+            f"{cls._seconds_to_time(record.end_seconds)[:5]} · {days}{overnight}"
+        )
+
+    @classmethod
+    def _format_silent_hours(cls, slots: tuple[SilentHourSlot, ...]) -> str:
+        """Return all six deterministic slot summaries."""
+
+        return "\n".join(
+            f"**Slot {slot.index + 1}:** {cls._format_silent_hour(slot.record)}"
+            for slot in slots
+        )
 
     async def async_step_calibrate_co2(
         self, user_input: dict[str, Any] | None = None

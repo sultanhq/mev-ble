@@ -27,6 +27,10 @@ GLOBAL_SETTINGS_SIZE: Final = 36
 MIN_GLOBAL_CO2_THRESHOLD: Final = 0
 MAX_GLOBAL_CO2_THRESHOLD: Final = 2000
 GLOBAL_CO2_THRESHOLD_STEP: Final = 10
+SILENT_HOUR_SLOT_COUNT: Final = 6
+SILENT_HOUR_RECORD_SIZE: Final = 9
+SILENT_HOUR_TABLE_ITEM_SIZE: Final = 13
+SECONDS_PER_DAY: Final = 86_400
 
 AIRFLOW_SPEED_LIMITS: Final = {
     "low": (1, 97),
@@ -46,6 +50,7 @@ class ProtocolError(ValueError):
 class PacketType(IntEnum):
     """Packet types used by the first integration release."""
 
+    SILENT_HOURS = 49
     USER_OVERRIDE = 56
     SYSTEM_STATUS = 67
     CO2_CALIBRATION = 116
@@ -444,6 +449,117 @@ def encode_co2_calibration(
         start_forced_calibration,
     )
     return encode_data_object_array(DataObjectType.RAW, body)
+
+
+@dataclass(frozen=True, slots=True)
+class SilentHour:
+    """One recovered nine-byte silent-hours record."""
+
+    start_seconds: int
+    end_seconds: int
+    weekdays_mask: int
+    raw_record: bytes
+
+    @property
+    def is_valid(self) -> bool:
+        """Return whether the record can safely be edited through the UI."""
+
+        return (
+            0 <= self.start_seconds < SECONDS_PER_DAY
+            and 0 <= self.end_seconds < SECONDS_PER_DAY
+            and 0 < self.weekdays_mask <= 0x7F
+        )
+
+    @property
+    def is_overnight(self) -> bool:
+        """Return whether the schedule crosses midnight."""
+
+        return self.end_seconds <= self.start_seconds
+
+
+@dataclass(frozen=True, slots=True)
+class SilentHourSlot:
+    """One indexed table response, including unknown raw firmware data."""
+
+    index: int
+    total_count: int
+    record: SilentHour | None
+    raw_payload: bytes
+
+
+def _validate_silent_hour_slot(index: int) -> int:
+    """Validate and return one supported zero-based slot index."""
+
+    if not 0 <= int(index) < SILENT_HOUR_SLOT_COUNT:
+        raise ProtocolError(
+            f"silent-hours slot must be 0..{SILENT_HOUR_SLOT_COUNT - 1}"
+        )
+    return int(index)
+
+
+def encode_silent_hour(
+    start_seconds: int, end_seconds: int, weekdays_mask: int
+) -> bytes:
+    """Encode one validated nine-byte silent-hours record."""
+
+    if not 0 <= start_seconds < SECONDS_PER_DAY:
+        raise ProtocolError("silent-hours start must be 0..86399 seconds")
+    if not 0 <= end_seconds < SECONDS_PER_DAY:
+        raise ProtocolError("silent-hours end must be 0..86399 seconds")
+    if not 0 < weekdays_mask <= 0x7F:
+        raise ProtocolError("silent-hours weekdays must select Monday..Sunday")
+    return struct.pack("<IIB", start_seconds, end_seconds, weekdays_mask)
+
+
+def decode_silent_hour(data: bytes) -> SilentHour:
+    """Decode one record while retaining out-of-range firmware values."""
+
+    if len(data) != SILENT_HOUR_RECORD_SIZE:
+        raise ProtocolError("silent-hours record must be exactly nine bytes")
+    start_seconds, end_seconds, weekdays_mask = struct.unpack("<IIB", data)
+    return SilentHour(start_seconds, end_seconds, weekdays_mask, bytes(data))
+
+
+def encode_silent_hour_request(index: int) -> bytes:
+    """Encode the official app's indexed read request."""
+
+    return struct.pack("<HH", _validate_silent_hour_slot(index), 0) + bytes(
+        SILENT_HOUR_RECORD_SIZE
+    )
+
+
+def encode_silent_hour_update(index: int, record: SilentHour | bytes) -> bytes:
+    """Encode an indexed create/update record."""
+
+    raw_record = record.raw_record if isinstance(record, SilentHour) else bytes(record)
+    if len(raw_record) != SILENT_HOUR_RECORD_SIZE:
+        raise ProtocolError("silent-hours record must be exactly nine bytes")
+    decoded = decode_silent_hour(raw_record)
+    if not decoded.is_valid:
+        raise ProtocolError("silent-hours update contains invalid time or weekday data")
+    return struct.pack("<HH", _validate_silent_hour_slot(index), 0) + raw_record
+
+
+def encode_silent_hour_delete(index: int) -> bytes:
+    """Encode the recovered 0xffff slot-deletion marker."""
+
+    return struct.pack("<HH", _validate_silent_hour_slot(index), 0xFFFF)
+
+
+def decode_silent_hour_slot(data: bytes) -> SilentHourSlot:
+    """Decode an indexed table item and preserve unknown record forms."""
+
+    if len(data) not in (4, SILENT_HOUR_TABLE_ITEM_SIZE):
+        raise ProtocolError("silent-hours table item must be four or thirteen bytes")
+    index, total_count = struct.unpack_from("<HH", data)
+    _validate_silent_hour_slot(index)
+    record: SilentHour | None = None
+    if len(data) == SILENT_HOUR_TABLE_ITEM_SIZE:
+        raw_record = data[4:]
+        decoded = decode_silent_hour(raw_record)
+        if raw_record != bytes(SILENT_HOUR_RECORD_SIZE):
+            record = decoded
+    return SilentHourSlot(index, total_count, record, bytes(data))
 
 
 @dataclass(frozen=True, slots=True)

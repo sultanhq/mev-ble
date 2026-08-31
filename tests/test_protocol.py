@@ -23,6 +23,8 @@ from custom_components.ventaxia_multihome.protocol import (
     decode_faults,
     decode_global_settings,
     decode_packet,
+    decode_silent_hour,
+    decode_silent_hour_slot,
     decode_system_status,
     decode_zone_telemetry,
     encode_cancel_override,
@@ -33,6 +35,10 @@ from custom_components.ventaxia_multihome.protocol import (
     encode_global_settings,
     encode_packet,
     encode_setup_code,
+    encode_silent_hour,
+    encode_silent_hour_delete,
+    encode_silent_hour_request,
+    encode_silent_hour_update,
     encode_user_override,
     fragment_ack,
     fragment_packet,
@@ -727,3 +733,92 @@ def test_malformed_telemetry() -> None:
         decode_zone_telemetry(bytes(20))
     with pytest.raises(ProtocolError):
         decode_system_status(encode_data_object_array(DataObjectType.RAW, bytes(6)))
+
+
+def test_silent_hour_daytime_golden_fixture() -> None:
+    """A daytime weekday schedule uses the recovered exact table bytes."""
+
+    # Arrange - use a simple 09:00 to 17:30 weekday record.
+    start_seconds = 9 * 3600
+    end_seconds = 17 * 3600 + 30 * 60
+    weekdays_mask = 0x1F
+
+    # Act - encode the record, indexed update, read request, and decoded response.
+    record = encode_silent_hour(start_seconds, end_seconds, weekdays_mask)
+    update = encode_silent_hour_update(2, record)
+    request = encode_silent_hour_request(2)
+    decoded = decode_silent_hour_slot(update)
+
+    # Assert - integer fields and packet fixtures match the official app format.
+    assert record.hex() == "907e000018f600001f"
+    assert update.hex() == "02000000907e000018f600001f"
+    assert request.hex() == "02000000000000000000000000"
+    assert decoded.index == 2
+    assert decoded.record == decode_silent_hour(record)
+    assert decoded.record is not None and decoded.record.is_valid
+    assert not decoded.record.is_overnight
+
+
+def test_silent_hour_overnight_and_delete_golden_fixtures() -> None:
+    """Overnight records and deletion retain their exact recovered encoding."""
+
+    # Arrange - create 22:30 to 06:15 on Friday and Saturday in slot five.
+    record = encode_silent_hour(22 * 3600 + 30 * 60, 6 * 3600 + 15 * 60, 0x30)
+
+    # Act - decode the update and encode the separate deletion marker.
+    decoded = decode_silent_hour_slot(encode_silent_hour_update(5, record))
+    deletion = encode_silent_hour_delete(5)
+
+    # Assert - end-before-start remains a valid overnight schedule.
+    assert record.hex() == "683c0100e457000030"
+    assert decoded.record is not None and decoded.record.is_overnight
+    assert deletion.hex() == "0500ffff"
+
+
+def test_silent_hour_empty_and_unknown_records_are_retained() -> None:
+    """Empty slots are explicit and unknown firmware values remain diagnosable."""
+
+    # Arrange - create one zero record and one out-of-range raw response.
+    empty = bytes.fromhex("01000000000000000000000000")
+    unknown = struct.pack("<HHIIB", 3, 6, 99_999, 100_000, 0x80)
+
+    # Act - decode both response forms.
+    empty_slot = decode_silent_hour_slot(empty)
+    unknown_slot = decode_silent_hour_slot(unknown)
+
+    # Assert - empty is None while unknown raw values are not discarded.
+    assert empty_slot.record is None
+    assert unknown_slot.record is not None
+    assert not unknown_slot.record.is_valid
+    assert unknown_slot.raw_payload == unknown
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "mask"),
+    [(-1, 1, 1), (86_400, 1, 1), (1, 86_400, 1), (1, 2, 0), (1, 2, 128)],
+)
+def test_silent_hour_rejects_invalid_mutations(start: int, end: int, mask: int) -> None:
+    """Invalid time and weekday values fail before any BLE operation."""
+
+    # Arrange - receive one unsafe record from the parameterized fixture.
+
+    # Act - attempt to encode it for a device mutation.
+    with pytest.raises(ProtocolError) as raised:
+        encode_silent_hour(start, end, mask)
+
+    # Assert - a typed protocol error blocks the write payload.
+    assert raised.value
+
+
+@pytest.mark.parametrize("payload", [b"", bytes(3), bytes(5), bytes(12), bytes(14)])
+def test_silent_hour_rejects_malformed_table_items(payload: bytes) -> None:
+    """Only recovered four- and thirteen-byte table items are accepted."""
+
+    # Arrange - receive one malformed table payload from the fixture.
+
+    # Act - attempt to decode it as a slot response.
+    with pytest.raises(ProtocolError) as raised:
+        decode_silent_hour_slot(payload)
+
+    # Assert - only recovered response sizes are accepted.
+    assert raised.value

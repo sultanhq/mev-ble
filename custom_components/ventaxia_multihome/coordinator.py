@@ -43,12 +43,14 @@ from .device import (
     MultihomeData,
     MultihomeDevice,
     SetupCodeRejectedError,
+    SilentHoursUnavailableError,
 )
 from .protocol import (
     MAX_CO2_CALIBRATION_REFERENCE,
     MIN_CO2_CALIBRATION_REFERENCE,
     AirflowPreset,
     ProtocolError,
+    SilentHour,
 )
 
 if TYPE_CHECKING:
@@ -79,6 +81,14 @@ class AirflowConfigurationNotSupportedError(HomeAssistantError):
 
 class AirflowConfigurationUnavailableError(HomeAssistantError):
     """Raised when no current settings record permits an airflow update."""
+
+
+class SilentHoursNotSupportedError(HomeAssistantError):
+    """Raised when schedule management is not validated for the model."""
+
+
+class SilentHoursConfigurationUnavailableError(HomeAssistantError):
+    """Raised when no complete current table permits a schedule mutation."""
 
 
 class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
@@ -287,6 +297,57 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 f"Unable to update Multihome airflow profile: {err}"
             ) from err
         self.async_set_updated_data(replace(self.data, global_settings=settings))
+
+    async def async_set_silent_hour(self, index: int, record: SilentHour) -> None:
+        """Create/update one slot and publish only confirmed full-table readback."""
+
+        await self._async_mutate_silent_hour(index, record)
+
+    async def async_delete_silent_hour(self, index: int) -> None:
+        """Delete one slot and publish only confirmed full-table readback."""
+
+        await self._async_mutate_silent_hour(index, None)
+
+    async def _async_mutate_silent_hour(
+        self, index: int, record: SilentHour | None
+    ) -> None:
+        """Run one guarded schedule mutation through the shared device lock."""
+
+        if not self.device.supports_silent_hours_management:
+            raise SilentHoursNotSupportedError(
+                "Silent-hours management is not validated for this model"
+            )
+        if (
+            self.data is None
+            or not self.last_update_success
+            or not self.device.silent_hours_write_ready
+            or len(self.data.silent_hours) != 6
+        ):
+            raise SilentHoursConfigurationUnavailableError(
+                "Current silent-hours table is unavailable; wait for a successful poll"
+            )
+        try:
+            if record is None:
+                slots = await self.device.delete_silent_hour(self._ble_device(), index)
+            else:
+                slots = await self.device.set_silent_hour(
+                    self._ble_device(), index, record
+                )
+        except SilentHoursUnavailableError as err:
+            raise SilentHoursConfigurationUnavailableError(str(err)) from err
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            await self.device.disconnect()
+            self.async_set_update_error(err)
+            raise HomeAssistantError(
+                f"Unable to update Multihome silent hours: {err}"
+            ) from err
+        self.async_set_updated_data(replace(self.data, silent_hours=slots))
 
     async def async_calibrate_internal_co2(self, reference_ppm: int) -> None:
         """Start one guarded internal-sensor calibration command."""

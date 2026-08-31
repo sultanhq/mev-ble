@@ -27,6 +27,7 @@ from .const import (
     WHOLE_PACKET_CHARACTERISTIC_UUID,
 )
 from .protocol import (
+    SILENT_HOUR_SLOT_COUNT,
     AirflowPreset,
     DeviceType,
     FanState,
@@ -36,12 +37,15 @@ from .protocol import (
     PacketType,
     ProtocolError,
     ProtocolPacket,
+    SilentHour,
+    SilentHourSlot,
     SystemStatus,
     ZoneTelemetry,
     decode_device_view_header,
     decode_device_view_row,
     decode_global_settings,
     decode_packet,
+    decode_silent_hour_slot,
     decode_system_status,
     decode_zone_telemetry,
     encode_cancel_override,
@@ -49,6 +53,9 @@ from .protocol import (
     encode_global_setting_update,
     encode_packet,
     encode_setup_code,
+    encode_silent_hour_delete,
+    encode_silent_hour_request,
+    encode_silent_hour_update,
     encode_user_override,
     global_settings_after_update,
     plan_airflow_profile_updates,
@@ -62,6 +69,7 @@ _LOGGER = logging.getLogger(__name__)
 INTERNAL_CO2_CALIBRATION_MODELS: Final = frozenset({2, 10})
 # Stable writes remain limited to the model with physical packet-136 evidence.
 GLOBAL_AIRFLOW_CONFIGURATION_MODELS: Final = frozenset({10})
+SILENT_HOURS_MODELS: Final = frozenset({10})
 
 ClientFactory = Callable[
     ["BLEDevice", str, Callable[[BluetoothClient], None]],
@@ -97,6 +105,14 @@ class GlobalSettingUpdateError(DeviceError):
     """Raised when a settings write cannot be confirmed by exact readback."""
 
 
+class SilentHoursUnavailableError(DeviceError):
+    """Raised when no complete schedule table is available for a safe write."""
+
+
+class SilentHourUpdateError(DeviceError):
+    """Raised when a schedule mutation cannot be confirmed by exact readback."""
+
+
 @dataclass(frozen=True, slots=True)
 class MultihomeDeviceInfo:
     """Standard BLE Device Information values."""
@@ -117,6 +133,7 @@ class MultihomeData:
     system: SystemStatus
     global_settings: GlobalSettings
     last_successful_update: datetime
+    silent_hours: tuple[SilentHourSlot, ...] = ()
 
     @property
     def fault_mask(self) -> int:
@@ -153,6 +170,8 @@ class MultihomeDevice:
         self.last_calibration_device_table_version: int | None = None
         self._confirmed_global_settings: GlobalSettings | None = None
         self._global_settings_write_ready = False
+        self._confirmed_silent_hours: tuple[SilentHourSlot, ...] | None = None
+        self._silent_hours_write_ready = False
         self.device_info = MultihomeDeviceInfo()
 
     @property
@@ -191,6 +210,12 @@ class MultihomeDevice:
         return self.model_number in GLOBAL_AIRFLOW_CONFIGURATION_MODELS
 
     @property
+    def supports_silent_hours_management(self) -> bool:
+        """Return whether silent-hours writes are enabled for this RC model."""
+
+        return self.model_number in SILENT_HOURS_MODELS
+
+    @property
     def confirmed_global_settings(self) -> GlobalSettings | None:
         """Return the last complete settings record confirmed by a read."""
 
@@ -201,6 +226,18 @@ class MultihomeDevice:
         """Return whether a current record permits a guarded field write."""
 
         return self._global_settings_write_ready
+
+    @property
+    def confirmed_silent_hours(self) -> tuple[SilentHourSlot, ...] | None:
+        """Return the last complete six-slot table confirmed by reads."""
+
+        return self._confirmed_silent_hours
+
+    @property
+    def silent_hours_write_ready(self) -> bool:
+        """Return whether a complete current table permits a guarded write."""
+
+        return self._silent_hours_write_ready
 
     async def connect(self, ble_device: BLEDevice) -> None:
         """Connect, authenticate, select a transport, and read device info."""
@@ -477,6 +514,98 @@ class MultihomeDevice:
         self._global_settings_write_ready = True
         return received
 
+    async def set_silent_hour(
+        self,
+        ble_device: BLEDevice,
+        index: int,
+        record: SilentHour,
+    ) -> tuple[SilentHourSlot, ...]:
+        """Create or replace one slot and accept only exact full-table readback."""
+
+        if not self.supports_silent_hours_management:
+            raise DeviceError("silent-hours management is not validated for this model")
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            return await self._mutate_silent_hour_locked(index, record)
+
+    async def delete_silent_hour(
+        self,
+        ble_device: BLEDevice,
+        index: int,
+    ) -> tuple[SilentHourSlot, ...]:
+        """Delete one populated slot and confirm the complete table afterward."""
+
+        if not self.supports_silent_hours_management:
+            raise DeviceError("silent-hours management is not validated for this model")
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            return await self._mutate_silent_hour_locked(index, None)
+
+    async def _mutate_silent_hour_locked(
+        self,
+        index: int,
+        record: SilentHour | None,
+    ) -> tuple[SilentHourSlot, ...]:
+        """Mutate and confirm one slot while the operation lock is held."""
+
+        confirmed = self._confirmed_silent_hours
+        if confirmed is None or not self._silent_hours_write_ready:
+            raise SilentHoursUnavailableError(
+                "all six silent-hours slots must be read before an update"
+            )
+        if not 0 <= index < SILENT_HOUR_SLOT_COUNT:
+            raise ProtocolError("silent-hours slot must be 0..5")
+
+        payload = (
+            encode_silent_hour_delete(index)
+            if record is None
+            else encode_silent_hour_update(index, record)
+        )
+        try:
+            await self._send(PacketType.SILENT_HOURS, Operation.UPDATE, payload)
+            received = await self._read_silent_hours()
+        except Exception as err:
+            self._silent_hours_write_ready = False
+            raise SilentHourUpdateError(
+                "silent-hours change was not confirmed; "
+                "the last confirmed table was retained"
+            ) from err
+
+        received_record = received[index].record
+        matches = (
+            received_record is None
+            if record is None
+            else received_record is not None
+            and received_record.raw_record == record.raw_record
+        )
+        if not matches:
+            self._silent_hours_write_ready = False
+            raise SilentHourUpdateError(
+                "silent-hours readback did not match the requested change; "
+                "the last confirmed table was retained"
+            )
+        self._confirmed_silent_hours = received
+        self._silent_hours_write_ready = True
+        return received
+
+    async def _read_silent_hours(self) -> tuple[SilentHourSlot, ...]:
+        """Read all six indexed slots in deterministic order."""
+
+        slots: list[SilentHourSlot] = []
+        for index in range(SILENT_HOUR_SLOT_COUNT):
+            response = await self._request(
+                PacketType.SILENT_HOURS,
+                Operation.DATA_REQUEST,
+                encode_silent_hour_request(index),
+            )
+            slot = decode_silent_hour_slot(response.payload)
+            if slot.index != index:
+                raise ProtocolError(
+                    f"silent-hours response index {slot.index} did not match {index}"
+                )
+            slots.append(slot)
+        return tuple(slots)
+
     async def _find_internal_co2_target(self) -> int:
         """Return the internal sensor address used by the official app."""
 
@@ -533,14 +662,24 @@ class MultihomeDevice:
             PacketType.GLOBAL_DATA, Operation.DATA_REQUEST
         )
         global_settings = decode_global_settings(global_settings_packet.payload)
+        silent_hours = (
+            await self._read_silent_hours()
+            if self.supports_silent_hours_management
+            else ()
+        )
         data = MultihomeData(
             zone=decode_zone_telemetry(zone_packet.payload),
             system=decode_system_status(system_packet.payload),
             global_settings=global_settings,
             last_successful_update=datetime.now(UTC),
+            silent_hours=silent_hours,
         )
         self._confirmed_global_settings = global_settings
         self._global_settings_write_ready = True
+        self._confirmed_silent_hours = (
+            silent_hours if self.supports_silent_hours_management else None
+        )
+        self._silent_hours_write_ready = self.supports_silent_hours_management
         return data
 
     def _reconcile_override_remaining(self, data: MultihomeData) -> MultihomeData:
@@ -652,6 +791,7 @@ class MultihomeDevice:
         self._transport = None
         self._authenticated = False
         self._global_settings_write_ready = False
+        self._silent_hours_write_ready = False
 
     async def _disconnect_unlocked(self) -> None:
         client = self._client
@@ -659,6 +799,7 @@ class MultihomeDevice:
         self._transport = None
         self._authenticated = False
         self._global_settings_write_ready = False
+        self._silent_hours_write_ready = False
         if client and client.is_connected:
             with contextlib.suppress(Exception):
                 await client.disconnect()

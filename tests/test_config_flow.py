@@ -34,8 +34,16 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_CALIBRATION_METHOD,
     CONF_CONFIRM_AIRFLOW,
     CONF_CONFIRM_CALIBRATION,
+    CONF_CONFIRM_SILENT_HOUR_DELETE,
     CONF_REFERENCE_PPM,
     CONF_REFERENCE_SENSORS,
+    CONF_SILENT_HOUR_ACTION,
+    CONF_SILENT_HOUR_END,
+    CONF_SILENT_HOUR_SLOT,
+    CONF_SILENT_HOUR_START,
+    CONF_SILENT_HOUR_WEEKDAYS,
+    SILENT_HOUR_ACTION_DELETE,
+    SILENT_HOUR_ACTION_EDIT,
 )
 from custom_components.ventaxia_multihome.const import (
     CONF_OVERRIDE_DURATION,
@@ -49,7 +57,11 @@ from custom_components.ventaxia_multihome.coordinator import (
     CalibrationRateLimitedError,
 )
 from custom_components.ventaxia_multihome.device import SetupCodeRejectedError
-from custom_components.ventaxia_multihome.protocol import decode_global_settings
+from custom_components.ventaxia_multihome.protocol import (
+    decode_global_settings,
+    decode_silent_hour_slot,
+    encode_silent_hour,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -72,6 +84,8 @@ def _options_entry(
     supports_calibration: bool = True,
     supports_airflow: bool = False,
     airflow_available: bool = True,
+    supports_schedules: bool = False,
+    schedules_available: bool = True,
 ):
     """Create a loaded-looking entry without starting Bluetooth I/O."""
 
@@ -80,16 +94,28 @@ def _options_entry(
             "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
         )
     )
+    silent_hours = tuple(
+        decode_silent_hour_slot(index.to_bytes(2, "little") + bytes(2) + bytes(9))
+        for index in range(6)
+    )
     coordinator = SimpleNamespace(
         device=SimpleNamespace(
             supports_internal_co2_calibration=supports_calibration,
             supports_global_airflow_configuration=supports_airflow,
             global_settings_write_ready=airflow_available,
+            supports_silent_hours_management=supports_schedules,
+            silent_hours_write_ready=schedules_available,
         ),
-        data=(SimpleNamespace(global_settings=settings) if airflow_available else None),
-        last_update_success=airflow_available,
+        data=(
+            SimpleNamespace(global_settings=settings, silent_hours=silent_hours)
+            if airflow_available and schedules_available
+            else None
+        ),
+        last_update_success=airflow_available and schedules_available,
         async_calibrate_internal_co2=AsyncMock(),
         async_set_airflow_profile=AsyncMock(),
+        async_set_silent_hour=AsyncMock(),
+        async_delete_silent_hour=AsyncMock(),
     )
     entry = MockConfigEntry(
         domain=DOMAIN,
@@ -125,6 +151,17 @@ async def _open_calibration_options(hass, entry):
     assert initial["step_id"] == "init"
     return await hass.config_entries.options.async_configure(
         initial["flow_id"], {"next_step_id": "calibrate_co2"}
+    )
+
+
+async def _open_silent_hours_options(hass, entry):
+    """Open the six-slot schedule management screen."""
+
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    assert initial["type"] is data_entry_flow.FlowResultType.MENU
+    assert initial["step_id"] == "init"
+    return await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "silent_hours"}
     )
 
 
@@ -989,3 +1026,130 @@ async def test_calibration_failure_does_not_show_success(
     assert failed["step_id"] == "calibration_confirm"
     assert failed["errors"] == {"base": expected_error}
     coordinator.async_calibrate_internal_co2.assert_awaited_once_with(450)
+
+
+@pytest.mark.asyncio
+async def test_silent_hours_menu_requires_complete_current_table(hass) -> None:
+    """Schedule writes appear only with supported current six-slot state."""
+
+    # Arrange - create supported/current, unsupported, and unavailable entries.
+    supported, _ = _options_entry(hass, supports_schedules=True)
+    unsupported, _ = _options_entry(hass, supports_schedules=False)
+    unavailable, _ = _options_entry(
+        hass, supports_schedules=True, schedules_available=False
+    )
+
+    # Act - open every options menu.
+    supported_menu = await hass.config_entries.options.async_init(supported.entry_id)
+    unsupported_menu = await hass.config_entries.options.async_init(
+        unsupported.entry_id
+    )
+    unavailable_menu = await hass.config_entries.options.async_init(
+        unavailable.entry_id
+    )
+
+    # Assert - only the supported unit with six confirmed slots exposes the flow.
+    assert "silent_hours" in supported_menu["menu_options"]
+    assert "silent_hours" not in unsupported_menu["menu_options"]
+    assert "silent_hours" not in unavailable_menu["menu_options"]
+
+
+@pytest.mark.asyncio
+async def test_silent_hours_creates_overnight_weekday_schedule(hass) -> None:
+    """Named days and selector times become the recovered overnight record."""
+
+    # Arrange - open empty slot three on a supported current table.
+    entry, coordinator = _options_entry(hass, supports_schedules=True)
+    slots = await _open_silent_hours_options(hass, entry)
+    edit = await hass.config_entries.options.async_configure(
+        slots["flow_id"],
+        {
+            CONF_SILENT_HOUR_SLOT: "2",
+            CONF_SILENT_HOUR_ACTION: SILENT_HOUR_ACTION_EDIT,
+        },
+    )
+
+    # Act - submit 22:30 to 06:15 on Monday, Wednesday, and Friday.
+    result = await hass.config_entries.options.async_configure(
+        edit["flow_id"],
+        {
+            CONF_SILENT_HOUR_START: "22:30:00",
+            CONF_SILENT_HOUR_END: "06:15:00",
+            CONF_SILENT_HOUR_WEEKDAYS: ["monday", "wednesday", "friday"],
+        },
+    )
+
+    # Assert - the coordinator receives slot two and Monday-first mask 0x15.
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["step_id"] == "silent_hour_result"
+    coordinator.async_set_silent_hour.assert_awaited_once()
+    index, record = coordinator.async_set_silent_hour.await_args.args
+    assert index == 2
+    assert record.start_seconds == 22 * 3600 + 30 * 60
+    assert record.end_seconds == 6 * 3600 + 15 * 60
+    assert record.weekdays_mask == 0x15
+    assert record.is_overnight
+
+
+@pytest.mark.asyncio
+async def test_silent_hours_rejects_empty_weekday_selection(hass) -> None:
+    """A schedule cannot be sent without at least one selected weekday."""
+
+    # Arrange - open the edit form for an empty slot.
+    entry, coordinator = _options_entry(hass, supports_schedules=True)
+    slots = await _open_silent_hours_options(hass, entry)
+    edit = await hass.config_entries.options.async_configure(
+        slots["flow_id"],
+        {
+            CONF_SILENT_HOUR_SLOT: "0",
+            CONF_SILENT_HOUR_ACTION: SILENT_HOUR_ACTION_EDIT,
+        },
+    )
+
+    # Act - submit valid times with no weekdays.
+    result = await hass.config_entries.options.async_configure(
+        edit["flow_id"],
+        {
+            CONF_SILENT_HOUR_START: "09:00:00",
+            CONF_SILENT_HOUR_END: "17:00:00",
+            CONF_SILENT_HOUR_WEEKDAYS: [],
+        },
+    )
+
+    # Assert - validation remains on the form and performs no BLE mutation.
+    assert result["type"] is data_entry_flow.FlowResultType.FORM
+    assert result["errors"]["base"] == "silent_hour_invalid"
+    coordinator.async_set_silent_hour.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_silent_hours_delete_requires_confirmation_and_readback(hass) -> None:
+    """A populated slot cannot be deleted without the explicit toggle."""
+
+    # Arrange - put a daytime record in slot one and open its delete step.
+    entry, coordinator = _options_entry(hass, supports_schedules=True)
+    record = encode_silent_hour(9 * 3600, 17 * 3600, 0x1F)
+    slots = list(coordinator.data.silent_hours)
+    slots[1] = decode_silent_hour_slot(bytes.fromhex("01000000") + record)
+    coordinator.data.silent_hours = tuple(slots)
+    selection = await _open_silent_hours_options(hass, entry)
+    delete = await hass.config_entries.options.async_configure(
+        selection["flow_id"],
+        {
+            CONF_SILENT_HOUR_SLOT: "1",
+            CONF_SILENT_HOUR_ACTION: SILENT_HOUR_ACTION_DELETE,
+        },
+    )
+
+    # Act - first decline, then explicitly confirm the same deletion.
+    declined = await hass.config_entries.options.async_configure(
+        delete["flow_id"], {CONF_CONFIRM_SILENT_HOUR_DELETE: False}
+    )
+    confirmed = await hass.config_entries.options.async_configure(
+        declined["flow_id"], {CONF_CONFIRM_SILENT_HOUR_DELETE: True}
+    )
+
+    # Assert - only the confirmed submission calls the coordinator once.
+    assert declined["errors"]["base"] == "silent_hour_delete_confirmation_required"
+    assert confirmed["step_id"] == "silent_hour_result"
+    coordinator.async_delete_silent_hour.assert_awaited_once_with(1)

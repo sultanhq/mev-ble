@@ -72,6 +72,25 @@ async def async_get_config_entry_diagnostics(
             data.global_settings if data else None
         ),
         "global_settings_write_ready": (coordinator.device.global_settings_write_ready),
+        "silent_hours": [
+            {
+                "index": slot.index,
+                "total_count": slot.total_count,
+                "start_seconds": (
+                    slot.record.start_seconds if slot.record is not None else None
+                ),
+                "end_seconds": (
+                    slot.record.end_seconds if slot.record is not None else None
+                ),
+                "weekdays_mask": (
+                    slot.record.weekdays_mask if slot.record is not None else None
+                ),
+                "valid": slot.record.is_valid if slot.record is not None else True,
+                "raw_payload": slot.raw_payload.hex(),
+            }
+            for slot in (data.silent_hours if data else ())
+        ],
+        "silent_hours_write_ready": coordinator.device.silent_hours_write_ready,
         "state": {
             "fan_state": fan_state_name(data.zone.fan_state) if data else None,
             "fan_level": data.zone.fan_level if data else None,
