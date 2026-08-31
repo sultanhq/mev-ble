@@ -18,10 +18,26 @@ the checksum, requested index and record structure all validate.
 - The selected weekday is the day on which the schedule **starts**.
 - When the end time is equal to or earlier than the start time, the schedule is
   overnight and ends on the following day.
-- Times are wall-clock values interpreted by the MEV. The recovered protocol
-  contains no time zone or daylight-saving identifier.
+- Model 10 firmware 2.03.08 was physically observed to execute the stored clock
+  values as UTC. Home Assistant therefore displays and accepts schedule times in
+  its configured local time zone, then converts the record to or from the MEV's
+  UTC clock. Weekday masks are rotated when that conversion crosses midnight.
+- The packet-49 record contains no time-zone or daylight-saving identifier. The
+  conversion therefore uses Home Assistant's **current** UTC offset. When the
+  local UTC offset changes for daylight saving, an existing recurring schedule
+  will execute at the corresponding shifted local time until it is reviewed and
+  saved again. Reopening the flow shows the schedule's current local equivalent.
 - Empty slots are shown explicitly. Unknown firmware records are retained in
   diagnostics and kept read-only rather than being overwritten.
+
+## Physically observed active state
+
+On model 10, firmware 2.03.08, hardware 01.00, a stored 15:50–15:55 UTC schedule
+was observed at 15:50:42 UTC / 16:50:42 Europe/London during BST. The reported
+fan state changed from `default` to `silent_hour`, while fan level remained 2
+and measured fan RPM remained 625. Silent hours should therefore be interpreted
+as a firmware operating state, not as a guarantee that RPM will visibly fall on
+every commissioned installation.
 
 ## Write and recovery guarantees
 
