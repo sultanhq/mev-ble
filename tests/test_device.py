@@ -75,6 +75,30 @@ def _silent_slots(
 
 
 @pytest.mark.asyncio
+async def test_read_silent_hours_maps_selected_record_firmware_responses() -> None:
+    """Record-only firmware responses inherit the slot requested by the device."""
+
+    # Arrange - return six selected-slot responses without indexed table headers.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    record = encode_silent_hour(8 * 3600, 9 * 3600, 0x01)
+    device._request = AsyncMock(
+        side_effect=[
+            SimpleNamespace(payload=record),
+            *[SimpleNamespace(payload=b"")] * 5,
+        ]
+    )
+
+    # Act - read the complete six-slot table through the production device path.
+    slots = await device._read_silent_hours()
+
+    # Assert - every response receives its requested index and slot zero is populated.
+    assert [slot.index for slot in slots] == list(range(6))
+    assert slots[0].record == decode_silent_hour(record)
+    assert all(slot.record is None for slot in slots[1:])
+    assert device._request.await_count == 6
+
+
+@pytest.mark.asyncio
 async def test_set_silent_hour_accepts_only_exact_full_table_readback() -> None:
     """A slot update becomes current only after all six slots are reread."""
 

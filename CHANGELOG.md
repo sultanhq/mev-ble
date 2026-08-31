@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0-rc.2
+
+- Accept model-10 firmware responses that return the selected nine-byte
+  silent-hours record without its indexed table header.
+- Accept the same selected-slot response in the protocol's Raw DataObjectArray
+  envelope, while retaining the original bytes in diagnostics.
+- Include the exact response length and hexadecimal payload when an unknown
+  firmware form is rejected.
+
 ## 0.5.0-rc.1
 
 - Read all six packet-49 silent-hours slots during each serialized device poll.

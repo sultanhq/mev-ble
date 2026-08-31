@@ -598,7 +598,7 @@ class MultihomeDevice:
                 Operation.DATA_REQUEST,
                 encode_silent_hour_request(index),
             )
-            slot = decode_silent_hour_slot(response.payload)
+            slot = decode_silent_hour_slot(response.payload, expected_index=index)
             if slot.index != index:
                 raise ProtocolError(
                     f"silent-hours response index {slot.index} did not match {index}"

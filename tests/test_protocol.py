@@ -793,6 +793,27 @@ def test_silent_hour_empty_and_unknown_records_are_retained() -> None:
     assert unknown_slot.raw_payload == unknown
 
 
+def test_silent_hour_selected_record_and_raw_wrappers_are_supported() -> None:
+    """Firmware may return only the selected record or wrap it as Raw data."""
+
+    # Arrange - build one record-only response, one empty response, and one Raw wrapper.
+    record = encode_silent_hour(8 * 3600, 9 * 3600, 0x01)
+    wrapped = encode_data_object_array(DataObjectType.RAW, record)
+
+    # Act - decode each response against the slot selected by its read request.
+    selected = decode_silent_hour_slot(record, expected_index=2)
+    empty = decode_silent_hour_slot(b"", expected_index=4)
+    wrapped_selected = decode_silent_hour_slot(wrapped, expected_index=5)
+
+    # Assert - slot identity is retained and the original envelope remains diagnosable.
+    assert selected.index == 2
+    assert selected.record == decode_silent_hour(record)
+    assert empty.index == 4 and empty.record is None
+    assert wrapped_selected.index == 5
+    assert wrapped_selected.record == decode_silent_hour(record)
+    assert wrapped_selected.raw_payload == wrapped
+
+
 @pytest.mark.parametrize(
     ("start", "end", "mask"),
     [(-1, 1, 1), (86_400, 1, 1), (1, 86_400, 1), (1, 2, 0), (1, 2, 128)],
@@ -810,9 +831,11 @@ def test_silent_hour_rejects_invalid_mutations(start: int, end: int, mask: int) 
     assert raised.value
 
 
-@pytest.mark.parametrize("payload", [b"", bytes(3), bytes(5), bytes(12), bytes(14)])
+@pytest.mark.parametrize(
+    "payload", [b"", bytes(3), bytes(5), bytes(9), bytes(12), bytes(14)]
+)
 def test_silent_hour_rejects_malformed_table_items(payload: bytes) -> None:
-    """Only recovered four- and thirteen-byte table items are accepted."""
+    """Selected-slot forms require context and unknown sizes remain rejected."""
 
     # Arrange - receive one malformed table payload from the fixture.
 
@@ -820,5 +843,5 @@ def test_silent_hour_rejects_malformed_table_items(payload: bytes) -> None:
     with pytest.raises(ProtocolError) as raised:
         decode_silent_hour_slot(payload)
 
-    # Assert - only recovered response sizes are accepted.
+    # Assert - ambiguous or unsupported response forms are rejected.
     assert raised.value

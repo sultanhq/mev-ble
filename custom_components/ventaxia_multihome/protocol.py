@@ -546,20 +546,47 @@ def encode_silent_hour_delete(index: int) -> bytes:
     return struct.pack("<HH", _validate_silent_hour_slot(index), 0xFFFF)
 
 
-def decode_silent_hour_slot(data: bytes) -> SilentHourSlot:
-    """Decode an indexed table item and preserve unknown record forms."""
+def decode_silent_hour_slot(
+    data: bytes, *, expected_index: int | None = None
+) -> SilentHourSlot:
+    """Decode indexed and selected-slot firmware response forms losslessly."""
 
-    if len(data) not in (4, SILENT_HOUR_TABLE_ITEM_SIZE):
-        raise ProtocolError("silent-hours table item must be four or thirteen bytes")
-    index, total_count = struct.unpack_from("<HH", data)
+    raw_payload = bytes(data)
+    payload = raw_payload
+    if len(payload) >= 4 and payload[:2] == struct.pack("<H", DATA_OBJECT_MAGIC):
+        data_object = decode_data_object_array(payload)
+        if data_object.object_type != DataObjectType.RAW:
+            raise ProtocolError(
+                "silent-hours DataObjectArray response must contain Raw data"
+            )
+        payload = data_object.payload
+
+    if len(payload) in (0, SILENT_HOUR_RECORD_SIZE):
+        if expected_index is None:
+            raise ProtocolError(
+                "selected silent-hours response requires its requested slot index"
+            )
+        index = _validate_silent_hour_slot(expected_index)
+        total_count = 0
+        record_payload = payload
+    elif len(payload) in (4, SILENT_HOUR_TABLE_ITEM_SIZE):
+        index, total_count = struct.unpack_from("<HH", payload)
+        _validate_silent_hour_slot(index)
+        record_payload = payload[4:]
+    else:
+        raise ProtocolError(
+            "silent-hours response has unsupported payload "
+            f"length {len(payload)}: {payload.hex()}"
+        )
+
     _validate_silent_hour_slot(index)
     record: SilentHour | None = None
-    if len(data) == SILENT_HOUR_TABLE_ITEM_SIZE:
-        raw_record = data[4:]
+    if len(record_payload) == SILENT_HOUR_RECORD_SIZE:
+        raw_record = record_payload
         decoded = decode_silent_hour(raw_record)
         if raw_record != bytes(SILENT_HOUR_RECORD_SIZE):
             record = decoded
-    return SilentHourSlot(index, total_count, record, bytes(data))
+    return SilentHourSlot(index, total_count, record, raw_payload)
 
 
 @dataclass(frozen=True, slots=True)
