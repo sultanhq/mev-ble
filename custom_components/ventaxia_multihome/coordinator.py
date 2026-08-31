@@ -52,6 +52,11 @@ from .protocol import (
     ProtocolError,
     SilentHour,
 )
+from .schedule_time import (
+    current_utc_offset_seconds,
+    device_slots_to_local,
+    local_record_to_device,
+)
 
 if TYPE_CHECKING:
     from bleak.backends.device import BLEDevice
@@ -151,6 +156,23 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             )
         )
 
+    def _silent_hours_utc_offset_seconds(self) -> int:
+        """Return the current HA-local offset used by UTC-scheduled MEV firmware."""
+
+        hass = getattr(self, "hass", None)
+        config = getattr(hass, "config", None)
+        time_zone = getattr(config, "time_zone", "UTC")
+        return current_utc_offset_seconds(time_zone)
+
+    def _localize_data(self, data: MultihomeData) -> MultihomeData:
+        """Convert raw UTC schedule records to the current HA local wall clock."""
+
+        offset = VentaxiaMultihomeCoordinator._silent_hours_utc_offset_seconds(self)
+        slots = device_slots_to_local(data.silent_hours, offset)
+        if slots is data.silent_hours:
+            return data
+        return replace(data, silent_hours=slots)
+
     async def async_wait_for_initial_bluetooth(self) -> None:
         """Wait briefly for HA to learn a connectable route during startup."""
 
@@ -190,7 +212,8 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
 
         ble_device = self._ble_device()
         try:
-            return await self.device.update(ble_device)
+            data = await self.device.update(ble_device)
+            return VentaxiaMultihomeCoordinator._localize_data(self, data)
         except SetupCodeRejectedError as err:
             await self.device.disconnect()
             raise ConfigEntryAuthFailed(str(err)) from err
@@ -231,7 +254,9 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             raise HomeAssistantError(
                 f"Unable to set Multihome override: {err}"
             ) from err
-        self.async_set_updated_data(data)
+        self.async_set_updated_data(
+            VentaxiaMultihomeCoordinator._localize_data(self, data)
+        )
 
     async def async_cancel_override(self) -> None:
         """Cancel the active override and request fresh state."""
@@ -250,7 +275,9 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             raise HomeAssistantError(
                 f"Unable to cancel Multihome override: {err}"
             ) from err
-        self.async_set_updated_data(data)
+        self.async_set_updated_data(
+            VentaxiaMultihomeCoordinator._localize_data(self, data)
+        )
 
     async def async_set_airflow_profile(
         self,
@@ -326,12 +353,14 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             raise SilentHoursConfigurationUnavailableError(
                 "Current silent-hours table is unavailable; wait for a successful poll"
             )
+        offset = VentaxiaMultihomeCoordinator._silent_hours_utc_offset_seconds(self)
         try:
             if record is None:
                 slots = await self.device.delete_silent_hour(self._ble_device(), index)
             else:
+                device_record = local_record_to_device(record, offset)
                 slots = await self.device.set_silent_hour(
-                    self._ble_device(), index, record
+                    self._ble_device(), index, device_record
                 )
         except SilentHoursUnavailableError as err:
             raise SilentHoursConfigurationUnavailableError(str(err)) from err
@@ -347,7 +376,8 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             raise HomeAssistantError(
                 f"Unable to update Multihome silent hours: {err}"
             ) from err
-        self.async_set_updated_data(replace(self.data, silent_hours=slots))
+        localized_slots = device_slots_to_local(slots, offset)
+        self.async_set_updated_data(replace(self.data, silent_hours=localized_slots))
 
     async def async_calibrate_internal_co2(self, reference_ppm: int) -> None:
         """Start one guarded internal-sensor calibration command."""
