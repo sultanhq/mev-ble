@@ -1,11 +1,16 @@
 """Tests for silent-hours local/UTC conversion."""
 
+from datetime import UTC, datetime
+
+import pytest
+
 from custom_components.ventaxia_multihome.protocol import (
     SilentHourSlot,
     decode_silent_hour,
     encode_silent_hour,
 )
 from custom_components.ventaxia_multihome.schedule_time import (
+    current_utc_offset_seconds,
     device_record_to_local,
     device_slots_to_local,
     local_record_to_device,
@@ -14,6 +19,34 @@ from custom_components.ventaxia_multihome.schedule_time import (
 
 def _record(start: int, end: int, mask: int):
     return decode_silent_hour(encode_silent_hour(start, end, mask))
+
+
+def test_london_offset_matches_bst_and_gmt() -> None:
+    """The current-offset helper follows Europe/London daylight saving."""
+
+    # Arrange - choose one summer and one winter UTC instant.
+    summer = datetime(2026, 8, 31, 12, tzinfo=UTC)
+    winter = datetime(2026, 12, 1, 12, tzinfo=UTC)
+
+    # Act - resolve the offsets used for device/local conversion.
+    summer_offset = current_utc_offset_seconds("Europe/London", at=summer)
+    winter_offset = current_utc_offset_seconds("Europe/London", at=winter)
+
+    # Assert - BST is +01:00 while winter GMT is UTC.
+    assert summer_offset == 3600
+    assert winter_offset == 0
+
+
+def test_offset_helper_rejects_unknown_zone_or_naive_instant() -> None:
+    """Invalid timezone inputs fail explicitly rather than guessing."""
+
+    # Arrange / Act / Assert - both unsafe inputs are rejected.
+    with pytest.raises(ValueError, match="unknown time zone"):
+        current_utc_offset_seconds("Not/A_Zone")
+    with pytest.raises(ValueError, match="timezone-aware"):
+        current_utc_offset_seconds(
+            "Europe/London", at=datetime(2026, 8, 31, 12)
+        )
 
 
 def test_device_schedule_converts_to_current_local_wall_clock() -> None:
@@ -83,6 +116,22 @@ def test_local_overnight_schedule_can_be_non_overnight_in_utc() -> None:
     assert roundtrip.start_seconds == local_record.start_seconds
     assert roundtrip.end_seconds == local_record.end_seconds
     assert roundtrip.weekdays_mask == local_record.weekdays_mask
+
+
+def test_zero_offset_returns_original_record_and_slots() -> None:
+    """GMT conversion is identity-preserving for existing coordinator tests."""
+
+    # Arrange - build one GMT record and slot tuple.
+    record = _record(15 * 3600, 16 * 3600, 0x01)
+    slots = (SilentHourSlot(0, 0x0802, record, b"raw-device-evidence"),)
+
+    # Act - convert with a zero UTC offset.
+    converted_record = device_record_to_local(record, 0)
+    converted_slots = device_slots_to_local(slots, 0)
+
+    # Assert - no replacement object or raw evidence is introduced unnecessarily.
+    assert converted_record is record
+    assert converted_slots is slots
 
 
 def test_slot_conversion_preserves_raw_device_evidence() -> None:
