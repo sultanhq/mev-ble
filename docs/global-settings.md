@@ -41,9 +41,9 @@ fresh complete record.
 
 ## Guarded airflow flow
 
-`v0.4.0-rc.3` exposes only the four airflow fields through **Settings → Devices
+`v0.4.0` exposes only the four airflow fields through **Settings → Devices
 & services → Vent-Axia Multihome → Configure → Configure airflow levels** on
-validated four-speed models with a current writable settings record.
+physically validated model 10 units with a current writable settings record.
 
 The values are commissioned motor-speed percentages, not fan RPM. The
 [official Multihome manual](https://asset.eezybridge.com/nc/ba7b9546-29dd-40c4-87a7-885627281b87/495584.pdf)
@@ -67,14 +67,29 @@ percentage because duct resistance and motor load differ between installations.
 
 ## Supported-field matrix
 
-| Field group | RC3 UI | Confidence | Physical status |
+| Field group | Stable UI | Confidence | Physical status |
 | --- | --- | --- | --- |
-| Low/Normal/Boost/Purge percentages | Guarded four-field flow | Official ranges and recovered packet mapping | Pending reversible RC3 hardware test |
+| Low/Normal/Boost/Purge percentages on model 10 | Guarded four-field flow | High | Validated on firmware 2.03.08 / hardware 01.00 |
+| Airflow percentages on models 1, 2 and 9 | Read-only diagnostics | Official four-speed model mapping, but no device write evidence | Not tested |
 | Humidity, temperature and comfort options | Read-only diagnostics | Decoded; write semantics not fully validated | Not tested |
 | Delay, overrun and input actions | Read-only diagnostics | Several numeric action meanings remain model-specific | Not tested |
 | CO₂ boost/purge thresholds | Read-only diagnostics | Encoding recovered; upper-range behaviour needs proof | Not tested |
 | Restore defaults | Not exposed | Payload and scope unknown | Unsafe to test |
 
-No other global field is user-writable in RC3. A stable v0.4.0 release remains
-blocked until the enabled airflow update has physical before/write/readback
-evidence and confirms that unrelated bytes remain unchanged.
+No other global field is user-writable in v0.4.0.
+
+## Physical validation evidence
+
+The stable flow was tested on model 10, firmware 2.03.08, hardware 01.00, using
+the fragmented transport through an ESPHome Bluetooth proxy:
+
+| Capture | Profile | Raw-record prefix | Remaining 32 bytes |
+| --- | --- | --- | --- |
+| Before | 6/8/37/50% | `06082532` | Baseline |
+| Changed | 7/9/38/51% | `07092633` | Identical to baseline |
+| Restored | 6/8/37/50% | `06082532` | Identical to baseline |
+
+The four-field operation returned exact readback with write readiness retained.
+Confirmation while the settings snapshot was unavailable was rejected before a
+write with “No setting was changed.” Restoring the proxy recovered polling and
+the configuration flow automatically, and a later update worked normally.

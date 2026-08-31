@@ -48,9 +48,11 @@ into setup mode so Home Assistant can repeat the exchange automatically.
 ## Global settings and airflow commissioning
 
 The integration reads the unit's complete 36-byte global-settings record and
-includes it in **Download diagnostics**. On validated four-speed models with a
-current successful read, **Configure → Configure airflow levels** provides one
-guarded four-field flow for Low, Normal, Boost, and Purge.
+includes it in **Download diagnostics**. On physically validated model 10 units
+with a current successful read, **Configure → Configure airflow levels**
+provides one guarded four-field flow for Low, Normal, Boost, and Purge. Other
+models retain read-only settings diagnostics until model-specific write evidence
+is available.
 
 The form values are commissioned motor-speed percentages, not the measured
 **Fan RPM** sensor. They use the official ranges Low 1–97%, Normal 2–98%, Boost

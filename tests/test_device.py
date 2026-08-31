@@ -688,12 +688,19 @@ async def test_global_setting_failure_retains_confirmed_snapshot(
 
 @pytest.mark.parametrize(
     ("model", "supported"),
-    [("1", True), ("2", True), ("9", True), ("10", True), ("11", False), (None, False)],
+    [
+        ("1", False),
+        ("2", False),
+        ("9", False),
+        ("10", True),
+        ("11", False),
+        (None, False),
+    ],
 )
-def test_global_airflow_capability_uses_official_four_speed_model_map(
+def test_global_airflow_capability_requires_physical_model_validation(
     model: str | None, supported: bool
 ) -> None:
-    """Only recognised four-speed MEV models expose airflow commissioning."""
+    """Only the physically validated MEV model exposes stable commissioning."""
 
     # Arrange - apply one official or unknown model number.
     device = MultihomeDevice("AA", "MEV", 1234)
@@ -702,7 +709,7 @@ def test_global_airflow_capability_uses_official_four_speed_model_map(
     # Act - evaluate the user-facing capability gate.
     result = device.supports_global_airflow_configuration
 
-    # Assert - four-speed models pass and unsupported/unknown models stay hidden.
+    # Assert - model 10 passes while static-only and unknown models stay hidden.
     assert result is supported
 
 

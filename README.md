@@ -136,9 +136,11 @@ establish a safe discovery or control path for it.
 
 Initial testing has used one physical unit advertising as `MEV` through an
 ESPHome proxy. Automatic pairing, fragmented telemetry, and long-running
-connection recovery have been observed on that setup. Whole-packet transport,
-other model/firmware combinations, telemetry scaling across the full operating
-range, and broader timed-override behaviour still need more hardware reports.
+connection recovery have been observed on that setup. Guarded airflow
+commissioning is writable only on the physically validated model 10; models 1,
+2 and 9 retain read-only settings diagnostics. Whole-packet transport, other
+model/firmware combinations, telemetry scaling across the full operating range,
+and broader timed-override behaviour still need more hardware reports.
 The v0.2 speed/timer and Cancel matrix is explicitly tracked in the linked
 validation record. Recovered Off/Stop mode bytes remain offline research and are
 not sent by the Home Assistant integration.

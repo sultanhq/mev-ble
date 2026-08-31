@@ -6,6 +6,40 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-31
+
+### Added
+
+- Release the guarded four-level airflow commissioning flow for physically
+  validated model 10 units.
+- Commit the supported-field matrix, official per-level percentage ranges, and
+  model-specific write status to the user documentation.
+
+### Safety
+
+- Limit stable packet-136 writes to model 10. Models 1, 2 and 9 retain decoded
+  read-only diagnostics until their own hardware evidence exists.
+- Keep humidity, comfort, temperature, timeout, input-action, CO₂-threshold,
+  schedule, and restore-default fields read-only because their remaining
+  protocol semantics or model-specific write behaviour are medium confidence.
+- Reject confirmation when the current settings snapshot is unavailable and
+  recover the flow automatically after Bluetooth connectivity returns.
+
+### Validated
+
+- On model 10, firmware 2.03.08, hardware 01.00, physically changed the complete
+  profile from 6/8/37/50% to 7/9/38/51% and restored it exactly.
+- Confirmed only raw-record offsets 0–3 changed, each by one, while the other 32
+  bytes remained identical through the four-field update and restoration.
+- Confirmed exact readback, write readiness, unavailable-state rejection with
+  no setting changed, ESPHome proxy recovery, and successful post-recovery use.
+
+### Notes
+
+- A complete Home Assistant restart and client refresh may be required after a
+  HACS update because Home Assistant retains custom-integration translations
+  for the lifetime of the process.
+
 ## [0.4.0-rc.3] - 2026-08-30
 
 ### Added

@@ -60,7 +60,8 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 INTERNAL_CO2_CALIBRATION_MODELS: Final = frozenset({2, 10})
-GLOBAL_AIRFLOW_CONFIGURATION_MODELS: Final = frozenset({1, 2, 9, 10})
+# Stable writes remain limited to the model with physical packet-136 evidence.
+GLOBAL_AIRFLOW_CONFIGURATION_MODELS: Final = frozenset({10})
 
 ClientFactory = Callable[
     ["BLEDevice", str, Callable[[BluetoothClient], None]],
