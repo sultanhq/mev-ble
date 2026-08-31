@@ -574,6 +574,15 @@ def decode_silent_hour_slot(
             )
         payload = data_object.payload
 
+    if len(payload) == SILENT_HOUR_TABLE_ITEM_SIZE + 1:
+        expected_checksum = crc8_zirconia(payload[:-1])
+        if payload[-1] != expected_checksum:
+            raise ProtocolError(
+                "silent-hours table checksum mismatch: "
+                f"expected {expected_checksum:02x}, received {payload[-1]:02x}"
+            )
+        payload = payload[:-1]
+
     if len(payload) in (0, SILENT_HOUR_RECORD_SIZE):
         if expected_index is None:
             raise ProtocolError(

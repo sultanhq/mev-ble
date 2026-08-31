@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0-rc.4
+
+- Decode the model-10 firmware's 14-byte packet-49 response only when its final
+  byte validates as the Zirconia CRC of the documented 13-byte table item.
+- Preserve the complete checksummed response in diagnostics and enable schedule
+  writes only after all six indexed records pass checksum and structure checks.
+
 ## 0.5.0-rc.3
 
 - Preserve unsupported packet-49 responses for all six requested slots instead

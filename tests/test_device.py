@@ -104,10 +104,11 @@ async def test_read_silent_hours_preserves_every_unsupported_response() -> None:
 
     # Arrange - return the observed 14-byte form for every requested slot.
     device = MultihomeDevice("AA", "MEV", 1234)
-    payloads = [
-        bytes.fromhex(f"00000208000000000000000000{suffix:02x}")
-        for suffix in range(0x9B, 0xA1)
-    ]
+    payloads = []
+    for index in range(6):
+        payload = bytearray.fromhex(f"{index:02x}0001200000000000000000000c")
+        payload[-1] ^= 0xFF
+        payloads.append(bytes(payload))
     device._request = AsyncMock(
         side_effect=[SimpleNamespace(payload=payload) for payload in payloads]
     )
@@ -133,7 +134,9 @@ async def test_unknown_silent_hours_do_not_block_telemetry_or_enable_writes() ->
         SimpleNamespace(payload=decode_packet(packet).payload)
         for packet in _responses()
     ]
-    unknown = bytes.fromhex("000002080000000000000000009b")
+    unknown = bytearray.fromhex("000001200000000000000000000c")
+    unknown[-1] ^= 0xFF
+    unknown = bytes(unknown)
     device._request = AsyncMock(
         side_effect=[
             *telemetry,
@@ -151,6 +154,45 @@ async def test_unknown_silent_hours_do_not_block_telemetry_or_enable_writes() ->
     assert all(not slot.is_known for slot in data.silent_hours)
     assert device.confirmed_silent_hours == data.silent_hours
     assert not device.silent_hours_write_ready
+
+
+@pytest.mark.asyncio
+async def test_checksummed_silent_hours_enable_writes_after_complete_poll() -> None:
+    """Six valid model-10 CRC responses establish a writable table."""
+
+    # Arrange - combine valid telemetry with the six captured empty-slot responses.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(model="10")
+    telemetry = [
+        SimpleNamespace(payload=decode_packet(packet).payload)
+        for packet in _responses()
+    ]
+    payloads = [
+        bytes.fromhex(payload)
+        for payload in (
+            "000001200000000000000000000c",
+            "0100012000000000000000000064",
+            "02000120000000000000000000db",
+            "03000120000000000000000000b3",
+            "0400020800000000000000000032",
+            "050002080000000000000000005a",
+        )
+    ]
+    device._request = AsyncMock(
+        side_effect=[
+            *telemetry,
+            *[SimpleNamespace(payload=payload) for payload in payloads],
+        ]
+    )
+
+    # Act - perform the coherent read used during setup and polling.
+    data = await device._read_data()
+
+    # Assert - every verified slot is known and the guarded write gate opens.
+    assert [slot.index for slot in data.silent_hours] == list(range(6))
+    assert all(slot.is_known and slot.record is None for slot in data.silent_hours)
+    assert device.confirmed_silent_hours == data.silent_hours
+    assert device.silent_hours_write_ready
 
 
 @pytest.mark.asyncio

@@ -8,6 +8,10 @@ Open **Settings → Devices & services → Vent-Axia Multihome → Configure →
 silent hours**. Home Assistant displays the complete table returned by the unit
 before offering any write.
 
+Some model-10 firmware appends a Zirconia CRC byte to each indexed table item.
+The integration retains that byte in diagnostics and accepts the slot only when
+the checksum, requested index and record structure all validate.
+
 ## Schedule meaning
 
 - A slot contains a start time, end time and one or more weekdays.

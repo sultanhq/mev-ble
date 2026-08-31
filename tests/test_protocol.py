@@ -814,6 +814,44 @@ def test_silent_hour_selected_record_and_raw_wrappers_are_supported() -> None:
     assert wrapped_selected.raw_payload == wrapped
 
 
+def test_silent_hour_checksummed_table_items_are_supported() -> None:
+    """Model-10 responses append a verified CRC to the indexed table item."""
+
+    # Arrange - use all six exact empty-slot responses captured from firmware 2.03.08.
+    payloads = [
+        "000001200000000000000000000c",
+        "0100012000000000000000000064",
+        "02000120000000000000000000db",
+        "03000120000000000000000000b3",
+        "0400020800000000000000000032",
+        "050002080000000000000000005a",
+    ]
+
+    # Act - decode every checksummed response through the production codec.
+    slots = [decode_silent_hour_slot(bytes.fromhex(payload)) for payload in payloads]
+
+    # Assert - indexes and raw evidence survive while every empty record is trusted.
+    assert [slot.index for slot in slots] == list(range(6))
+    assert [slot.total_count for slot in slots] == [0x2001] * 4 + [0x0802] * 2
+    assert all(slot.is_known and slot.record is None for slot in slots)
+    assert [slot.raw_payload.hex() for slot in slots] == payloads
+
+
+def test_silent_hour_checksummed_table_item_rejects_bad_crc() -> None:
+    """A 14-byte response is never accepted by length alone."""
+
+    # Arrange - corrupt the checksum of a real slot-zero response.
+    payload = bytearray.fromhex("000001200000000000000000000c")
+    payload[-1] ^= 0xFF
+
+    # Act - attempt to decode the corrupted table item.
+    with pytest.raises(ProtocolError, match="checksum mismatch") as raised:
+        decode_silent_hour_slot(bytes(payload))
+
+    # Assert - checksum failure is explicit and blocks writable state.
+    assert raised.value
+
+
 @pytest.mark.parametrize(
     ("start", "end", "mask"),
     [(-1, 1, 1), (86_400, 1, 1), (1, 86_400, 1), (1, 2, 0), (1, 2, 128)],
@@ -832,7 +870,7 @@ def test_silent_hour_rejects_invalid_mutations(start: int, end: int, mask: int) 
 
 
 @pytest.mark.parametrize(
-    "payload", [b"", bytes(3), bytes(5), bytes(9), bytes(12), bytes(14)]
+    "payload", [b"", bytes(3), bytes(5), bytes(9), bytes(12)]
 )
 def test_silent_hour_rejects_malformed_table_items(payload: bytes) -> None:
     """Selected-slot forms require context and unknown sizes remain rejected."""
