@@ -59,6 +59,7 @@ from .protocol import (
     encode_user_override,
     global_settings_after_update,
     plan_airflow_profile_updates,
+    preserve_unknown_silent_hour_slot,
 )
 
 if TYPE_CHECKING:
@@ -571,6 +572,12 @@ class MultihomeDevice:
                 "the last confirmed table was retained"
             ) from err
 
+        if not all(slot.is_known for slot in received):
+            self._silent_hours_write_ready = False
+            raise SilentHourUpdateError(
+                "silent-hours readback format is unsupported; "
+                "the last confirmed table was retained"
+            )
         received_record = received[index].record
         matches = (
             received_record is None
@@ -598,7 +605,15 @@ class MultihomeDevice:
                 Operation.DATA_REQUEST,
                 encode_silent_hour_request(index),
             )
-            slot = decode_silent_hour_slot(response.payload, expected_index=index)
+            try:
+                slot = decode_silent_hour_slot(response.payload, expected_index=index)
+            except ProtocolError:
+                slot = preserve_unknown_silent_hour_slot(index, response.payload)
+                _LOGGER.warning(
+                    "Preserving unsupported silent-hours response for slot %s: %s",
+                    index,
+                    response.payload.hex(),
+                )
             if slot.index != index:
                 raise ProtocolError(
                     f"silent-hours response index {slot.index} did not match {index}"
@@ -679,7 +694,11 @@ class MultihomeDevice:
         self._confirmed_silent_hours = (
             silent_hours if self.supports_silent_hours_management else None
         )
-        self._silent_hours_write_ready = self.supports_silent_hours_management
+        self._silent_hours_write_ready = (
+            self.supports_silent_hours_management
+            and len(silent_hours) == SILENT_HOUR_SLOT_COUNT
+            and all(slot.is_known for slot in silent_hours)
+        )
         return data
 
     def _reconcile_override_remaining(self, data: MultihomeData) -> MultihomeData:

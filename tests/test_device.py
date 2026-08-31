@@ -99,6 +99,61 @@ async def test_read_silent_hours_maps_selected_record_firmware_responses() -> No
 
 
 @pytest.mark.asyncio
+async def test_read_silent_hours_preserves_every_unsupported_response() -> None:
+    """Unknown firmware forms remain diagnosable without blocking telemetry."""
+
+    # Arrange - return the observed 14-byte form for every requested slot.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    payloads = [
+        bytes.fromhex(f"00000208000000000000000000{suffix:02x}")
+        for suffix in range(0x9B, 0xA1)
+    ]
+    device._request = AsyncMock(
+        side_effect=[SimpleNamespace(payload=payload) for payload in payloads]
+    )
+
+    # Act - read all slots through the fail-soft production path.
+    slots = await device._read_silent_hours()
+
+    # Assert - all six reads complete and every byte is retained without decoding.
+    assert device._request.await_count == 6
+    assert [slot.index for slot in slots] == list(range(6))
+    assert [slot.raw_payload for slot in slots] == payloads
+    assert all(not slot.is_known and slot.record is None for slot in slots)
+
+
+@pytest.mark.asyncio
+async def test_unknown_silent_hours_do_not_block_telemetry_or_enable_writes() -> None:
+    """Unsupported schedule responses fail soft while writes remain closed."""
+
+    # Arrange - combine valid telemetry with six unknown schedule responses.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(model="10")
+    telemetry = [
+        SimpleNamespace(payload=decode_packet(packet).payload)
+        for packet in _responses()
+    ]
+    unknown = bytes.fromhex("000002080000000000000000009b")
+    device._request = AsyncMock(
+        side_effect=[
+            *telemetry,
+            *[SimpleNamespace(payload=unknown) for _ in range(6)],
+        ]
+    )
+
+    # Act - perform the same coherent read used during setup and polling.
+    data = await device._read_data()
+
+    # Assert - telemetry loads, raw evidence survives, and mutation stays disabled.
+    assert data.zone.fan_rpm == 1200
+    assert len(data.silent_hours) == 6
+    assert all(slot.raw_payload == unknown for slot in data.silent_hours)
+    assert all(not slot.is_known for slot in data.silent_hours)
+    assert device.confirmed_silent_hours == data.silent_hours
+    assert not device.silent_hours_write_ready
+
+
+@pytest.mark.asyncio
 async def test_set_silent_hour_accepts_only_exact_full_table_readback() -> None:
     """A slot update becomes current only after all six slots are reread."""
 

@@ -140,6 +140,7 @@ async def test_diagnostics_include_control_validation_state() -> None:
         "start_seconds": None,
         "end_seconds": None,
         "weekdays_mask": None,
+        "known": True,
         "valid": True,
         "raw_payload": "00000000000000000000000000",
     }

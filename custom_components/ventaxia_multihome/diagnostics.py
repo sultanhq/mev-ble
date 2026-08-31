@@ -85,7 +85,14 @@ async def async_get_config_entry_diagnostics(
                 "weekdays_mask": (
                     slot.record.weekdays_mask if slot.record is not None else None
                 ),
-                "valid": slot.record.is_valid if slot.record is not None else True,
+                "known": slot.is_known,
+                "valid": (
+                    slot.record.is_valid
+                    if slot.record is not None
+                    else True
+                    if slot.is_known
+                    else None
+                ),
                 "raw_payload": slot.raw_payload.hex(),
             }
             for slot in (data.silent_hours if data else ())

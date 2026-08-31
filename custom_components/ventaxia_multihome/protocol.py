@@ -485,6 +485,19 @@ class SilentHourSlot:
     total_count: int
     record: SilentHour | None
     raw_payload: bytes
+    is_known: bool = True
+
+
+def preserve_unknown_silent_hour_slot(index: int, raw_payload: bytes) -> SilentHourSlot:
+    """Retain an unsupported selected-slot response without interpreting it."""
+
+    return SilentHourSlot(
+        _validate_silent_hour_slot(index),
+        0,
+        None,
+        bytes(raw_payload),
+        False,
+    )
 
 
 def _validate_silent_hour_slot(index: int) -> int:

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0-rc.3
+
+- Preserve unsupported packet-49 responses for all six requested slots instead
+  of failing integration setup, so normal telemetry remains available.
+- Keep silent-hours writes disabled when any slot response is not understood and
+  expose the exact raw response plus its decoding status in diagnostics.
+
 ## 0.5.0-rc.2
 
 - Accept model-10 firmware responses that return the selected nine-byte
