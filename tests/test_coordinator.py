@@ -507,7 +507,9 @@ async def test_silent_hour_publishes_only_confirmed_full_table() -> None:
     )
 
     # Act - apply one reviewed overnight schedule.
-    await VentaxiaMultihomeCoordinator.async_set_silent_hour(coordinator, 0, record)
+    await VentaxiaMultihomeCoordinator._async_mutate_silent_hour(
+        coordinator, 0, record
+    )
 
     # Assert - only exact device readback is published with other state retained.
     device.set_silent_hour.assert_awaited_once_with(ble_device, 0, record)
@@ -548,7 +550,9 @@ async def test_silent_hour_delete_uses_same_guarded_publish_path() -> None:
     )
 
     # Act - delete slot five.
-    await VentaxiaMultihomeCoordinator.async_delete_silent_hour(coordinator, 5)
+    await VentaxiaMultihomeCoordinator._async_mutate_silent_hour(
+        coordinator, 5, None
+    )
 
     # Assert - deletion and publication occur exactly once.
     device.delete_silent_hour.assert_awaited_once()
@@ -587,9 +591,11 @@ async def test_silent_hours_rejects_unsupported_or_unavailable_before_ble() -> N
 
     # Act - attempt one mutation through each unsafe coordinator state.
     with pytest.raises(SilentHoursNotSupportedError) as unsupported_error:
-        await VentaxiaMultihomeCoordinator.async_set_silent_hour(unsupported, 0, record)
+        await VentaxiaMultihomeCoordinator._async_mutate_silent_hour(
+            unsupported, 0, record
+        )
     with pytest.raises(SilentHoursConfigurationUnavailableError) as unavailable_error:
-        await VentaxiaMultihomeCoordinator.async_set_silent_hour(stale, 0, record)
+        await VentaxiaMultihomeCoordinator._async_mutate_silent_hour(stale, 0, record)
 
     # Assert - both gates fail before a Bluetooth route or packet write.
     assert unsupported_error.value
