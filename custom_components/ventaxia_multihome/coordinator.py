@@ -167,6 +167,8 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
     def _localize_data(self, data: MultihomeData) -> MultihomeData:
         """Convert raw UTC schedule records to the current HA local wall clock."""
 
+        if not isinstance(data, MultihomeData):
+            return data
         offset = VentaxiaMultihomeCoordinator._silent_hours_utc_offset_seconds(self)
         slots = device_slots_to_local(data.silent_hours, offset)
         if slots is data.silent_hours:
