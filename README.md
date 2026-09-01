@@ -83,8 +83,12 @@ Detailed instructions:
 - Guarded internal CO₂ calibration for validated CO₂-equipped models, using
   either documented fresh-air exposure or trusted Home Assistant references
 - Lossless global-settings snapshots in redacted diagnostics
+- Disabled-by-default diagnostic entities for humidity, CO₂ boost, and CO₂ purge
+  installer thresholds
 - Guarded four-level airflow commissioning for a validated device identity,
   with exact readback and explicit review
+- Prerelease guarded CO₂/humidity threshold validation on the exact tested
+  model/firmware/hardware identity
 - Redacted Home Assistant diagnostics
 
 The physically inspected MEV remote exposes speed levels 1–4 and timers for 30,
@@ -96,9 +100,9 @@ is available only through a guarded Configure flow on validated CO₂-equipped
 models. The exact validated model 10 / firmware 2.03.08 / hardware 01.00
 identity can configure Low, Normal, Boost, and Purge through a guarded Configure
 flow. These values are commissioned motor-speed percentages, not measured RPM;
-the flow applies documented limits, preserves
-strict ordering, and requires exact immediate readback. Environmental options,
-resets and unvalidated installer controls remain unavailable. Version 0.5 adds
+the flow applies documented limits, preserves strict ordering, and requires
+exact immediate readback. Other environmental options, resets, and unvalidated
+installer controls remain unavailable. Version 0.5 adds
 guarded six-slot silent-hours management for validated model 10 hardware; see
 [Silent-hours schedules](docs/silent-hours.md) for semantics and validation.
 
@@ -141,7 +145,9 @@ Initial testing has used one physical unit advertising as `MEV` through an
 ESPHome proxy. Automatic pairing, fragmented telemetry, and long-running
 connection recovery have been observed on that setup. Guarded airflow
 commissioning is writable only on model 10 / firmware 2.03.08 / hardware 01.00;
-models 1, 2 and 9 retain read-only settings diagnostics. Whole-packet transport,
+the `0.6.1-rc.1` threshold flow is restricted to that same identity while its
+humidity and CO₂ writes undergo controlled physical validation. Models 1, 2 and
+9 retain read-only settings diagnostics. Whole-packet transport,
 other model/firmware combinations, telemetry scaling across the full operating
 range, and broader timed-override behaviour still need more hardware reports.
 The v0.2 speed/timer and Cancel matrix is explicitly tracked in the linked

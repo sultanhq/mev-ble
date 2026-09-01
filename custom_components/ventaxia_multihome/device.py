@@ -21,6 +21,9 @@ from .bluetooth import (
 )
 from .capabilities import (
     AIRFLOW_FIELDS,
+    SENSOR_THRESHOLD_FIELDS,
+    installer_configurable_fields,
+    installer_validation_candidate_fields,
     installer_writable_fields,
     model_capability,
 )
@@ -64,6 +67,7 @@ from .protocol import (
     encode_user_override,
     global_settings_after_update,
     plan_airflow_profile_updates,
+    plan_sensor_threshold_updates,
     preserve_unknown_silent_hour_slot,
 )
 
@@ -216,10 +220,36 @@ class MultihomeDevice:
         )
 
     @property
+    def validation_candidate_installer_fields(self) -> frozenset[GlobalSettingField]:
+        """Return prerelease fields gated to the exact validation identity."""
+
+        return installer_validation_candidate_fields(
+            self.model_number,
+            self.device_info.firmware,
+            self.device_info.hardware,
+        )
+
+    @property
+    def configurable_installer_fields(self) -> frozenset[GlobalSettingField]:
+        """Return stable plus guarded-prerelease fields for this identity."""
+
+        return installer_configurable_fields(
+            self.model_number,
+            self.device_info.firmware,
+            self.device_info.hardware,
+        )
+
+    @property
     def supports_global_airflow_configuration(self) -> bool:
         """Return whether all four airflow writes are validated for this identity."""
 
         return AIRFLOW_FIELDS <= self.writable_installer_fields
+
+    @property
+    def supports_sensor_threshold_configuration(self) -> bool:
+        """Return whether guarded CO2/humidity writes are enabled for validation."""
+
+        return SENSOR_THRESHOLD_FIELDS <= self.validation_candidate_installer_fields
 
     @property
     def supports_silent_hours_management(self) -> bool:
@@ -450,7 +480,7 @@ class MultihomeDevice:
         if (
             isinstance(field, bool)
             or not isinstance(field, int)
-            or field not in self.writable_installer_fields
+            or field not in self.configurable_installer_fields
         ):
             raise DeviceError(
                 "global setting is not validated for this model, firmware, and "
@@ -459,6 +489,39 @@ class MultihomeDevice:
         async with self._operation_lock:
             await self.connect(ble_device)
             return await self._set_global_setting_locked(field, value)
+
+    async def set_sensor_thresholds(
+        self,
+        ble_device: BLEDevice,
+        *,
+        humidity: int,
+        co2_boost: int,
+        co2_purge: int,
+    ) -> GlobalSettings:
+        """Apply guarded sensor thresholds with exact readback after each field."""
+
+        if not self.supports_sensor_threshold_configuration:
+            raise DeviceError(
+                "sensor-threshold configuration is not enabled for this model, "
+                "firmware, and hardware"
+            )
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            confirmed = self._confirmed_global_settings
+            if confirmed is None or not self._global_settings_write_ready:
+                raise GlobalSettingsUnavailableError(
+                    "global settings must be read successfully before an update"
+                )
+            plan = plan_sensor_threshold_updates(
+                confirmed,
+                humidity=humidity,
+                co2_boost=co2_boost,
+                co2_purge=co2_purge,
+            )
+            result = confirmed
+            for field, value in plan:
+                result = await self._set_global_setting_locked(field, value)
+            return result
 
     async def set_airflow_profile(
         self,

@@ -13,6 +13,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import (
     PERCENTAGE,
+    EntityCategory,
     UnitOfRatio,
     UnitOfTemperature,
     UnitOfTime,
@@ -62,6 +63,35 @@ SENSORS: tuple[MultihomeSensorDescription, ...] = (
         suggested_display_precision=0,
         exists_fn=lambda data: data.zone.co2_supported,
         value_fn=lambda data: data.zone.co2,
+    ),
+    MultihomeSensorDescription(
+        key="humidity_threshold",
+        translation_key="humidity_threshold",
+        device_class=SensorDeviceClass.HUMIDITY,
+        native_unit_of_measurement=PERCENTAGE,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        value_fn=lambda data: data.global_settings.humidity_threshold,
+    ),
+    MultihomeSensorDescription(
+        key="co2_boost_threshold",
+        translation_key="co2_boost_threshold",
+        device_class=SensorDeviceClass.CO2,
+        native_unit_of_measurement=UnitOfRatio.PARTS_PER_MILLION,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        exists_fn=lambda data: data.zone.co2_supported,
+        value_fn=lambda data: data.global_settings.co2_boost_threshold,
+    ),
+    MultihomeSensorDescription(
+        key="co2_purge_threshold",
+        translation_key="co2_purge_threshold",
+        device_class=SensorDeviceClass.CO2,
+        native_unit_of_measurement=UnitOfRatio.PARTS_PER_MILLION,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        entity_registry_enabled_default=False,
+        exists_fn=lambda data: data.zone.co2_supported,
+        value_fn=lambda data: data.global_settings.co2_purge_threshold,
     ),
     MultihomeSensorDescription(
         key="fan_rpm",

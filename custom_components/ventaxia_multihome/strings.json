@@ -43,6 +43,7 @@
         "menu_options": {
           "fan_options": "Fan override options",
           "airflow_profile": "Configure airflow levels",
+          "sensor_thresholds": "Configure CO₂ and humidity thresholds",
           "silent_hours": "Manage silent hours",
           "calibrate_co2": "Calibrate internal CO₂ sensor"
         }
@@ -73,6 +74,26 @@
       "airflow_result": {
         "title": "Airflow levels confirmed",
         "description": "The installed unit returned **{new_profile}** through fresh settings readback. Measured Fan RPM may take time to settle and can differ with duct resistance and load."
+      },
+      "sensor_thresholds": {
+        "title": "Configure CO₂ and humidity thresholds",
+        "description": "Current thresholds: **{current_thresholds}**\n\nThese values control when humidity and internal CO₂ demand can request higher ventilation. They are installer settings, not the current sensor readings. CO₂ Boost must remain below CO₂ Purge.\n\nThis prerelease flow is restricted to the exact model 10 / firmware 2.03.08 / hardware 01.00 validation identity. Record the current values and change them only for controlled testing.",
+        "data": {
+          "humidity_threshold": "Humidity threshold",
+          "co2_boost_threshold": "CO₂ boost threshold",
+          "co2_purge_threshold": "CO₂ purge threshold"
+        }
+      },
+      "sensor_thresholds_confirm": {
+        "title": "Confirm CO₂ and humidity thresholds",
+        "description": "Device: **{device}**\n\nCurrent thresholds: **{current_thresholds}**\n\nNew thresholds: **{new_thresholds}**\n\nHome Assistant will update only changed fields in an order that keeps CO₂ Boost < CO₂ Purge after every write. Each field must be returned exactly by a fresh settings read before the next field is sent. A failure can leave earlier confirmed fields applied, so reopen this flow and inspect the current values before retrying.",
+        "data": {
+          "confirm_sensor_thresholds": "I have recorded the current values and want to apply these thresholds"
+        }
+      },
+      "sensor_thresholds_result": {
+        "title": "CO₂ and humidity thresholds confirmed",
+        "description": "The installed unit returned **{new_thresholds}** through exact fresh settings readback. For validation, restore the original values through the same flow after confirming the temporary values appear correctly."
       },
       "silent_hours": {
         "title": "Manage silent hours",
@@ -153,6 +174,11 @@
       "airflow_profile_unchanged": "The entered airflow profile is already active.",
       "airflow_settings_changed": "The unit's settings changed after the review was opened. Review the current values and try again.",
       "airflow_update_failed": "The complete airflow profile could not be confirmed. Check the current values before trying again.",
+      "sensor_thresholds_confirmation_required": "Confirm the reviewed thresholds before changing the installer settings.",
+      "sensor_thresholds_invalid": "Enter whole-number values in the shown ranges, use 10 ppm CO₂ steps, and keep CO₂ Boost below CO₂ Purge.",
+      "sensor_thresholds_unchanged": "The entered CO₂ and humidity thresholds are already active.",
+      "sensor_thresholds_settings_changed": "The unit's settings changed after the review was opened. Review the current values and try again.",
+      "sensor_thresholds_update_failed": "The complete threshold profile could not be confirmed. Reopen the flow and check the current values before retrying.",
       "global_settings_unavailable": "Current settings are unavailable or not yet confirmed. Wait for the integration to complete a successful update, then reopen this flow.",
       "silent_hours_unavailable": "The complete six-slot schedule table is unavailable or not yet confirmed. Wait for a successful integration update, then reopen this flow.",
       "silent_hour_invalid": "Select a valid slot, start time, end time and at least one weekday.",
@@ -170,6 +196,7 @@
     },
     "abort": {
       "airflow_not_supported": "Airflow configuration is not validated for this model, firmware, and hardware. No setting was changed.",
+      "sensor_thresholds_not_supported": "CO₂ and humidity threshold configuration is not enabled for this model, firmware, and hardware. No setting was changed.",
       "global_settings_unavailable": "Current settings are unavailable or not yet confirmed. No setting was changed.",
       "silent_hours_not_supported": "Silent-hours management is not validated for this model. No schedule was changed.",
       "silent_hours_unavailable": "The complete six-slot schedule table is unavailable or not yet confirmed. No schedule was changed.",
@@ -208,6 +235,9 @@
       "temperature": {"name": "Temperature"},
       "relative_humidity": {"name": "Relative humidity"},
       "co2": {"name": "CO₂"},
+      "humidity_threshold": {"name": "Humidity threshold"},
+      "co2_boost_threshold": {"name": "CO₂ boost threshold"},
+      "co2_purge_threshold": {"name": "CO₂ purge threshold"},
       "fan_rpm": {"name": "Fan RPM"},
       "fan_level": {"name": "Fan level"},
       "fan_state": {"name": "Fan state"},

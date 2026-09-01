@@ -334,6 +334,14 @@ AIRFLOW_FIELDS: Final = frozenset(
     }
 )
 
+SENSOR_THRESHOLD_FIELDS: Final = frozenset(
+    {
+        GlobalSettingField.HUMIDITY_THRESHOLD,
+        GlobalSettingField.CO2_BOOST_THRESHOLD,
+        GlobalSettingField.CO2_PURGE_THRESHOLD,
+    }
+)
+
 VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
     InstallerWriteProfile(
         model_number=10,
@@ -343,6 +351,22 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
         evidence=(
             "fragmented packet-136 writes with exact packet-137 readback; "
             "6/8/37/50 -> 7/9/38/51 -> 6/8/37/50"
+        ),
+    ),
+)
+
+# These fields have a recovered official-app encoding and can be exercised only on
+# the exact unit used for protocol validation. Keep them separate from the stable,
+# physically validated field set until a write/readback/restore cycle succeeds.
+VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
+    InstallerWriteProfile(
+        model_number=10,
+        firmware="2.03.08",
+        hardware="01.00",
+        fields=SENSOR_THRESHOLD_FIELDS,
+        evidence=(
+            "official-app packet-136 mapping with exact packet-137 readback; "
+            "physical write and restore validation pending"
         ),
     ),
 )
@@ -373,6 +397,37 @@ def installer_writable_fields(
         ):
             return profile.fields
     return frozenset()
+
+
+def installer_validation_candidate_fields(
+    model_number: int | None,
+    firmware: str | None,
+    hardware: str | None,
+) -> frozenset[GlobalSettingField]:
+    """Return guarded prerelease fields awaiting physical validation."""
+
+    if model_number is None or firmware is None or hardware is None:
+        return frozenset()
+    for profile in VALIDATION_CANDIDATE_WRITE_PROFILES:
+        if (
+            profile.model_number == model_number
+            and profile.firmware == firmware
+            and profile.hardware == hardware
+        ):
+            return profile.fields
+    return frozenset()
+
+
+def installer_configurable_fields(
+    model_number: int | None,
+    firmware: str | None,
+    hardware: str | None,
+) -> frozenset[GlobalSettingField]:
+    """Return stable and guarded-prerelease fields for one exact identity."""
+
+    return installer_writable_fields(
+        model_number, firmware, hardware
+    ) | installer_validation_candidate_fields(model_number, firmware, hardware)
 
 
 def supports_installer_field_write(

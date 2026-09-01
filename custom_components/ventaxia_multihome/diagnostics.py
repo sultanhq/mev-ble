@@ -12,6 +12,7 @@ from homeassistant.core import HomeAssistant
 from . import VentaxiaMultihomeConfigEntry
 from .capabilities import (
     INSTALLER_FIELD_DEFINITIONS,
+    installer_validation_candidate_fields,
     installer_writable_fields,
     model_capability,
 )
@@ -73,6 +74,11 @@ def _installer_capability_diagnostics(
         info.firmware,
         info.hardware,
     )
+    validation_candidates = installer_validation_candidate_fields(
+        model_number,
+        info.firmware,
+        info.hardware,
+    )
     fields: dict[str, Any] = {}
     for field, definition in INSTALLER_FIELD_DEFINITIONS.items():
         spec = GLOBAL_SETTING_FIELD_SPECS[field]
@@ -97,6 +103,7 @@ def _installer_capability_diagnostics(
             "risk": definition.risk.value,
             "evidence": definition.evidence.value,
             "writable": field in writable,
+            "validation_candidate": field in validation_candidates,
             "decoded_value": value,
             "raw_value": _installer_field_raw_value(
                 settings,
@@ -118,6 +125,9 @@ def _installer_capability_diagnostics(
         },
         "snapshot_available": settings is not None,
         "writable_field_ids": sorted(int(field) for field in writable),
+        "validation_candidate_field_ids": sorted(
+            int(field) for field in validation_candidates
+        ),
         "fields": fields,
         "read_only_unaddressable_fields": {
             "purge_low_mode": {

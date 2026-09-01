@@ -26,6 +26,8 @@ from custom_components.ventaxia_multihome.coordinator import (
     CalibrationDeliveryUncertainError,
     CalibrationNotSupportedError,
     CalibrationRateLimitedError,
+    SensorThresholdConfigurationNotSupportedError,
+    SensorThresholdConfigurationUnavailableError,
     SilentHoursConfigurationUnavailableError,
     SilentHoursNotSupportedError,
     VentaxiaMultihomeCoordinator,
@@ -471,6 +473,91 @@ async def test_airflow_profile_requires_current_writable_snapshot(
         )
     coordinator._ble_device.assert_not_called()
     device.set_airflow_profile.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_sensor_thresholds_publish_only_confirmed_settings() -> None:
+    """A successful threshold operation publishes its exact readback."""
+
+    # Arrange - retain telemetry and return a distinct confirmed settings object.
+    current = MultihomeData(
+        zone=object(),
+        system=object(),
+        global_settings=_settings(),
+        last_successful_update=datetime.now(UTC),
+    )
+    confirmed = decode_global_settings(
+        bytes.fromhex(
+            "06082532004601000100000001040f19000a0a010304a000b4000f4b01030f4b01030103"
+        )
+    )
+    ble_device = object()
+    device = SimpleNamespace(
+        supports_sensor_threshold_configuration=True,
+        global_settings_write_ready=True,
+        set_sensor_thresholds=AsyncMock(return_value=confirmed),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=current,
+        last_update_success=True,
+        _ble_device=lambda: ble_device,
+        async_set_updated_data=Mock(),
+        async_set_update_error=Mock(),
+    )
+
+    # Act - apply one reviewed three-threshold profile.
+    await VentaxiaMultihomeCoordinator.async_set_sensor_thresholds(
+        coordinator, humidity=70, co2_boost=1600, co2_purge=1800
+    )
+
+    # Assert - only the confirmed settings snapshot is replaced.
+    device.set_sensor_thresholds.assert_awaited_once_with(
+        ble_device, humidity=70, co2_boost=1600, co2_purge=1800
+    )
+    published = coordinator.async_set_updated_data.call_args.args[0]
+    assert published.global_settings is confirmed
+    assert published.zone is current.zone
+    assert published.system is current.system
+    coordinator.async_set_update_error.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("supported", "data", "last_success", "write_ready", "error"),
+    [
+        (False, object(), True, True, SensorThresholdConfigurationNotSupportedError),
+        (True, None, True, True, SensorThresholdConfigurationUnavailableError),
+        (True, object(), False, True, SensorThresholdConfigurationUnavailableError),
+        (True, object(), True, False, SensorThresholdConfigurationUnavailableError),
+    ],
+)
+async def test_sensor_thresholds_reject_unsupported_or_stale_state_before_io(
+    supported, data, last_success, write_ready, error
+) -> None:
+    """Identity and current-snapshot guards run before Bluetooth lookup."""
+
+    # Arrange - vary each prerequisite for the guarded threshold operation.
+    device = SimpleNamespace(
+        supports_sensor_threshold_configuration=supported,
+        global_settings_write_ready=write_ready,
+        set_sensor_thresholds=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=data,
+        last_update_success=last_success,
+        _ble_device=Mock(),
+    )
+
+    # Act / Assert - reject without resolving or using a BLE path.
+    with pytest.raises(error):
+        await VentaxiaMultihomeCoordinator.async_set_sensor_thresholds(
+            coordinator, humidity=70, co2_boost=1000, co2_purge=1500
+        )
+    coordinator._ble_device.assert_not_called()
+    device.set_sensor_thresholds.assert_not_awaited()
 
 
 @pytest.mark.asyncio

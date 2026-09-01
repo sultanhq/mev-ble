@@ -829,8 +829,8 @@ async def test_global_setting_write_rejects_unvalidated_field_before_io() -> Non
     with pytest.raises(DeviceError) as error:
         await device.set_global_setting(
             object(),
-            GlobalSettingField.HUMIDITY_THRESHOLD,
-            70,
+            GlobalSettingField.COMFORT_ENABLED,
+            1,
         )
 
     # Assert - the identity-aware field guard rejects it before Bluetooth I/O.
@@ -1114,6 +1114,112 @@ async def test_airflow_profile_rejects_unsupported_model_before_write() -> None:
             object(), low=10, normal=20, boost=30, purge=40
         )
     assert sent == []
+
+
+@pytest.mark.parametrize(
+    ("model", "firmware", "hardware", "supported"),
+    [
+        ("10", "2.03.08", "01.00", True),
+        ("10", "2.03.09", "01.00", False),
+        ("10", "2.03.08", "01.01", False),
+        ("2", "2.03.08", "01.00", False),
+    ],
+)
+def test_sensor_threshold_capability_requires_exact_validation_identity(
+    model: str,
+    firmware: str,
+    hardware: str,
+    supported: bool,
+) -> None:
+    """The guarded RC flow is restricted to one exact device identity."""
+
+    # Arrange - apply one exact or near-match identity.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model=model, firmware=firmware, hardware=hardware
+    )
+
+    # Act - evaluate the separate prerelease capability gate.
+    result = device.supports_sensor_threshold_configuration
+
+    # Assert - firmware, hardware, and model must all match.
+    assert result is supported
+
+
+@pytest.mark.asyncio
+async def test_sensor_thresholds_update_each_field_with_exact_readback() -> None:
+    """Humidity and both CO2 thresholds are confirmed independently."""
+
+    # Arrange - emulate firmware applying RawWithId values after every write.
+    record = bytearray(decode_packet(_responses()[2]).payload)
+    record[5] = 75
+    record[22:24] = bytes([100, 0])
+    record[24:26] = bytes([150, 0])
+    current = decode_global_settings(bytes(record))
+    sent: list[bytes] = []
+    requested: list[bytes] = []
+
+    class ApplyingTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            nonlocal current
+            sent.append(packet)
+            wrapped = decode_data_object_array(decode_packet(packet).payload)
+            assert wrapped.object_id is not None
+            field = GlobalSettingField(wrapped.object_id)
+            value = (
+                int.from_bytes(wrapped.payload, "little") * 10
+                if field
+                in {
+                    GlobalSettingField.CO2_BOOST_THRESHOLD,
+                    GlobalSettingField.CO2_PURGE_THRESHOLD,
+                }
+                else wrapped.payload[0]
+            )
+            current = global_settings_after_update(current, field, value)
+
+        async def request(self, packet: bytes) -> bytes:
+            requested.append(packet)
+            return encode_packet(
+                PacketType.GLOBAL_DATA,
+                Operation.RESPONSE,
+                current.raw_record,
+                timestamp=2,
+            )
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._client = DeviceClient([])
+    device._transport = ApplyingTransport()
+    device._authenticated = True
+    device._confirmed_global_settings = current
+    device._global_settings_write_ready = True
+
+    # Act - cross the old purge value so the planner must send purge before boost.
+    result = await device.set_sensor_thresholds(
+        object(), humidity=70, co2_boost=1600, co2_purge=1800
+    )
+
+    # Assert - three sends, three reads, safe CO2 order, and exact final state.
+    fields = [
+        GlobalSettingField(
+            decode_data_object_array(decode_packet(packet).payload).object_id
+        )
+        for packet in sent
+    ]
+    assert len(sent) == len(requested) == 3
+    assert fields.index(GlobalSettingField.CO2_PURGE_THRESHOLD) < fields.index(
+        GlobalSettingField.CO2_BOOST_THRESHOLD
+    )
+    assert (
+        result.humidity_threshold,
+        result.co2_boost_threshold,
+        result.co2_purge_threshold,
+    ) == (70, 1600, 1800)
+    assert device.confirmed_global_settings == result
 
 
 @pytest.mark.asyncio

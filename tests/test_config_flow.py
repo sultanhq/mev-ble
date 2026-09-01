@@ -32,9 +32,13 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_AIRFLOW_NORMAL,
     CONF_AIRFLOW_PURGE,
     CONF_CALIBRATION_METHOD,
+    CONF_CO2_BOOST_THRESHOLD,
+    CONF_CO2_PURGE_THRESHOLD,
     CONF_CONFIRM_AIRFLOW,
     CONF_CONFIRM_CALIBRATION,
+    CONF_CONFIRM_SENSOR_THRESHOLDS,
     CONF_CONFIRM_SILENT_HOUR_DELETE,
+    CONF_HUMIDITY_THRESHOLD,
     CONF_REFERENCE_PPM,
     CONF_REFERENCE_SENSORS,
     CONF_SILENT_HOUR_ACTION,
@@ -55,6 +59,7 @@ from custom_components.ventaxia_multihome.coordinator import (
     CalibrationCommandNotSentError,
     CalibrationDeliveryUncertainError,
     CalibrationRateLimitedError,
+    SensorThresholdConfigurationUnavailableError,
 )
 from custom_components.ventaxia_multihome.device import SetupCodeRejectedError
 from custom_components.ventaxia_multihome.protocol import (
@@ -84,6 +89,7 @@ def _options_entry(
     *,
     supports_calibration: bool = True,
     supports_airflow: bool = False,
+    supports_thresholds: bool = False,
     airflow_available: bool = True,
     supports_schedules: bool = False,
     schedules_available: bool = True,
@@ -103,6 +109,7 @@ def _options_entry(
         device=SimpleNamespace(
             supports_internal_co2_calibration=supports_calibration,
             supports_global_airflow_configuration=supports_airflow,
+            supports_sensor_threshold_configuration=supports_thresholds,
             global_settings_write_ready=airflow_available,
             supports_silent_hours_management=supports_schedules,
             silent_hours_write_ready=schedules_available,
@@ -115,6 +122,7 @@ def _options_entry(
         last_update_success=airflow_available and schedules_available,
         async_calibrate_internal_co2=AsyncMock(),
         async_set_airflow_profile=AsyncMock(),
+        async_set_sensor_thresholds=AsyncMock(),
         async_set_silent_hour=AsyncMock(),
         async_delete_silent_hour=AsyncMock(),
     )
@@ -152,6 +160,17 @@ async def _open_calibration_options(hass, entry):
     assert initial["step_id"] == "init"
     return await hass.config_entries.options.async_configure(
         initial["flow_id"], {"next_step_id": "calibrate_co2"}
+    )
+
+
+async def _open_sensor_threshold_options(hass, entry):
+    """Open the guarded CO2/humidity threshold screen."""
+
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    assert initial["type"] is data_entry_flow.FlowResultType.MENU
+    assert initial["step_id"] == "init"
+    return await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "sensor_thresholds"}
     )
 
 
@@ -425,6 +444,168 @@ async def test_airflow_profile_failure_never_shows_success(
     assert failed["step_id"] == "airflow_confirm"
     assert failed["errors"] == {"base": expected_error}
     coordinator.async_set_airflow_profile.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_sensor_threshold_menu_requires_supported_current_settings(hass) -> None:
+    """The guarded threshold flow appears only with an exact current capability."""
+
+    # Arrange - create supported, unsupported, and unavailable entries.
+    supported, _ = _options_entry(hass, supports_thresholds=True)
+    unsupported, _ = _options_entry(hass, supports_thresholds=False)
+    unavailable, _ = _options_entry(
+        hass, supports_thresholds=True, airflow_available=False
+    )
+
+    # Act - open each entry's top-level Configure menu.
+    menus = [
+        await hass.config_entries.options.async_init(entry.entry_id)
+        for entry in (supported, unsupported, unavailable)
+    ]
+
+    # Assert - only the exact capability with fresh packet-137 data is exposed.
+    assert "sensor_thresholds" in menus[0]["menu_options"]
+    assert "sensor_thresholds" not in menus[1]["menu_options"]
+    assert "sensor_thresholds" not in menus[2]["menu_options"]
+
+
+@pytest.mark.asyncio
+async def test_sensor_threshold_form_uses_recovered_ranges_and_current_values(
+    hass,
+) -> None:
+    """Threshold selectors retain the packet codec's exact range and step."""
+
+    # Arrange - open the form with the current 81/1500/1750 settings record.
+    entry, _ = _options_entry(hass, supports_thresholds=True)
+
+    # Act - inspect Home Assistant's rendered selector definitions.
+    result = await _open_sensor_threshold_options(hass, entry)
+    fields = {
+        marker.schema: field for marker, field in result["data_schema"].schema.items()
+    }
+
+    # Assert - humidity uses percent and CO2 uses exact ten-ppm wire steps.
+    expected = {
+        CONF_HUMIDITY_THRESHOLD: (0, 100, 1, "%", 81),
+        CONF_CO2_BOOST_THRESHOLD: (0, 2000, 10, "ppm", 1500),
+        CONF_CO2_PURGE_THRESHOLD: (0, 2000, 10, "ppm", 1750),
+    }
+    for name, (minimum, maximum, step, unit, default) in expected.items():
+        assert fields[name].config["min"] == minimum
+        assert fields[name].config["max"] == maximum
+        assert fields[name].config["step"] == step
+        assert fields[name].config["unit_of_measurement"] == unit
+        marker = next(
+            item for item in result["data_schema"].schema if item.schema == name
+        )
+        assert marker.default() == default
+
+
+@pytest.mark.asyncio
+async def test_sensor_thresholds_require_review_and_confirmation(hass) -> None:
+    """Valid thresholds are written only after explicit reviewed confirmation."""
+
+    # Arrange - open the exact-identity threshold form.
+    entry, coordinator = _options_entry(hass, supports_thresholds=True)
+    form = await _open_sensor_threshold_options(hass, entry)
+
+    # Act - submit a temporary validation profile, decline once, then confirm.
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {
+            CONF_HUMIDITY_THRESHOLD: 80,
+            CONF_CO2_BOOST_THRESHOLD: 1490,
+            CONF_CO2_PURGE_THRESHOLD: 1740,
+        },
+    )
+    declined = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_SENSOR_THRESHOLDS: False}
+    )
+    result = await hass.config_entries.options.async_configure(
+        declined["flow_id"], {CONF_CONFIRM_SENSOR_THRESHOLDS: True}
+    )
+
+    # Assert - only positive confirmation calls the coordinator and shows success.
+    assert confirm["step_id"] == "sensor_thresholds_confirm"
+    assert declined["errors"] == {
+        "base": "sensor_thresholds_confirmation_required"
+    }
+    coordinator.async_set_sensor_thresholds.assert_awaited_once_with(
+        humidity=80, co2_boost=1490, co2_purge=1740
+    )
+    assert result["step_id"] == "sensor_thresholds_result"
+
+
+@pytest.mark.asyncio
+async def test_sensor_thresholds_recheck_complete_snapshot_before_write(hass) -> None:
+    """Any concurrent global-setting change invalidates the reviewed profile."""
+
+    # Arrange - reach confirmation, then mutate an unrelated global setting.
+    entry, coordinator = _options_entry(hass, supports_thresholds=True)
+    form = await _open_sensor_threshold_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {
+            CONF_HUMIDITY_THRESHOLD: 80,
+            CONF_CO2_BOOST_THRESHOLD: 1490,
+            CONF_CO2_PURGE_THRESHOLD: 1740,
+        },
+    )
+    changed = bytearray(coordinator.data.global_settings.raw_record)
+    changed[4] += 1
+    coordinator.data = SimpleNamespace(
+        global_settings=decode_global_settings(bytes(changed))
+    )
+
+    # Act - authorize the now-stale review.
+    result = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_SENSOR_THRESHOLDS: True}
+    )
+
+    # Assert - return to current inputs without issuing any write.
+    assert result["step_id"] == "sensor_thresholds"
+    assert result["errors"] == {"base": "sensor_thresholds_settings_changed"}
+    coordinator.async_set_sensor_thresholds.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "expected_error"),
+    [
+        (
+            SensorThresholdConfigurationUnavailableError("poll first"),
+            "global_settings_unavailable",
+        ),
+        (HomeAssistantError("readback mismatch"), "sensor_thresholds_update_failed"),
+    ],
+)
+async def test_sensor_threshold_failure_never_shows_success(
+    hass, error, expected_error
+) -> None:
+    """Unavailable or mismatched writes stay on review with explicit failure."""
+
+    # Arrange - reach review with a coordinator that will reject the operation.
+    entry, coordinator = _options_entry(hass, supports_thresholds=True)
+    coordinator.async_set_sensor_thresholds.side_effect = error
+    form = await _open_sensor_threshold_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {
+            CONF_HUMIDITY_THRESHOLD: 80,
+            CONF_CO2_BOOST_THRESHOLD: 1490,
+            CONF_CO2_PURGE_THRESHOLD: 1740,
+        },
+    )
+
+    # Act - authorize a command that cannot be confirmed.
+    failed = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_SENSOR_THRESHOLDS: True}
+    )
+
+    # Assert - no result screen is shown and the failure is explicit.
+    assert failed["step_id"] == "sensor_thresholds_confirm"
+    assert failed["errors"] == {"base": expected_error}
+    coordinator.async_set_sensor_thresholds.assert_awaited_once()
 
 
 @pytest.mark.asyncio

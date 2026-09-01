@@ -53,6 +53,8 @@ from .coordinator import (
     CalibrationDeliveryUncertainError,
     CalibrationNotSupportedError,
     CalibrationRateLimitedError,
+    SensorThresholdConfigurationNotSupportedError,
+    SensorThresholdConfigurationUnavailableError,
     SilentHoursConfigurationUnavailableError,
     SilentHoursNotSupportedError,
 )
@@ -67,8 +69,11 @@ from .entity import format_identifier
 from .protocol import (
     AIRFLOW_SPEED_LIMITS,
     DEFAULT_CO2_CALIBRATION_REFERENCE,
+    GLOBAL_CO2_THRESHOLD_STEP,
+    GLOBAL_SETTING_FIELD_SPECS,
     MAX_CO2_CALIBRATION_REFERENCE,
     MIN_CO2_CALIBRATION_REFERENCE,
+    GlobalSettingField,
     GlobalSettings,
     ProtocolError,
     SilentHour,
@@ -76,6 +81,7 @@ from .protocol import (
     decode_silent_hour,
     encode_silent_hour,
     validate_airflow_profile,
+    validate_sensor_thresholds,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -89,6 +95,10 @@ CONF_AIRFLOW_NORMAL = "airflow_normal"
 CONF_AIRFLOW_BOOST = "airflow_boost"
 CONF_AIRFLOW_PURGE = "airflow_purge"
 CONF_CONFIRM_AIRFLOW = "confirm_airflow"
+CONF_HUMIDITY_THRESHOLD = "humidity_threshold"
+CONF_CO2_BOOST_THRESHOLD = "co2_boost_threshold"
+CONF_CO2_PURGE_THRESHOLD = "co2_purge_threshold"
+CONF_CONFIRM_SENSOR_THRESHOLDS = "confirm_sensor_thresholds"
 CONF_SILENT_HOUR_SLOT = "silent_hour_slot"
 CONF_SILENT_HOUR_ACTION = "silent_hour_action"
 CONF_SILENT_HOUR_START = "silent_hour_start"
@@ -363,6 +373,8 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._calibration_progress_task: asyncio.Task[None] | None = None
         self._airflow_profile: tuple[int, int, int, int] | None = None
         self._airflow_baseline_raw: bytes | None = None
+        self._sensor_thresholds: tuple[int, int, int] | None = None
+        self._sensor_thresholds_baseline_raw: bytes | None = None
         self._silent_hour_index: int | None = None
         self._silent_hours_baseline: tuple[tuple[int, bytes | None], ...] | None = (
             None
@@ -384,6 +396,13 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             and coordinator.device.global_settings_write_ready
         ):
             menu_options.append("airflow_profile")
+        if (
+            coordinator.device.supports_sensor_threshold_configuration
+            and coordinator.data is not None
+            and coordinator.last_update_success
+            and coordinator.device.global_settings_write_ready
+        ):
+            menu_options.append("sensor_thresholds")
         if self.config_entry.runtime_data.device.supports_internal_co2_calibration:
             menu_options.append("calibrate_co2")
         if (
@@ -588,6 +607,171 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             },
         )
 
+    async def async_step_sensor_thresholds(
+        self,
+        user_input: dict[str, Any] | None = None,
+        *,
+        errors: dict[str, str] | None = None,
+    ) -> ConfigFlowResult:
+        """Collect one reviewed humidity and CO2 threshold profile."""
+
+        coordinator = self.config_entry.runtime_data
+        if not coordinator.device.supports_sensor_threshold_configuration:
+            return self.async_abort(reason="sensor_thresholds_not_supported")
+        settings = self._current_sensor_threshold_settings()
+        if settings is None:
+            return self.async_abort(reason="global_settings_unavailable")
+
+        if user_input is not None:
+            try:
+                thresholds = (
+                    self._integer_setting(user_input[CONF_HUMIDITY_THRESHOLD]),
+                    self._integer_setting(user_input[CONF_CO2_BOOST_THRESHOLD]),
+                    self._integer_setting(user_input[CONF_CO2_PURGE_THRESHOLD]),
+                )
+                validate_sensor_thresholds(*thresholds)
+            except (KeyError, ProtocolError, TypeError, ValueError):
+                errors = {"base": "sensor_thresholds_invalid"}
+            else:
+                current = (
+                    settings.humidity_threshold,
+                    settings.co2_boost_threshold,
+                    settings.co2_purge_threshold,
+                )
+                if thresholds == current:
+                    errors = {"base": "sensor_thresholds_unchanged"}
+                else:
+                    self._sensor_thresholds = thresholds
+                    self._sensor_thresholds_baseline_raw = settings.raw_record
+                    return await self.async_step_sensor_thresholds_confirm()
+
+        return self.async_show_form(
+            step_id="sensor_thresholds",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_HUMIDITY_THRESHOLD,
+                        default=settings.humidity_threshold,
+                    ): self._sensor_threshold_selector(
+                        GlobalSettingField.HUMIDITY_THRESHOLD, "%"
+                    ),
+                    vol.Required(
+                        CONF_CO2_BOOST_THRESHOLD,
+                        default=settings.co2_boost_threshold,
+                    ): self._sensor_threshold_selector(
+                        GlobalSettingField.CO2_BOOST_THRESHOLD, "ppm"
+                    ),
+                    vol.Required(
+                        CONF_CO2_PURGE_THRESHOLD,
+                        default=settings.co2_purge_threshold,
+                    ): self._sensor_threshold_selector(
+                        GlobalSettingField.CO2_PURGE_THRESHOLD, "ppm"
+                    ),
+                }
+            ),
+            errors=errors or {},
+            description_placeholders={
+                "current_thresholds": self._format_sensor_thresholds(
+                    settings.humidity_threshold,
+                    settings.co2_boost_threshold,
+                    settings.co2_purge_threshold,
+                )
+            },
+        )
+
+    async def async_step_sensor_thresholds_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Recheck current settings and require confirmation before writing."""
+
+        assert self._sensor_thresholds is not None
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input[CONF_CONFIRM_SENSOR_THRESHOLDS]:
+                errors["base"] = "sensor_thresholds_confirmation_required"
+            else:
+                settings = self._current_sensor_threshold_settings()
+                if settings is None:
+                    errors["base"] = "global_settings_unavailable"
+                elif settings.raw_record != self._sensor_thresholds_baseline_raw:
+                    self._sensor_thresholds = None
+                    self._sensor_thresholds_baseline_raw = None
+                    return await self.async_step_sensor_thresholds(
+                        errors={"base": "sensor_thresholds_settings_changed"}
+                    )
+                else:
+                    humidity, co2_boost, co2_purge = self._sensor_thresholds
+                    try:
+                        coordinator = self.config_entry.runtime_data
+                        await coordinator.async_set_sensor_thresholds(
+                            humidity=humidity,
+                            co2_boost=co2_boost,
+                            co2_purge=co2_purge,
+                        )
+                    except SensorThresholdConfigurationNotSupportedError:
+                        return self.async_abort(
+                            reason="sensor_thresholds_not_supported"
+                        )
+                    except SensorThresholdConfigurationUnavailableError:
+                        errors["base"] = "global_settings_unavailable"
+                    except HomeAssistantError as err:
+                        _LOGGER.warning(
+                            "Unable to update Multihome sensor thresholds: %s", err
+                        )
+                        errors["base"] = "sensor_thresholds_update_failed"
+                    else:
+                        return await self.async_step_sensor_thresholds_result()
+
+        settings = self._current_sensor_threshold_settings()
+        current = (
+            self._format_sensor_thresholds(
+                settings.humidity_threshold,
+                settings.co2_boost_threshold,
+                settings.co2_purge_threshold,
+            )
+            if settings is not None
+            else "Unavailable"
+        )
+        return self.async_show_form(
+            step_id="sensor_thresholds_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONFIRM_SENSOR_THRESHOLDS, default=False
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "device": self.config_entry.title,
+                "current_thresholds": current,
+                "new_thresholds": self._format_sensor_thresholds(
+                    *self._sensor_thresholds
+                ),
+            },
+        )
+
+    async def async_step_sensor_thresholds_result(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report thresholds confirmed through exact packet-137 readback."""
+
+        assert self._sensor_thresholds is not None
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        return self.async_show_form(
+            step_id="sensor_thresholds_result",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "device": self.config_entry.title,
+                "new_thresholds": self._format_sensor_thresholds(
+                    *self._sensor_thresholds
+                ),
+            },
+        )
+
     def _current_airflow_settings(self) -> GlobalSettings | None:
         """Return a current writable settings record or no capability."""
 
@@ -599,6 +783,65 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         ):
             return None
         return coordinator.data.global_settings
+
+    def _current_sensor_threshold_settings(self) -> GlobalSettings | None:
+        """Return a current threshold snapshot or no write capability."""
+
+        coordinator = self.config_entry.runtime_data
+        if (
+            coordinator.data is None
+            or not coordinator.last_update_success
+            or not coordinator.device.global_settings_write_ready
+        ):
+            return None
+        return coordinator.data.global_settings
+
+    @staticmethod
+    def _integer_setting(value: Any) -> int:
+        """Accept a finite whole-number selector value without truncation."""
+
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError("setting must be numeric")
+        if not math.isfinite(float(value)) or not float(value).is_integer():
+            raise ValueError("setting must be a whole number")
+        return int(value)
+
+    @staticmethod
+    def _sensor_threshold_selector(
+        field: GlobalSettingField, unit: str
+    ) -> selector.NumberSelector:
+        """Return the recovered wire range for one guarded threshold."""
+
+        spec = GLOBAL_SETTING_FIELD_SPECS[field]
+        step = (
+            GLOBAL_CO2_THRESHOLD_STEP
+            if field
+            in {
+                GlobalSettingField.CO2_BOOST_THRESHOLD,
+                GlobalSettingField.CO2_PURGE_THRESHOLD,
+            }
+            else 1
+        )
+        return selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=spec.minimum,
+                max=spec.maximum,
+                step=step,
+                mode=selector.NumberSelectorMode.BOX,
+                unit_of_measurement=unit,
+            )
+        )
+
+    @staticmethod
+    def _format_sensor_thresholds(
+        humidity: int, co2_boost: int, co2_purge: int
+    ) -> str:
+        """Return an unambiguous review string for all three thresholds."""
+
+        return (
+            f"Humidity {humidity}% · CO₂ boost {co2_boost} ppm · "
+            f"CO₂ purge {co2_purge} ppm"
+        )
 
     @staticmethod
     def _integer_percentage(value: Any) -> int:

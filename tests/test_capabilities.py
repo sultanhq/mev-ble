@@ -6,8 +6,11 @@ from custom_components.ventaxia_multihome.capabilities import (
     AIRFLOW_FIELDS,
     INSTALLER_FIELD_DEFINITIONS,
     MODEL_CAPABILITIES,
+    SENSOR_THRESHOLD_FIELDS,
     VALIDATED_INSTALLER_WRITE_PROFILES,
+    VALIDATION_CANDIDATE_WRITE_PROFILES,
     CapabilityEvidence,
+    installer_validation_candidate_fields,
     installer_writable_fields,
 )
 from custom_components.ventaxia_multihome.protocol import (
@@ -60,10 +63,14 @@ def test_every_packet_136_field_has_one_documented_definition() -> None:
     profile_fields = set().union(
         *(profile.fields for profile in VALIDATED_INSTALLER_WRITE_PROFILES)
     )
+    candidate_fields = set().union(
+        *(profile.fields for profile in VALIDATION_CANDIDATE_WRITE_PROFILES)
+    )
 
     # Assert - every writable field is documented and all 33 maps are complete.
     assert enum_fields == codec_fields == documented_fields
     assert profile_fields <= documented_fields
+    assert candidate_fields <= documented_fields
     assert len(documented_fields) == 33
 
 
@@ -118,6 +125,31 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     assert resolved == [
         AIRFLOW_FIELDS,
         frozenset(),
+        frozenset(),
+        frozenset(),
+        frozenset(),
+    ]
+
+
+def test_sensor_threshold_candidates_require_the_exact_validation_identity() -> None:
+    """Prerelease threshold writes cannot leak to near-match devices."""
+
+    # Arrange - include the intended unit plus firmware, hardware, and model misses.
+    identities = [
+        (10, "2.03.08", "01.00"),
+        (10, "2.03.09", "01.00"),
+        (10, "2.03.08", "01.01"),
+        (2, "2.03.08", "01.00"),
+    ]
+
+    # Act - resolve the deliberately separate validation-candidate matrix.
+    resolved = [
+        installer_validation_candidate_fields(*identity) for identity in identities
+    ]
+
+    # Assert - only the exact test identity can expose the guarded RC flow.
+    assert resolved == [
+        SENSOR_THRESHOLD_FIELDS,
         frozenset(),
         frozenset(),
         frozenset(),

@@ -151,6 +151,7 @@ async def test_diagnostics_include_control_validation_state() -> None:
     assert installer["identity_complete"] is True
     assert installer["snapshot_available"] is True
     assert installer["writable_field_ids"] == []
+    assert installer["validation_candidate_field_ids"] == []
     assert installer["fields"]["speed_low"] == {
         "field_id": 0,
         "record_offset": 0,
@@ -163,6 +164,7 @@ async def test_diagnostics_include_control_validation_state() -> None:
         "risk": "ventilation",
         "evidence": "physical_validation",
         "writable": False,
+        "validation_candidate": False,
         "decoded_value": 10,
         "raw_value": 10,
         "value_status": "decoded",
@@ -206,14 +208,28 @@ async def test_diagnostics_include_control_validation_state() -> None:
 
 
 @pytest.mark.parametrize(
-    ("model", "firmware", "hardware", "expected_name", "writable_ids"),
+    (
+        "model",
+        "firmware",
+        "hardware",
+        "expected_name",
+        "writable_ids",
+        "candidate_ids",
+    ),
     [
-        ("1", "2.03.08", "01.00", "SmvPlusHx", []),
-        ("2", "2.03.08", "01.00", "SmvPlusHxCo2", []),
-        ("9", "2.03.08", "01.00", "SmvHx", []),
-        ("10", "2.03.08", "01.00", "SmvHxCo2", [0, 1, 2, 3]),
-        ("10", "2.03.09", "01.00", "SmvHxCo2", []),
-        ("unknown", "2.03.08", "01.00", None, []),
+        ("1", "2.03.08", "01.00", "SmvPlusHx", [], []),
+        ("2", "2.03.08", "01.00", "SmvPlusHxCo2", [], []),
+        ("9", "2.03.08", "01.00", "SmvHx", [], []),
+        (
+            "10",
+            "2.03.08",
+            "01.00",
+            "SmvHxCo2",
+            [0, 1, 2, 3],
+            [5, 21, 22],
+        ),
+        ("10", "2.03.09", "01.00", "SmvHxCo2", [], []),
+        ("unknown", "2.03.08", "01.00", None, [], []),
     ],
 )
 def test_installer_diagnostics_select_capabilities_from_complete_identity(
@@ -222,6 +238,7 @@ def test_installer_diagnostics_select_capabilities_from_complete_identity(
     hardware: str,
     expected_name: str | None,
     writable_ids: list[int],
+    candidate_ids: list[int],
 ) -> None:
     """Diagnostics explain every supported mapping without exposing controls."""
 
@@ -234,6 +251,7 @@ def test_installer_diagnostics_select_capabilities_from_complete_identity(
     # Assert - static model recognition and physical write scope stay separate.
     assert result["model"]["name"] == expected_name
     assert result["writable_field_ids"] == writable_ids
+    assert result["validation_candidate_field_ids"] == candidate_ids
     assert result["snapshot_available"] is False
     assert result["fields"]["humidity_threshold"]["decoded_value"] is None
     assert result["fields"]["humidity_threshold"]["value_status"] == "unavailable"

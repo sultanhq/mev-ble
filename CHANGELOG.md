@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.1-rc.1
+
+### Added
+
+- Add disabled-by-default diagnostic entities for the packet-137 humidity,
+  CO₂ boost and CO₂ purge installer thresholds.
+- Add a guarded Configure flow for those three thresholds on the exact model 10 /
+  firmware 2.03.08 / hardware 01.00 validation identity.
+
+### Safety
+
+- Keep the three fields separate from the stable physically validated write set
+  until a controlled write/readback/restore test succeeds.
+- Require complete current and proposed values, strict `CO₂ Boost < CO₂ Purge`
+  ordering, ten-ppm CO₂ steps, explicit confirmation and an unchanged complete
+  36-byte settings snapshot before writing.
+- Apply only changed fields in an order that preserves CO₂ threshold ordering,
+  with exact packet-137 readback after every packet-136 write.
+- Report partial or uncertain failure without claiming the complete profile was
+  applied; subsequent writes remain blocked until a fresh poll recovers state.
+
 ## [0.6.0] - 2026-09-01
 
 ### Changed

@@ -44,8 +44,10 @@ from custom_components.ventaxia_multihome.protocol import (
     fragment_packet,
     global_settings_after_update,
     plan_airflow_profile_updates,
+    plan_sensor_threshold_updates,
     reassemble_fragments,
     validate_airflow_profile,
+    validate_sensor_thresholds,
 )
 
 
@@ -598,6 +600,76 @@ def test_airflow_profile_plan_is_empty_when_values_are_unchanged() -> None:
 
     # Assert - no packet-136 updates are needed.
     assert plan == ()
+
+
+@pytest.mark.parametrize(
+    ("thresholds", "message"),
+    [
+        ((101, 1000, 1500), "humidity_threshold must be 0..100"),
+        ((75, 1005, 1500), "boost threshold must use 10 ppm steps"),
+        ((75, 1500, 1500), "Boost < Purge"),
+        ((75, 1000, True), "co2_purge_threshold requires an integer"),
+    ],
+)
+def test_sensor_thresholds_reject_invalid_values(
+    thresholds: tuple[int, int, int], message: str
+) -> None:
+    """Threshold ranges, encoded steps, and ordering are mandatory."""
+
+    # Arrange / Act / Assert - reject unsafe values before planning BLE writes.
+    with pytest.raises(ProtocolError, match=message):
+        validate_sensor_thresholds(*thresholds)
+
+
+@pytest.mark.parametrize(
+    ("current", "desired", "first_co2_field"),
+    [
+        ((75, 1000, 1500), (70, 1600, 1800), GlobalSettingField.CO2_PURGE_THRESHOLD),
+        ((75, 1000, 1500), (80, 500, 800), GlobalSettingField.CO2_BOOST_THRESHOLD),
+    ],
+)
+def test_sensor_threshold_plan_preserves_co2_order_during_each_write(
+    current: tuple[int, int, int],
+    desired: tuple[int, int, int],
+    first_co2_field: GlobalSettingField,
+) -> None:
+    """Crossing CO2 values are written in a safe direction."""
+
+    # Arrange - build a valid settings record with explicit threshold values.
+    settings = decode_global_settings(bytes(36))
+    settings = global_settings_after_update(
+        settings, GlobalSettingField.HUMIDITY_THRESHOLD, current[0]
+    )
+    settings = global_settings_after_update(
+        settings, GlobalSettingField.CO2_BOOST_THRESHOLD, current[1]
+    )
+    settings = global_settings_after_update(
+        settings, GlobalSettingField.CO2_PURGE_THRESHOLD, current[2]
+    )
+
+    # Act - plan and replay each packet-136 write with validation after every step.
+    plan = plan_sensor_threshold_updates(
+        settings,
+        humidity=desired[0],
+        co2_boost=desired[1],
+        co2_purge=desired[2],
+    )
+    replayed = settings
+    for field, value in plan:
+        replayed = global_settings_after_update(replayed, field, value)
+        validate_sensor_thresholds(
+            replayed.humidity_threshold,
+            replayed.co2_boost_threshold,
+            replayed.co2_purge_threshold,
+        )
+
+    # Assert - ordering is safe and the exact requested profile is reached.
+    assert next(field for field, _ in plan if "CO2" in field.name) is first_co2_field
+    assert (
+        replayed.humidity_threshold,
+        replayed.co2_boost_threshold,
+        replayed.co2_purge_threshold,
+    ) == desired
 
 
 def test_override_and_cancel_encoding() -> None:

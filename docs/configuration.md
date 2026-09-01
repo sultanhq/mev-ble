@@ -76,12 +76,31 @@ are labelled `raw_code_semantics_unknown` instead of being assigned guessed
 meanings. A boolean byte other than zero or one is retained and labelled
 `unknown_boolean_value` without breaking the coordinator update.
 
+Three of these values are also available as disabled-by-default diagnostic
+entities: **Humidity threshold**, **CO₂ boost threshold**, and **CO₂ purge
+threshold**. Enable them from the device's entity list when an entity is more
+useful than downloaded diagnostics. They report installer thresholds from
+packet 137; they are not duplicates of the current humidity and CO₂ readings.
+
+In `0.6.1-rc.1`, the exact model 10 / firmware 2.03.08 / hardware 01.00
+validation identity also exposes **Configure → Configure CO₂ and humidity
+thresholds**. This is a guarded prerelease hardware-validation flow. It requires
+`CO₂ Boost < CO₂ Purge`, uses ten-ppm CO₂ steps, displays the complete current
+and proposed profile, requires explicit confirmation, rejects a stale 36-byte
+snapshot, and rereads packet 137 after every changed field.
+
+Record the three original values before the first test. A failed multi-field
+operation can leave earlier individually confirmed fields applied, so reopen the
+flow and inspect the current values before retrying. Restore the original values
+through the same flow after confirming temporary write/readback behavior.
+
 The application setup code, BLE address and config-entry unique ID are redacted
 from downloaded diagnostics. Internal routing addresses used to explain CO₂
 calibration target selection remain present; they are protocol row numbers, not
 Bluetooth device identifiers.
 
-All non-airflow global fields remain read-only. See the
+Outside that exact prerelease validation identity, all non-airflow global fields
+remain read-only. See the
 [global-settings safety model and supported-field matrix](global-settings.md)
 for the current confidence and hardware-validation status.
 

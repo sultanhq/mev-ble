@@ -1166,6 +1166,85 @@ def plan_airflow_profile_updates(
     )
 
 
+def validate_sensor_thresholds(
+    humidity: int,
+    co2_boost: int,
+    co2_purge: int,
+) -> None:
+    """Validate recovered threshold encodings and their safe ordering."""
+
+    values = {
+        GlobalSettingField.HUMIDITY_THRESHOLD: humidity,
+        GlobalSettingField.CO2_BOOST_THRESHOLD: co2_boost,
+        GlobalSettingField.CO2_PURGE_THRESHOLD: co2_purge,
+    }
+    for field, value in values.items():
+        spec = GLOBAL_SETTING_FIELD_SPECS[field]
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ProtocolError(f"{spec.attribute} requires an integer")
+        if not spec.minimum <= value <= spec.maximum:
+            raise ProtocolError(
+                f"{spec.attribute} must be {spec.minimum}..{spec.maximum}"
+            )
+    if co2_boost % GLOBAL_CO2_THRESHOLD_STEP:
+        raise ProtocolError(
+            f"CO2 boost threshold must use {GLOBAL_CO2_THRESHOLD_STEP} ppm steps"
+        )
+    if co2_purge % GLOBAL_CO2_THRESHOLD_STEP:
+        raise ProtocolError(
+            f"CO2 purge threshold must use {GLOBAL_CO2_THRESHOLD_STEP} ppm steps"
+        )
+    if co2_boost >= co2_purge:
+        raise ProtocolError("CO2 thresholds must satisfy Boost < Purge")
+
+
+def plan_sensor_threshold_updates(
+    settings: GlobalSettings,
+    *,
+    humidity: int,
+    co2_boost: int,
+    co2_purge: int,
+) -> tuple[tuple[GlobalSettingField, int], ...]:
+    """Plan isolated threshold writes without an invalid intermediate state."""
+
+    validate_sensor_thresholds(humidity, co2_boost, co2_purge)
+    validate_sensor_thresholds(
+        settings.humidity_threshold,
+        settings.co2_boost_threshold,
+        settings.co2_purge_threshold,
+    )
+    desired = {
+        GlobalSettingField.HUMIDITY_THRESHOLD: humidity,
+        GlobalSettingField.CO2_BOOST_THRESHOLD: co2_boost,
+        GlobalSettingField.CO2_PURGE_THRESHOLD: co2_purge,
+    }
+    current = {
+        GlobalSettingField.HUMIDITY_THRESHOLD: settings.humidity_threshold,
+        GlobalSettingField.CO2_BOOST_THRESHOLD: settings.co2_boost_threshold,
+        GlobalSettingField.CO2_PURGE_THRESHOLD: settings.co2_purge_threshold,
+    }
+    changed = tuple(
+        field for field, value in desired.items() if current[field] != value
+    )
+    for order in permutations(changed):
+        candidate = dict(current)
+        for field in order:
+            candidate[field] = desired[field]
+            try:
+                validate_sensor_thresholds(
+                    candidate[GlobalSettingField.HUMIDITY_THRESHOLD],
+                    candidate[GlobalSettingField.CO2_BOOST_THRESHOLD],
+                    candidate[GlobalSettingField.CO2_PURGE_THRESHOLD],
+                )
+            except ProtocolError:
+                break
+        else:
+            return tuple((field, desired[field]) for field in order)
+    raise ProtocolError(
+        "sensor thresholds cannot be applied safely as isolated field updates"
+    )
+
+
 def decode_faults(mask: int) -> tuple[FaultFlag, ...]:
     """Return every documented flag present in a fault mask."""
 
