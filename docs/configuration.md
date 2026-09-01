@@ -48,11 +48,11 @@ into setup mode so Home Assistant can repeat the exchange automatically.
 ## Global settings and airflow commissioning
 
 The integration reads the unit's complete 36-byte global-settings record and
-includes it in **Download diagnostics**. On physically validated model 10 units
-with a current successful read, **Configure → Configure airflow levels**
-provides one guarded four-field flow for Low, Normal, Boost, and Purge. Other
-models retain read-only settings diagnostics until model-specific write evidence
-is available.
+includes it in **Download diagnostics**. On the physically validated model 10 /
+firmware 2.03.08 / hardware 01.00 identity with a current successful read,
+**Configure → Configure airflow levels** provides one guarded four-field flow
+for Low, Normal, Boost, and Purge. Other identities retain read-only settings
+diagnostics until model- and firmware-specific write evidence is available.
 
 The form values are commissioned motor-speed percentages, not the measured
 **Fan RPM** sensor. They use the official ranges Low 1–97%, Normal 2–98%, Boost
@@ -68,9 +68,18 @@ flow does not expose or perform a write.
 
 The diagnostic snapshot includes airflow percentages, humidity and temperature
 options, delay and overrun timeouts, LS/analogue/digital input actions, CO₂
-thresholds, the original raw record, and a list of any boolean fields whose
-firmware value was not the documented zero or one. Unknown action numbers are
-retained numerically instead of being assigned guessed meanings.
+thresholds, and the original raw record. Its `installer_capabilities` section
+also records the selected model classification and, for every recovered field,
+the ID, record offset, encoding, unit, codec range, dependency, risk, evidence,
+decoded value, source byte or bytes, and write status. Unknown action numbers
+are labelled `raw_code_semantics_unknown` instead of being assigned guessed
+meanings. A boolean byte other than zero or one is retained and labelled
+`unknown_boolean_value` without breaking the coordinator update.
+
+The application setup code, BLE address and config-entry unique ID are redacted
+from downloaded diagnostics. Internal routing addresses used to explain CO₂
+calibration target selection remain present; they are protocol row numbers, not
+Bluetooth device identifiers.
 
 All non-airflow global fields remain read-only. See the
 [global-settings safety model and supported-field matrix](global-settings.md)

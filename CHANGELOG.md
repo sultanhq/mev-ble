@@ -13,6 +13,10 @@
   installer controls.
 - Route the existing packet-136 airflow write guard through the documented field
   matrix. All other decoded installer fields remain read-only.
+- Add read-only installer capability diagnostics with field metadata, raw source
+  values, explicit unknown-value labels and exact identity/write selection.
+- Redact the BLE address and config-entry unique ID alongside the setup code in
+  downloaded diagnostics.
 
 ## [0.5.0] - 2026-09-01
 
