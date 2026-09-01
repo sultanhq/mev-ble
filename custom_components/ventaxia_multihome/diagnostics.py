@@ -102,7 +102,9 @@ def _installer_capability_diagnostics(
             "dependencies": definition.dependencies,
             "risk": definition.risk.value,
             "evidence": definition.evidence.value,
-            "writable": field in writable,
+            "writable": (
+                field in writable and value_status != "unknown_boolean_value"
+            ),
             "validation_candidate": field in validation_candidates,
             "decoded_value": value,
             "raw_value": _installer_field_raw_value(

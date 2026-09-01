@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.2-rc.6] - 2026-09-01
+
+### Fixed
+
+- Keep a physically validated Boolean installer field non-writable when its
+  current firmware byte is outside the strict `0`/`1` encoding, while
+  retaining the raw byte and explicit unknown-value status in diagnostics.
+
 ## [0.6.2-rc.5] - 2026-09-01
 
 ### Validated
