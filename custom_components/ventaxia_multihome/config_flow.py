@@ -364,7 +364,9 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._airflow_profile: tuple[int, int, int, int] | None = None
         self._airflow_baseline_raw: bytes | None = None
         self._silent_hour_index: int | None = None
-        self._silent_hours_baseline: tuple[bytes, ...] | None = None
+        self._silent_hours_baseline: tuple[tuple[int, bytes | None], ...] | None = (
+            None
+        )
         self._silent_hour_result = ""
         self._silent_hour_operation_active = False
 
@@ -652,9 +654,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                     errors["base"] = "silent_hour_empty"
                 else:
                     self._silent_hour_index = index
-                    self._silent_hours_baseline = tuple(
-                        item.raw_payload for item in slots
-                    )
+                    self._silent_hours_baseline = self._silent_hours_fingerprint(slots)
                     if action == SILENT_HOUR_ACTION_DELETE:
                         return await self.async_step_silent_hour_delete()
                     return await self.async_step_silent_hour_edit()
@@ -868,7 +868,18 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
     def _silent_hours_unchanged(self, slots: tuple[SilentHourSlot, ...]) -> bool:
         """Return whether the table still matches the selection-screen baseline."""
 
-        return self._silent_hours_baseline == tuple(slot.raw_payload for slot in slots)
+        return self._silent_hours_baseline == self._silent_hours_fingerprint(slots)
+
+    @staticmethod
+    def _silent_hours_fingerprint(
+        slots: tuple[SilentHourSlot, ...],
+    ) -> tuple[tuple[int, bytes | None], ...]:
+        """Return stable slot identities and records without packet metadata."""
+
+        return tuple(
+            (slot.index, slot.record.raw_record if slot.record is not None else None)
+            for slot in slots
+        )
 
     @staticmethod
     def _time_to_seconds(value: Any) -> int:
