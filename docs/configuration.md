@@ -219,9 +219,9 @@ readback, so a scheduled poll cannot consume or overwrite the control result.
 
 ## Silent hours
 
-Version 0.5 release candidates expose **Manage silent hours** when a supported
-model 10 unit has returned a complete current six-slot table. The flow uses time
-selectors and named weekdays; users never edit seconds or weekday masks.
+Version 0.5 exposes **Manage silent hours** when a supported model 10 unit has
+returned a complete current six-slot table. The flow uses time selectors and
+named weekdays; users never edit seconds or weekday masks.
 
 An end time equal to or earlier than the start time means the schedule crosses
 midnight. The selected weekdays are the days on which it starts. Create, edit and
