@@ -1,5 +1,43 @@
 # Changelog
 
+## [0.5.0] - 2026-09-01
+
+### Added
+
+- Add guarded management of all six silent-hours slots for physically validated
+  model 10 units, including create, edit and explicitly confirmed deletion.
+- Display schedules in Home Assistant's configured local time while converting
+  to the UTC clock used by model 10 firmware 2.03.08.
+- Decode indexed, selected-record and Raw-wrapped packet-49 responses, including
+  the checksummed 14-byte table form returned by the validated firmware.
+
+### Safety
+
+- Require a complete known six-slot table before exposing writes and reread the
+  entire table after every mutation.
+- Retain the previous confirmed table and block further writes after timeout,
+  disconnect, unsupported data or mismatched readback until polling recovers.
+- Compare reviewed schedules by slot index and nine-byte record or empty state,
+  ignoring volatile packet metadata while still rejecting real table changes.
+- Keep schedule writes disabled on models whose packet-49 behaviour has not been
+  physically validated.
+
+### Validated
+
+- On model 10, firmware 2.03.08, hardware 01.00, confirmed all six indexed reads,
+  checksums, schedule creation, exact readback, UTC/local-time activation and
+  deletion of a populated slot back to a confirmed empty record.
+- Confirmed active schedules report `silent_hour` independently of their genuine
+  fan level and RPM; the integration retains the reported level 2 and 625 RPM.
+- Confirmed the recovered `0xffff` deletion marker is accepted by the unit. The
+  RC5 deletion failure occurred before transmission in a volatile-byte safety
+  comparison and is corrected by the stable semantic concurrency guard.
+
+### Notes
+
+- Packet 49 has no time-zone or DST field, so recurring schedules use Home
+  Assistant's current UTC offset and should be reviewed after a clock change.
+
 ## 0.5.0-rc.6
 
 - Compare the reviewed six-slot silent-hours table by slot index and actual
@@ -7,6 +45,13 @@
   values cannot falsely block confirmation before a write.
 - Retain the existing concurrency guard for genuine schedule changes and keep
   the original raw packet-49 responses available in diagnostics.
+
+## 0.5.0-rc.5
+
+- Convert schedule times between Home Assistant's configured local time and the
+  UTC clock physically observed on model 10 firmware 2.03.08.
+- Rotate weekday masks when the current UTC offset crosses midnight and document
+  the packet format's daylight-saving limitation.
 
 ## 0.5.0-rc.4
 
