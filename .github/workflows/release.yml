@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   release:
@@ -44,3 +45,26 @@ jobs:
             )
           fi
           gh release create "$tag_name" "${release_args[@]}"
+      - name: Close the matching stable milestone
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(jq -r '.version' custom_components/ventaxia_multihome/manifest.json)"
+          if [[ "$version" == *-* ]]; then
+            echo "v$version is a prerelease; leaving milestones unchanged"
+            exit 0
+          fi
+          tag_name="v$version"
+          milestone_number="$(
+            gh api --paginate \
+              "repos/$GITHUB_REPOSITORY/milestones?state=open&per_page=100" \
+              --jq ".[] | select(.title == \"$tag_name\") | .number" \
+              | head -n 1
+          )"
+          if [[ -z "$milestone_number" ]]; then
+            echo "No open $tag_name milestone found"
+            exit 0
+          fi
+          gh api --method PATCH \
+            "repos/$GITHUB_REPOSITORY/milestones/$milestone_number" \
+            -f state=closed
