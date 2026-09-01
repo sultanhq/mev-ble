@@ -4,6 +4,9 @@ Bug reports and hardware-validation results are especially useful. Initial
 testing covers one physical MEV through an ESPHome Bluetooth proxy, but other
 models, firmware versions, local adapters, and proxy boards need wider coverage.
 
+By submitting a contribution, you confirm that you have the right to contribute
+it and agree that it may be distributed under this project's MIT License.
+
 ## Before opening an issue
 
 Read the [troubleshooting guide](docs/troubleshooting.md), enable debug logging,
