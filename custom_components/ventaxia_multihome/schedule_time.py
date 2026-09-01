@@ -18,6 +18,26 @@ _WEEKDAY_MASK = 0x7F
 _WEEKDAY_COUNT = 7
 
 
+class _StableSchedulePayload(bytes):
+    """Raw packet evidence whose equality follows decoded schedule semantics."""
+
+    def __new__(
+        cls,
+        raw_payload: bytes,
+        semantic_key: tuple[int, bytes | None],
+    ) -> _StableSchedulePayload:
+        instance = super().__new__(cls, raw_payload)
+        instance._semantic_key = semantic_key
+        return instance
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, _StableSchedulePayload):
+            return self._semantic_key == other._semantic_key
+        return bytes.__eq__(self, other)
+
+    __hash__ = None
+
+
 def current_utc_offset_seconds(
     time_zone: str, *, at: datetime | None = None
 ) -> int:
@@ -84,13 +104,21 @@ def local_record_to_device(record: SilentHour, utc_offset_seconds: int) -> Silen
     return _convert_record(record, -utc_offset_seconds)
 
 
+def _stable_raw_payload(slot: SilentHourSlot) -> bytes:
+    """Keep exact raw bytes while ignoring volatile envelope bytes for equality."""
+
+    semantic_record = slot.record.raw_record if slot.record is not None else None
+    return _StableSchedulePayload(
+        slot.raw_payload,
+        (slot.index, semantic_record),
+    )
+
+
 def device_slots_to_local(
     slots: tuple[SilentHourSlot, ...], utc_offset_seconds: int
 ) -> tuple[SilentHourSlot, ...]:
-    """Return display/edit slots while retaining raw device payload evidence."""
+    """Return display/edit slots with stable semantic baseline comparisons."""
 
-    if utc_offset_seconds == 0:
-        return slots
     return tuple(
         replace(
             slot,
@@ -99,6 +127,7 @@ def device_slots_to_local(
                 if slot.record is not None
                 else None
             ),
+            raw_payload=_stable_raw_payload(slot),
         )
         for slot in slots
     )
