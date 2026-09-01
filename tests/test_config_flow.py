@@ -1623,7 +1623,7 @@ async def test_delay_overrun_rechecks_full_snapshot_before_write(hass) -> None:
     confirm = await hass.config_entries.options.async_configure(
         form["flow_id"],
         {
-            CONF_DELAY_TIMEOUT: 10,
+            CONF_DELAY_TIMEOUT: 11,
             CONF_OVERRUN_ENABLED: True,
             CONF_OVERRUN_TIMEOUT: 10,
         },

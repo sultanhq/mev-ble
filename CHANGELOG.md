@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2-rc.11] - 2026-09-01
+
+### Fixed
+
+- Make the Delay/Overrun stale-snapshot regression submit a real Delay timeout
+  change now that the unsafe Delay On field is read-only.
+
 ## [0.6.2-rc.10] - 2026-09-01
 
 ### Fixed
