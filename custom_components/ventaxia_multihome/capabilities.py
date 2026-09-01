@@ -345,6 +345,13 @@ SENSOR_THRESHOLD_FIELDS: Final = frozenset(
     }
 )
 
+HUMIDITY_RESPONSE_FIELDS: Final = frozenset(
+    {
+        GlobalSettingField.RAPID_RESPONSE_ENABLED,
+        GlobalSettingField.AMBIENT_RESPONSE_ENABLED,
+    }
+)
+
 VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
     InstallerWriteProfile(
         model_number=10,
@@ -359,7 +366,18 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
     ),
 )
 
-VALIDATION_CANDIDATE_WRITE_PROFILES: Final = ()
+VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
+    InstallerWriteProfile(
+        model_number=10,
+        firmware="2.03.08",
+        hardware="01.00",
+        fields=HUMIDITY_RESPONSE_FIELDS,
+        evidence=(
+            "official-app field mapping and exact packet-137 offsets recovered; "
+            "physical write/readback/restore validation pending"
+        ),
+    ),
+)
 
 
 def model_capability(model_number: int | None) -> ModelCapability | None:

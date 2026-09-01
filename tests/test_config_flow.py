@@ -31,14 +31,17 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_AIRFLOW_LOW,
     CONF_AIRFLOW_NORMAL,
     CONF_AIRFLOW_PURGE,
+    CONF_AMBIENT_RESPONSE,
     CONF_CALIBRATION_METHOD,
     CONF_CO2_BOOST_THRESHOLD,
     CONF_CO2_PURGE_THRESHOLD,
     CONF_CONFIRM_AIRFLOW,
     CONF_CONFIRM_CALIBRATION,
+    CONF_CONFIRM_HUMIDITY_RESPONSE,
     CONF_CONFIRM_SENSOR_THRESHOLDS,
     CONF_CONFIRM_SILENT_HOUR_DELETE,
     CONF_HUMIDITY_THRESHOLD,
+    CONF_RAPID_RESPONSE,
     CONF_REFERENCE_PPM,
     CONF_REFERENCE_SENSORS,
     CONF_SILENT_HOUR_ACTION,
@@ -90,6 +93,7 @@ def _options_entry(
     supports_calibration: bool = True,
     supports_airflow: bool = False,
     supports_thresholds: bool = False,
+    supports_humidity_response: bool = False,
     airflow_available: bool = True,
     supports_schedules: bool = False,
     schedules_available: bool = True,
@@ -110,6 +114,7 @@ def _options_entry(
             supports_internal_co2_calibration=supports_calibration,
             supports_global_airflow_configuration=supports_airflow,
             supports_sensor_threshold_configuration=supports_thresholds,
+            supports_humidity_response_configuration=supports_humidity_response,
             global_settings_write_ready=airflow_available,
             supports_silent_hours_management=supports_schedules,
             silent_hours_write_ready=schedules_available,
@@ -123,6 +128,7 @@ def _options_entry(
         async_calibrate_internal_co2=AsyncMock(),
         async_set_airflow_profile=AsyncMock(),
         async_set_sensor_thresholds=AsyncMock(),
+        async_set_humidity_response=AsyncMock(),
         async_set_silent_hour=AsyncMock(),
         async_delete_silent_hour=AsyncMock(),
     )
@@ -171,6 +177,17 @@ async def _open_sensor_threshold_options(hass, entry):
     assert initial["step_id"] == "init"
     return await hass.config_entries.options.async_configure(
         initial["flow_id"], {"next_step_id": "sensor_thresholds"}
+    )
+
+
+async def _open_humidity_response_options(hass, entry):
+    """Open the guarded Rapid/Ambient humidity-response screen."""
+
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    assert initial["type"] is data_entry_flow.FlowResultType.MENU
+    assert initial["step_id"] == "init"
+    return await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "humidity_response"}
     )
 
 
@@ -606,6 +623,68 @@ async def test_sensor_threshold_failure_never_shows_success(
     assert failed["step_id"] == "sensor_thresholds_confirm"
     assert failed["errors"] == {"base": expected_error}
     coordinator.async_set_sensor_thresholds.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_humidity_response_requires_review_and_confirmation(hass) -> None:
+    """Candidate response flags are written only after reviewed confirmation."""
+
+    # Arrange - open the exact-identity candidate flow at Rapid off/Ambient on.
+    entry, coordinator = _options_entry(
+        hass, supports_humidity_response=True
+    )
+    form = await _open_humidity_response_options(hass, entry)
+
+    # Act - request both reversed flags, decline once, then confirm explicitly.
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {CONF_RAPID_RESPONSE: True, CONF_AMBIENT_RESPONSE: False},
+    )
+    declined = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_HUMIDITY_RESPONSE: False}
+    )
+    result = await hass.config_entries.options.async_configure(
+        declined["flow_id"], {CONF_CONFIRM_HUMIDITY_RESPONSE: True}
+    )
+
+    # Assert - no write precedes confirmation and the readback result is shown.
+    assert form["step_id"] == "humidity_response"
+    assert confirm["step_id"] == "humidity_response_confirm"
+    assert declined["errors"] == {
+        "base": "humidity_response_confirmation_required"
+    }
+    coordinator.async_set_humidity_response.assert_awaited_once_with(
+        rapid=True, ambient=False
+    )
+    assert result["step_id"] == "humidity_response_result"
+
+
+@pytest.mark.asyncio
+async def test_humidity_response_rechecks_full_snapshot_before_write(hass) -> None:
+    """Any intervening packet-137 change invalidates the reviewed profile."""
+
+    # Arrange - open and review a changed response profile.
+    entry, coordinator = _options_entry(
+        hass, supports_humidity_response=True
+    )
+    form = await _open_humidity_response_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {CONF_RAPID_RESPONSE: True, CONF_AMBIENT_RESPONSE: False},
+    )
+    changed = bytearray(coordinator.data.global_settings.raw_record)
+    changed[4] += 1
+    coordinator.data.global_settings = decode_global_settings(bytes(changed))
+
+    # Act - confirm after an unrelated setting changed.
+    result = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_HUMIDITY_RESPONSE: True}
+    )
+
+    # Assert - the complete snapshot guard aborts before Bluetooth I/O.
+    assert result["step_id"] == "humidity_response"
+    assert result["errors"] == {"base": "humidity_response_settings_changed"}
+    coordinator.async_set_humidity_response.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -85,10 +85,13 @@ Detailed instructions:
 - Lossless global-settings snapshots in redacted diagnostics
 - Disabled-by-default diagnostic entities for humidity, CO₂ boost, and CO₂ purge
   installer thresholds
+- Disabled-by-default diagnostic flags for Rapid and Ambient humidity response
 - Guarded four-level airflow commissioning for a validated device identity,
   with exact readback and explicit review
 - Guarded CO₂/humidity threshold configuration on the exact physically validated
   model/firmware/hardware identity
+- Prerelease guarded validation of Rapid/Ambient humidity-response flags on that
+  exact identity, pending physical change-and-restore evidence
 - Redacted Home Assistant diagnostics
 
 The physically inspected MEV remote exposes speed levels 1–4 and timers for 30,
@@ -146,7 +149,10 @@ ESPHome proxy. Automatic pairing, fragmented telemetry, and long-running
 connection recovery have been observed on that setup. Guarded airflow
 commissioning is writable only on model 10 / firmware 2.03.08 / hardware 01.00;
 the threshold flow is restricted to that same identity after exact physical
-change-and-restore validation. Models 1, 2 and 9 retain read-only settings
+change-and-restore validation. Version 0.6.2 prereleases additionally expose
+Rapid/Ambient response as read-only diagnostics and a guarded exact-identity
+validation flow; those writes are not stable until physically changed and
+restored. Models 1, 2 and 9 retain read-only settings
 diagnostics. Whole-packet transport,
 other model/firmware combinations, telemetry scaling across the full operating
 range, and broader timed-override behaviour still need more hardware reports.

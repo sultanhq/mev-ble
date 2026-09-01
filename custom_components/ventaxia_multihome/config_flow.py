@@ -53,6 +53,8 @@ from .coordinator import (
     CalibrationDeliveryUncertainError,
     CalibrationNotSupportedError,
     CalibrationRateLimitedError,
+    HumidityResponseConfigurationNotSupportedError,
+    HumidityResponseConfigurationUnavailableError,
     SensorThresholdConfigurationNotSupportedError,
     SensorThresholdConfigurationUnavailableError,
     SilentHoursConfigurationUnavailableError,
@@ -99,6 +101,9 @@ CONF_HUMIDITY_THRESHOLD = "humidity_threshold"
 CONF_CO2_BOOST_THRESHOLD = "co2_boost_threshold"
 CONF_CO2_PURGE_THRESHOLD = "co2_purge_threshold"
 CONF_CONFIRM_SENSOR_THRESHOLDS = "confirm_sensor_thresholds"
+CONF_RAPID_RESPONSE = "rapid_response"
+CONF_AMBIENT_RESPONSE = "ambient_response"
+CONF_CONFIRM_HUMIDITY_RESPONSE = "confirm_humidity_response"
 CONF_SILENT_HOUR_SLOT = "silent_hour_slot"
 CONF_SILENT_HOUR_ACTION = "silent_hour_action"
 CONF_SILENT_HOUR_START = "silent_hour_start"
@@ -375,6 +380,8 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._airflow_baseline_raw: bytes | None = None
         self._sensor_thresholds: tuple[int, int, int] | None = None
         self._sensor_thresholds_baseline_raw: bytes | None = None
+        self._humidity_response: tuple[bool, bool] | None = None
+        self._humidity_response_baseline_raw: bytes | None = None
         self._silent_hour_index: int | None = None
         self._silent_hours_baseline: tuple[tuple[int, bytes | None], ...] | None = (
             None
@@ -403,6 +410,15 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             and coordinator.device.global_settings_write_ready
         ):
             menu_options.append("sensor_thresholds")
+        if (
+            coordinator.device.supports_humidity_response_configuration
+            and coordinator.data is not None
+            and coordinator.last_update_success
+            and coordinator.device.global_settings_write_ready
+            and coordinator.data.global_settings.rapid_response_enabled is not None
+            and coordinator.data.global_settings.ambient_response_enabled is not None
+        ):
+            menu_options.append("humidity_response")
         if self.config_entry.runtime_data.device.supports_internal_co2_calibration:
             menu_options.append("calibrate_co2")
         if (
@@ -772,6 +788,149 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             },
         )
 
+    async def async_step_humidity_response(
+        self,
+        user_input: dict[str, Any] | None = None,
+        *,
+        errors: dict[str, str] | None = None,
+    ) -> ConfigFlowResult:
+        """Collect one reviewed rapid/ambient humidity-response profile."""
+
+        coordinator = self.config_entry.runtime_data
+        if not coordinator.device.supports_humidity_response_configuration:
+            return self.async_abort(reason="humidity_response_not_supported")
+        settings = self._current_humidity_response_settings()
+        if settings is None:
+            return self.async_abort(reason="global_settings_unavailable")
+
+        if user_input is not None:
+            rapid = user_input.get(CONF_RAPID_RESPONSE)
+            ambient = user_input.get(CONF_AMBIENT_RESPONSE)
+            if not isinstance(rapid, bool) or not isinstance(ambient, bool):
+                errors = {"base": "humidity_response_invalid"}
+            elif (rapid, ambient) == (
+                settings.rapid_response_enabled,
+                settings.ambient_response_enabled,
+            ):
+                errors = {"base": "humidity_response_unchanged"}
+            else:
+                self._humidity_response = (rapid, ambient)
+                self._humidity_response_baseline_raw = settings.raw_record
+                return await self.async_step_humidity_response_confirm()
+
+        return self.async_show_form(
+            step_id="humidity_response",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_RAPID_RESPONSE,
+                        default=settings.rapid_response_enabled,
+                    ): selector.BooleanSelector(),
+                    vol.Required(
+                        CONF_AMBIENT_RESPONSE,
+                        default=settings.ambient_response_enabled,
+                    ): selector.BooleanSelector(),
+                }
+            ),
+            errors=errors or {},
+            description_placeholders={
+                "current_response": self._format_humidity_response(
+                    settings.rapid_response_enabled,
+                    settings.ambient_response_enabled,
+                )
+            },
+        )
+
+    async def async_step_humidity_response_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Recheck the full record and require confirmation before writing."""
+
+        assert self._humidity_response is not None
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input[CONF_CONFIRM_HUMIDITY_RESPONSE]:
+                errors["base"] = "humidity_response_confirmation_required"
+            else:
+                settings = self._current_humidity_response_settings()
+                if settings is None:
+                    errors["base"] = "global_settings_unavailable"
+                elif settings.raw_record != self._humidity_response_baseline_raw:
+                    self._humidity_response = None
+                    self._humidity_response_baseline_raw = None
+                    return await self.async_step_humidity_response(
+                        errors={"base": "humidity_response_settings_changed"}
+                    )
+                else:
+                    rapid, ambient = self._humidity_response
+                    try:
+                        coordinator = self.config_entry.runtime_data
+                        await coordinator.async_set_humidity_response(
+                            rapid=rapid, ambient=ambient
+                        )
+                    except HumidityResponseConfigurationNotSupportedError:
+                        return self.async_abort(
+                            reason="humidity_response_not_supported"
+                        )
+                    except HumidityResponseConfigurationUnavailableError:
+                        errors["base"] = "global_settings_unavailable"
+                    except HomeAssistantError as err:
+                        _LOGGER.warning(
+                            "Unable to update Multihome humidity response: %s", err
+                        )
+                        errors["base"] = "humidity_response_update_failed"
+                    else:
+                        return await self.async_step_humidity_response_result()
+
+        settings = self._current_humidity_response_settings()
+        current = (
+            self._format_humidity_response(
+                settings.rapid_response_enabled,
+                settings.ambient_response_enabled,
+            )
+            if settings is not None
+            else "Unavailable"
+        )
+        return self.async_show_form(
+            step_id="humidity_response_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONFIRM_HUMIDITY_RESPONSE, default=False
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "device": self.config_entry.title,
+                "current_response": current,
+                "new_response": self._format_humidity_response(
+                    *self._humidity_response
+                ),
+            },
+        )
+
+    async def async_step_humidity_response_result(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report flags confirmed through exact packet-137 readback."""
+
+        assert self._humidity_response is not None
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        return self.async_show_form(
+            step_id="humidity_response_result",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "device": self.config_entry.title,
+                "new_response": self._format_humidity_response(
+                    *self._humidity_response
+                ),
+            },
+        )
+
     def _current_airflow_settings(self) -> GlobalSettings | None:
         """Return a current writable settings record or no capability."""
 
@@ -795,6 +954,27 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         ):
             return None
         return coordinator.data.global_settings
+
+    def _current_humidity_response_settings(self) -> GlobalSettings | None:
+        """Return a current, strictly decoded response snapshot."""
+
+        settings = self._current_sensor_threshold_settings()
+        if (
+            settings is None
+            or settings.rapid_response_enabled is None
+            or settings.ambient_response_enabled is None
+        ):
+            return None
+        return settings
+
+    @staticmethod
+    def _format_humidity_response(rapid: bool, ambient: bool) -> str:
+        """Return an unambiguous review string for both flags."""
+
+        return (
+            f"Rapid {'enabled' if rapid else 'disabled'} · "
+            f"Ambient {'enabled' if ambient else 'disabled'}"
+        )
 
     @staticmethod
     def _integer_setting(value: Any) -> int:

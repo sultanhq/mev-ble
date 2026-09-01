@@ -26,6 +26,8 @@ from custom_components.ventaxia_multihome.coordinator import (
     CalibrationDeliveryUncertainError,
     CalibrationNotSupportedError,
     CalibrationRateLimitedError,
+    HumidityResponseConfigurationNotSupportedError,
+    HumidityResponseConfigurationUnavailableError,
     SensorThresholdConfigurationNotSupportedError,
     SensorThresholdConfigurationUnavailableError,
     SilentHoursConfigurationUnavailableError,
@@ -558,6 +560,92 @@ async def test_sensor_thresholds_reject_unsupported_or_stale_state_before_io(
         )
     coordinator._ble_device.assert_not_called()
     device.set_sensor_thresholds.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_humidity_response_publishes_only_confirmed_settings() -> None:
+    """A successful response operation publishes its exact readback."""
+
+    # Arrange - retain telemetry and return a distinct confirmed settings object.
+    current = MultihomeData(
+        zone=object(),
+        system=object(),
+        global_settings=_settings(),
+        last_successful_update=datetime.now(UTC),
+    )
+    confirmed = decode_global_settings(bytes(36))
+    ble_device = object()
+    device = SimpleNamespace(
+        supports_humidity_response_configuration=True,
+        global_settings_write_ready=True,
+        set_humidity_response=AsyncMock(return_value=confirmed),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=current,
+        last_update_success=True,
+        _ble_device=lambda: ble_device,
+        async_set_updated_data=Mock(),
+        async_set_update_error=Mock(),
+    )
+
+    # Act - apply one reviewed two-flag profile.
+    await VentaxiaMultihomeCoordinator.async_set_humidity_response(
+        coordinator, rapid=True, ambient=False
+    )
+
+    # Assert - only the exact confirmed settings snapshot is replaced.
+    device.set_humidity_response.assert_awaited_once_with(
+        ble_device, rapid=True, ambient=False
+    )
+    published = coordinator.async_set_updated_data.call_args.args[0]
+    assert published.global_settings is confirmed
+    assert published.zone is current.zone
+    assert published.system is current.system
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("supported", "data", "last_success", "write_ready", "error"),
+    [
+        (
+            False,
+            object(),
+            True,
+            True,
+            HumidityResponseConfigurationNotSupportedError,
+        ),
+        (True, None, True, True, HumidityResponseConfigurationUnavailableError),
+        (True, object(), False, True, HumidityResponseConfigurationUnavailableError),
+        (True, object(), True, False, HumidityResponseConfigurationUnavailableError),
+    ],
+)
+async def test_humidity_response_rejects_unsupported_or_stale_state_before_io(
+    supported, data, last_success, write_ready, error
+) -> None:
+    """Identity and current-snapshot guards run before Bluetooth lookup."""
+
+    # Arrange - vary each prerequisite for the guarded response operation.
+    device = SimpleNamespace(
+        supports_humidity_response_configuration=supported,
+        global_settings_write_ready=write_ready,
+        set_humidity_response=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=data,
+        last_update_success=last_success,
+        _ble_device=Mock(),
+    )
+
+    # Act / Assert - reject without resolving or using a BLE path.
+    with pytest.raises(error):
+        await VentaxiaMultihomeCoordinator.async_set_humidity_response(
+            coordinator, rapid=True, ambient=False
+        )
+    coordinator._ble_device.assert_not_called()
+    device.set_humidity_response.assert_not_awaited()
 
 
 @pytest.mark.asyncio

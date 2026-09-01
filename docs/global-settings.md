@@ -92,6 +92,11 @@ The only installer write profile currently enabled is:
 | ---: | --- | --- | --- | --- |
 | 10 | `2.03.08` | `01.00` | IDs 0–3 airflow; ID 5 humidity; IDs 21–22 CO₂ thresholds | Fragmented packet-136 writes with exact packet-137 readback and restored baselines |
 
+The v0.6.2 prerelease validation-candidate profile is separate from stable
+writes: on that exact identity only, IDs 14–15 (Rapid and Ambient humidity
+response) are available through a guarded validation flow. They must be
+physically changed, read back and restored before promotion to stable evidence.
+
 All three identity values must match. Missing identity data, a newer firmware, or
 a different hardware revision exposes no installer controls until separately
 validated. Models 1, 2 and 9 retain read-only decoded airflow diagnostics.
@@ -117,8 +122,8 @@ are proven.
 | 9 | `overrun_timeout_minutes` | 17 | UInt8, minutes | 0–255 | Requires ID 8; safe UI range unknown | Wired input | Static; read-only |
 | 10 | `delay_timeout_minutes` | 18 | UInt8, minutes | 0–255 | Requires ID 7; safe UI range unknown | Wired input | Static; read-only |
 | 11–13 | `ls1_action` … `ls3_action` | 19–21 | UInt8 action code | 0–255 | Installed wiring and action enum | Wired input | Static; read-only |
-| 14 | `rapid_response_enabled` | 9 | strict UInt8 boolean | 0/1 | Humidity-response semantics | Sensor control | Static; read-only |
-| 15 | `ambient_response_enabled` | 10 | strict UInt8 boolean | 0/1 | Humidity-response semantics | Sensor control | Static; read-only |
+| 14 | `rapid_response_enabled` | 9 | strict UInt8 boolean | 0/1 | Humidity-response semantics | Sensor control | Prerelease candidate; exact identity only |
+| 15 | `ambient_response_enabled` | 10 | strict UInt8 boolean | 0/1 | Humidity-response semantics | Sensor control | Prerelease candidate; exact identity only |
 | 16 | `low_temperature_enabled` | 11 | strict UInt8 boolean | 0/1 | Paired thresholds and actions | Sensor control | Static; read-only |
 | 17–18 | `low_threshold_action`, `high_threshold_action` | 12–13 | UInt8 action code | 0–255 | Temperature action enum | Sensor control | Static; read-only |
 | 19–20 | `low_temperature_threshold`, `high_temperature_threshold` | 14–15 | UInt8, unit unknown | 0–255 | Unit, ordering and safe range | Sensor control | Static; read-only |

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from custom_components.ventaxia_multihome.capabilities import (
     AIRFLOW_FIELDS,
+    HUMIDITY_RESPONSE_FIELDS,
     INSTALLER_FIELD_DEFINITIONS,
     MODEL_CAPABILITIES,
     SENSOR_THRESHOLD_FIELDS,
@@ -131,8 +132,8 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     ]
 
 
-def test_no_installer_fields_remain_in_prerelease_validation() -> None:
-    """Stable promotion leaves no threshold fields marked as experimental."""
+def test_humidity_response_fields_are_exact_identity_validation_candidates() -> None:
+    """Only the two unvalidated response flags use the prerelease write gate."""
 
     # Arrange - include the intended unit plus firmware, hardware, and model misses.
     identities = [
@@ -147,9 +148,9 @@ def test_no_installer_fields_remain_in_prerelease_validation() -> None:
         installer_validation_candidate_fields(*identity) for identity in identities
     ]
 
-    # Assert - physical restoration promoted all three fields to stable evidence.
+    # Assert - only the exact identity receives the two candidate fields.
     assert resolved == [
-        frozenset(),
+        HUMIDITY_RESPONSE_FIELDS,
         frozenset(),
         frozenset(),
         frozenset(),

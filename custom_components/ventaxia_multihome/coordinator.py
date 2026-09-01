@@ -96,6 +96,14 @@ class SensorThresholdConfigurationUnavailableError(HomeAssistantError):
     """Raised when no current record permits a sensor-threshold update."""
 
 
+class HumidityResponseConfigurationNotSupportedError(HomeAssistantError):
+    """Raised when humidity-response writes are not enabled."""
+
+
+class HumidityResponseConfigurationUnavailableError(HomeAssistantError):
+    """Raised when no current record permits a humidity-response update."""
+
+
 class SilentHoursNotSupportedError(HomeAssistantError):
     """Raised when schedule management is not validated for the model."""
 
@@ -378,6 +386,49 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             self.async_set_update_error(err)
             raise HomeAssistantError(
                 f"Unable to update Multihome sensor thresholds: {err}"
+            ) from err
+        self.async_set_updated_data(replace(self.data, global_settings=settings))
+
+    async def async_set_humidity_response(
+        self,
+        *,
+        rapid: bool,
+        ambient: bool,
+    ) -> None:
+        """Apply and publish confirmed humidity-response settings."""
+
+        if not self.device.supports_humidity_response_configuration:
+            raise HumidityResponseConfigurationNotSupportedError(
+                "Humidity-response configuration is not enabled for this model, "
+                "firmware, and hardware"
+            )
+        if (
+            self.data is None
+            or not self.last_update_success
+            or not self.device.global_settings_write_ready
+        ):
+            raise HumidityResponseConfigurationUnavailableError(
+                "Current global settings are unavailable; wait for a successful poll"
+            )
+        try:
+            settings = await self.device.set_humidity_response(
+                self._ble_device(),
+                rapid=rapid,
+                ambient=ambient,
+            )
+        except GlobalSettingsUnavailableError as err:
+            raise HumidityResponseConfigurationUnavailableError(str(err)) from err
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            await self.device.disconnect()
+            self.async_set_update_error(err)
+            raise HomeAssistantError(
+                f"Unable to update Multihome humidity response: {err}"
             ) from err
         self.async_set_updated_data(replace(self.data, global_settings=settings))
 

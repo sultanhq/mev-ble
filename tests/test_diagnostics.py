@@ -226,7 +226,7 @@ async def test_diagnostics_include_control_validation_state() -> None:
             "01.00",
             "SmvHxCo2",
             [0, 1, 2, 3, 5, 21, 22],
-            [],
+            [14, 15],
         ),
         ("10", "2.03.09", "01.00", "SmvHxCo2", [], []),
         ("unknown", "2.03.08", "01.00", None, [], []),

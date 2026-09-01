@@ -21,6 +21,7 @@ from .bluetooth import (
 )
 from .capabilities import (
     AIRFLOW_FIELDS,
+    HUMIDITY_RESPONSE_FIELDS,
     SENSOR_THRESHOLD_FIELDS,
     installer_configurable_fields,
     installer_validation_candidate_fields,
@@ -67,6 +68,7 @@ from .protocol import (
     encode_user_override,
     global_settings_after_update,
     plan_airflow_profile_updates,
+    plan_humidity_response_updates,
     plan_sensor_threshold_updates,
     preserve_unknown_silent_hour_slot,
 )
@@ -250,6 +252,12 @@ class MultihomeDevice:
         """Return whether CO2/humidity writes are validated for this identity."""
 
         return SENSOR_THRESHOLD_FIELDS <= self.writable_installer_fields
+
+    @property
+    def supports_humidity_response_configuration(self) -> bool:
+        """Return whether guarded prerelease humidity-response writes are enabled."""
+
+        return HUMIDITY_RESPONSE_FIELDS <= self.validation_candidate_installer_fields
 
     @property
     def supports_silent_hours_management(self) -> bool:
@@ -517,6 +525,37 @@ class MultihomeDevice:
                 humidity=humidity,
                 co2_boost=co2_boost,
                 co2_purge=co2_purge,
+            )
+            result = confirmed
+            for field, value in plan:
+                result = await self._set_global_setting_locked(field, value)
+            return result
+
+    async def set_humidity_response(
+        self,
+        ble_device: BLEDevice,
+        *,
+        rapid: bool,
+        ambient: bool,
+    ) -> GlobalSettings:
+        """Apply guarded humidity-response flags with exact per-field readback."""
+
+        if not self.supports_humidity_response_configuration:
+            raise DeviceError(
+                "humidity-response configuration is not enabled for this model, "
+                "firmware, and hardware"
+            )
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            confirmed = self._confirmed_global_settings
+            if confirmed is None or not self._global_settings_write_ready:
+                raise GlobalSettingsUnavailableError(
+                    "global settings must be read successfully before an update"
+                )
+            plan = plan_humidity_response_updates(
+                confirmed,
+                rapid=rapid,
+                ambient=ambient,
             )
             result = confirmed
             for field, value in plan:

@@ -1,4 +1,4 @@
-"""Diagnostic fault binary sensors for Vent-Axia Multihome."""
+"""Diagnostic binary sensors for Vent-Axia Multihome."""
 
 from __future__ import annotations
 
@@ -14,6 +14,11 @@ from . import VentaxiaMultihomeConfigEntry
 from .entity import VentaxiaMultihomeEntity
 from .protocol import DIAGNOSTIC_FAULTS, FaultFlag
 
+HUMIDITY_RESPONSE_ENTITIES = (
+    ("rapid_response_enabled", "rapid_humidity_response"),
+    ("ambient_response_enabled", "ambient_humidity_response"),
+)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -22,10 +27,17 @@ async def async_setup_entry(
 ) -> None:
     """Set up one diagnostic entity per documented fault flag."""
 
-    async_add_entities(
+    entities = [
         MultihomeFaultBinarySensor(entry.runtime_data, entry, fault)
         for fault in DIAGNOSTIC_FAULTS
+    ]
+    entities.extend(
+        MultihomeHumidityResponseBinarySensor(
+            entry.runtime_data, entry, attribute, translation_key
+        )
+        for attribute, translation_key in HUMIDITY_RESPONSE_ENTITIES
     )
+    async_add_entities(entities)
 
 
 class MultihomeFaultBinarySensor(VentaxiaMultihomeEntity, BinarySensorEntity):
@@ -47,3 +59,27 @@ class MultihomeFaultBinarySensor(VentaxiaMultihomeEntity, BinarySensorEntity):
         if (data := self.coordinator.data) is None:
             return None
         return bool(data.fault_mask & self._fault)
+
+
+class MultihomeHumidityResponseBinarySensor(
+    VentaxiaMultihomeEntity, BinarySensorEntity
+):
+    """Represent one read-only installer humidity-response flag."""
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(
+        self, coordinator, entry, attribute: str, translation_key: str
+    ) -> None:
+        super().__init__(coordinator, entry, attribute)
+        self._attribute = attribute
+        self._attr_translation_key = translation_key
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return the decoded packet-137 flag or unknown for malformed data."""
+
+        if (data := self.coordinator.data) is None:
+            return None
+        return getattr(data.global_settings, self._attribute)

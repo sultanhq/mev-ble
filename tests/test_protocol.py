@@ -44,6 +44,7 @@ from custom_components.ventaxia_multihome.protocol import (
     fragment_packet,
     global_settings_after_update,
     plan_airflow_profile_updates,
+    plan_humidity_response_updates,
     plan_sensor_threshold_updates,
     reassemble_fragments,
     validate_airflow_profile,
@@ -670,6 +671,39 @@ def test_sensor_threshold_plan_preserves_co2_order_during_each_write(
         replayed.co2_boost_threshold,
         replayed.co2_purge_threshold,
     ) == desired
+
+
+def test_humidity_response_plan_changes_only_requested_boolean_fields() -> None:
+    """The response planner emits strict booleans in recovered field order."""
+
+    # Arrange - decode a complete record with Rapid off and Ambient on.
+    record = bytearray(36)
+    record[9] = 0
+    record[10] = 1
+    settings = decode_global_settings(bytes(record))
+
+    # Act - reverse both flags and request the isolated update plan.
+    plan = plan_humidity_response_updates(settings, rapid=True, ambient=False)
+
+    # Assert - field IDs 14 and 15 carry real bool values, not numeric guesses.
+    assert plan == (
+        (GlobalSettingField.RAPID_RESPONSE_ENABLED, True),
+        (GlobalSettingField.AMBIENT_RESPONSE_ENABLED, False),
+    )
+
+
+def test_humidity_response_plan_rejects_malformed_current_boolean() -> None:
+    """An unknown firmware flag blocks writes before Bluetooth I/O."""
+
+    # Arrange - use a non-boolean raw value for the Rapid flag.
+    record = bytearray(36)
+    record[9] = 2
+    record[10] = 1
+    settings = decode_global_settings(bytes(record))
+
+    # Act / Assert - refuse to construct any field-update plan.
+    with pytest.raises(ProtocolError, match="current humidity response"):
+        plan_humidity_response_updates(settings, rapid=True, ambient=False)
 
 
 def test_override_and_cancel_encoding() -> None:

@@ -1245,6 +1245,32 @@ def plan_sensor_threshold_updates(
     )
 
 
+def plan_humidity_response_updates(
+    settings: GlobalSettings,
+    *,
+    rapid: bool,
+    ambient: bool,
+) -> tuple[tuple[GlobalSettingField, bool], ...]:
+    """Plan strict boolean humidity-response writes in field order."""
+
+    if not isinstance(rapid, bool) or not isinstance(ambient, bool):
+        raise ProtocolError("humidity response settings require boolean values")
+    if (
+        settings.rapid_response_enabled is None
+        or settings.ambient_response_enabled is None
+    ):
+        raise ProtocolError("current humidity response settings are invalid")
+    desired = (
+        (GlobalSettingField.RAPID_RESPONSE_ENABLED, rapid),
+        (GlobalSettingField.AMBIENT_RESPONSE_ENABLED, ambient),
+    )
+    return tuple(
+        (field, value)
+        for field, value in desired
+        if getattr(settings, GLOBAL_SETTING_FIELD_SPECS[field].attribute) != value
+    )
+
+
 def decode_faults(mask: int) -> tuple[FaultFlag, ...]:
     """Return every documented flag present in a fault mask."""
 

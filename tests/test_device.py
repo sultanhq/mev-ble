@@ -1146,6 +1146,100 @@ def test_sensor_threshold_capability_requires_exact_validation_identity(
     assert result is supported
 
 
+@pytest.mark.parametrize(
+    ("model", "firmware", "hardware", "supported"),
+    [
+        ("10", "2.03.08", "01.00", True),
+        ("10", "2.03.09", "01.00", False),
+        ("10", "2.03.08", "01.01", False),
+        ("2", "2.03.08", "01.00", False),
+    ],
+)
+def test_humidity_response_capability_requires_exact_candidate_identity(
+    model: str,
+    firmware: str,
+    hardware: str,
+    supported: bool,
+) -> None:
+    """The prerelease response flow is restricted to one exact identity."""
+
+    # Arrange - apply one exact or near-match identity.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model=model, firmware=firmware, hardware=hardware
+    )
+
+    # Act - evaluate the candidate-only capability gate.
+    result = device.supports_humidity_response_configuration
+
+    # Assert - firmware, hardware, and model must all match.
+    assert result is supported
+
+
+@pytest.mark.asyncio
+async def test_humidity_response_updates_each_flag_with_exact_readback() -> None:
+    """Rapid and Ambient response are confirmed independently."""
+
+    # Arrange - emulate firmware applying both RawWithId boolean writes.
+    record = bytearray(decode_packet(_responses()[2]).payload)
+    record[9] = 0
+    record[10] = 1
+    current = decode_global_settings(bytes(record))
+    sent: list[bytes] = []
+
+    class ApplyingTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            nonlocal current
+            sent.append(packet)
+            wrapped = decode_data_object_array(decode_packet(packet).payload)
+            assert wrapped.object_id is not None
+            current = global_settings_after_update(
+                current,
+                GlobalSettingField(wrapped.object_id),
+                bool(wrapped.payload[0]),
+            )
+
+        async def request(self, packet: bytes) -> bytes:
+            return encode_packet(
+                PacketType.GLOBAL_DATA,
+                Operation.RESPONSE,
+                current.raw_record,
+                timestamp=2,
+            )
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._client = DeviceClient([])
+    device._transport = ApplyingTransport()
+    device._authenticated = True
+    device._confirmed_global_settings = current
+    device._global_settings_write_ready = True
+
+    # Act - reverse both recovered response flags.
+    result = await device.set_humidity_response(
+        object(), rapid=True, ambient=False
+    )
+
+    # Assert - both writes were read back exactly and published as confirmed.
+    fields = tuple(
+        GlobalSettingField(
+            decode_data_object_array(decode_packet(packet).payload).object_id
+        )
+        for packet in sent
+    )
+    assert fields == (
+        GlobalSettingField.RAPID_RESPONSE_ENABLED,
+        GlobalSettingField.AMBIENT_RESPONSE_ENABLED,
+    )
+    assert result.rapid_response_enabled is True
+    assert result.ambient_response_enabled is False
+    assert device.confirmed_global_settings == result
+
+
 @pytest.mark.asyncio
 async def test_sensor_thresholds_update_each_field_with_exact_readback() -> None:
     """Humidity and both CO2 thresholds are confirmed independently."""

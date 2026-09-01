@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.2-rc.1] - 2026-09-01
+
+### Added
+
+- Add disabled-by-default diagnostic binary sensors for the recovered Rapid and
+  Ambient humidity-response installer flags.
+- Add a guarded validation flow for packet-136 fields 14 and 15 on model 10 /
+  firmware 2.03.08 / hardware 01.00.
+
+### Safety
+
+- Keep both fields in the prerelease validation-candidate matrix until a
+  physical change/readback/restore test confirms firmware behaviour.
+- Require strict booleans, a complete current packet-137 record, explicit
+  review and confirmation, an unchanged 36-byte snapshot, and exact fresh
+  readback after each changed field.
+- Keep the diagnostic entities read-only and disabled by default; writes remain
+  available only through the guarded Configure flow.
+
 ## [0.6.1] - 2026-09-01
 
 ### Added

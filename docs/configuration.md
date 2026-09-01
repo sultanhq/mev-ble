@@ -76,11 +76,13 @@ are labelled `raw_code_semantics_unknown` instead of being assigned guessed
 meanings. A boolean byte other than zero or one is retained and labelled
 `unknown_boolean_value` without breaking the coordinator update.
 
-Three of these values are also available as disabled-by-default diagnostic
-entities: **Humidity threshold**, **CO₂ boost threshold**, and **CO₂ purge
-threshold**. Enable them from the device's entity list when an entity is more
-useful than downloaded diagnostics. They report installer thresholds from
-packet 137; they are not duplicates of the current humidity and CO₂ readings.
+Five of these values are also available as disabled-by-default diagnostic
+entities: **Humidity threshold**, **CO₂ boost threshold**, **CO₂ purge
+threshold**, **Rapid humidity response**, and **Ambient humidity response**.
+Enable them from the device's entity list when an entity is more useful than
+downloaded diagnostics. They report installer settings from packet 137; they
+are not duplicates of the current humidity and CO₂ readings. The two response
+flags are read-only binary sensors, not switch controls.
 
 The physically validated model 10 / firmware 2.03.08 / hardware 01.00 identity
 also exposes **Configure → Configure CO₂ and humidity thresholds**. It requires
@@ -91,6 +93,13 @@ snapshot, and rereads packet 137 after every changed field.
 Record the three original values before changing them. A failed multi-field
 operation can leave earlier individually confirmed fields applied, so reopen the
 flow and inspect the current values before retrying.
+
+Version 0.6.2 prereleases also expose **Configure → Validate humidity response
+settings** for the same exact identity. Rapid and Ambient response are strict
+boolean fields recovered from the official app mapping. The flow uses the same
+full-record concurrency check and exact per-field readback guard, but remains a
+physical-validation feature: record both original flags, apply a temporary
+changed profile, confirm the returned values, then restore the originals.
 
 The application setup code, BLE address and config-entry unique ID are redacted
 from downloaded diagnostics. Internal routing addresses used to explain CO₂
