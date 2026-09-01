@@ -829,7 +829,7 @@ async def test_global_setting_write_rejects_unvalidated_field_before_io() -> Non
     with pytest.raises(DeviceError) as error:
         await device.set_global_setting(
             object(),
-            GlobalSettingField.COMFORT_ENABLED,
+            GlobalSettingField.DELAY_ENABLED,
             1,
         )
 

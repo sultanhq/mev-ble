@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2-rc.4] - 2026-09-01
+
+### Fixed
+
+- Keep the negative unsupported-field regression test on Delay rather than the
+  newly enabled Comfort validation candidate.
+
 ## [0.6.2-rc.3] - 2026-09-01
 
 ### Added
