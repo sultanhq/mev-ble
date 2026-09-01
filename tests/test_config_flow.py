@@ -1653,18 +1653,18 @@ async def test_delay_overrun_rejects_out_of_range_timer(hass) -> None:
     entry, coordinator = _options_entry(hass, supports_delay_overrun=True)
     form = await _open_delay_overrun_options(hass, entry)
 
-    # Act - submit a timer beyond the documented maximum.
-    result = await hass.config_entries.options.async_configure(
-        form["flow_id"],
-        {
-            CONF_DELAY_ENABLED: True,
-            CONF_DELAY_TIMEOUT: 61,
-            CONF_OVERRUN_ENABLED: True,
-            CONF_OVERRUN_TIMEOUT: 10,
-        },
-    )
+    # Act - submit a timer beyond the selector's documented maximum.
+    with pytest.raises(data_entry_flow.InvalidData) as raised:
+        await hass.config_entries.options.async_configure(
+            form["flow_id"],
+            {
+                CONF_DELAY_ENABLED: True,
+                CONF_DELAY_TIMEOUT: 61,
+                CONF_OVERRUN_ENABLED: True,
+                CONF_OVERRUN_TIMEOUT: 10,
+            },
+        )
 
-    # Assert - the flow remains on input and no coordinator write is attempted.
-    assert result["step_id"] == "delay_overrun"
-    assert result["errors"] == {"base": "delay_overrun_invalid"}
+    # Assert - Home Assistant's schema blocks it before coordinator code or I/O.
+    assert raised.value
     coordinator.async_set_delay_overrun.assert_not_awaited()

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2-rc.8] - 2026-09-01
+
+### Fixed
+
+- Align regression fixtures with Home Assistant selector validation, the new
+  Delay/Overrun candidate scope, and the official 1–60 minute codec limits.
+
 ## [0.6.2-rc.7] - 2026-09-01
 
 ### Added
