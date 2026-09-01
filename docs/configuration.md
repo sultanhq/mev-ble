@@ -94,12 +94,11 @@ Record the three original values before changing them. A failed multi-field
 operation can leave earlier individually confirmed fields applied, so reopen the
 flow and inspect the current values before retrying.
 
-Version 0.6.2 prereleases also expose **Configure → Validate humidity response
-settings** for the same exact identity. Rapid and Ambient response are strict
-boolean fields recovered from the official app mapping. The flow uses the same
-full-record concurrency check and exact per-field readback guard, but remains a
-physical-validation feature: record both original flags, apply a temporary
-changed profile, confirm the returned values, then restore the originals.
+Version 0.6.2 prereleases also expose **Configure → Configure humidity response**
+for the same exact identity. Rapid and Ambient response are strict boolean
+fields recovered from the official app mapping. The flow uses the same
+full-record concurrency check and exact per-field readback guard. Both flags
+were independently changed, read back and restored on the validated unit.
 
 The application setup code, BLE address and config-entry unique ID are redacted
 from downloaded diagnostics. Internal routing addresses used to explain CO₂

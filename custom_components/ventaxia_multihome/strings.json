@@ -44,7 +44,7 @@
           "fan_options": "Fan override options",
           "airflow_profile": "Configure airflow levels",
           "sensor_thresholds": "Configure CO₂ and humidity thresholds",
-          "humidity_response": "Validate humidity response settings",
+          "humidity_response": "Configure humidity response",
           "silent_hours": "Manage silent hours",
           "calibrate_co2": "Calibrate internal CO₂ sensor"
         }
@@ -98,7 +98,7 @@
       },
       "humidity_response": {
         "title": "Configure humidity response",
-        "description": "Current settings: **{current_response}**\n\nRapid and Ambient response are recovered installer flags that affect humidity-demand behaviour; they are not the current humidity reading. This prerelease validation flow is restricted to model 10 / firmware 2.03.08 / hardware 01.00. Record both original values and restore them after controlled testing.",
+        "description": "Current settings: **{current_response}**\n\nRapid and Ambient response are installer flags that affect humidity-demand behaviour; they are not the current humidity reading. Writes are enabled only for the physically validated model 10 / firmware 2.03.08 / hardware 01.00 identity.",
         "data": {
           "rapid_response": "Rapid humidity response",
           "ambient_response": "Ambient humidity response"
@@ -106,14 +106,14 @@
       },
       "humidity_response_confirm": {
         "title": "Confirm humidity response",
-        "description": "Device: **{device}**\n\nCurrent settings: **{current_response}**\n\nNew settings: **{new_response}**\n\nHome Assistant will update only changed flags and require exact fresh packet-137 readback after each write. These semantics still require physical validation, so restore the original profile after confirming the temporary values.",
+        "description": "Device: **{device}**\n\nCurrent settings: **{current_response}**\n\nNew settings: **{new_response}**\n\nHome Assistant will update only changed flags and require exact fresh packet-137 readback after each write.",
         "data": {
-          "confirm_humidity_response": "I recorded both original values and want to apply this temporary validation profile"
+          "confirm_humidity_response": "I have reviewed both values and want to apply this humidity-response profile"
         }
       },
       "humidity_response_result": {
         "title": "Humidity response confirmed",
-        "description": "The installed unit returned **{new_response}** through exact fresh settings readback. Confirm the temporary values appear correctly, then reopen this flow and restore the original profile."
+        "description": "The installed unit returned **{new_response}** through exact fresh settings readback. The complete humidity-response profile is confirmed."
       },
       "silent_hours": {
         "title": "Manage silent hours",

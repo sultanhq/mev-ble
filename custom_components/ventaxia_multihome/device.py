@@ -255,9 +255,9 @@ class MultihomeDevice:
 
     @property
     def supports_humidity_response_configuration(self) -> bool:
-        """Return whether guarded prerelease humidity-response writes are enabled."""
+        """Return whether humidity-response writes are physically validated."""
 
-        return HUMIDITY_RESPONSE_FIELDS <= self.validation_candidate_installer_fields
+        return HUMIDITY_RESPONSE_FIELDS <= self.writable_installer_fields
 
     @property
     def supports_silent_hours_management(self) -> bool:

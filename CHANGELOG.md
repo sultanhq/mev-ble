@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.2-rc.2] - 2026-09-01
+
+### Validated
+
+- On model 10, firmware 2.03.08, hardware 01.00, independently changed
+  Ambient and Rapid humidity response, received exact fresh packet-137
+  readback, and restored each original value through the same guarded flow.
+- Promote packet-136 fields 14 and 15 from validation candidates to the exact
+  identity's physically validated installer-write profile.
+
 ## [0.6.2-rc.1] - 2026-09-01
 
 ### Added

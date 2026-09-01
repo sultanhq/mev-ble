@@ -357,27 +357,17 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
         model_number=10,
         firmware="2.03.08",
         hardware="01.00",
-        fields=AIRFLOW_FIELDS | SENSOR_THRESHOLD_FIELDS,
+        fields=AIRFLOW_FIELDS | SENSOR_THRESHOLD_FIELDS | HUMIDITY_RESPONSE_FIELDS,
         evidence=(
             "fragmented packet-136 writes with exact packet-137 readback; "
             "airflow 6/8/37/50 -> 7/9/38/51 -> 6/8/37/50; "
-            "thresholds 81/1500/1750 -> 82/1550/1800 -> 81/1500/1750"
+            "thresholds 81/1500/1750 -> 82/1550/1800 -> 81/1500/1750; "
+            "rapid and ambient response independently changed and restored"
         ),
     ),
 )
 
-VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
-    InstallerWriteProfile(
-        model_number=10,
-        firmware="2.03.08",
-        hardware="01.00",
-        fields=HUMIDITY_RESPONSE_FIELDS,
-        evidence=(
-            "official-app field mapping and exact packet-137 offsets recovered; "
-            "physical write/readback/restore validation pending"
-        ),
-    ),
-)
+VALIDATION_CANDIDATE_WRITE_PROFILES: Final = ()
 
 
 def model_capability(model_number: int | None) -> ModelCapability | None:

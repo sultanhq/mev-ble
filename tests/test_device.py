@@ -1155,7 +1155,7 @@ def test_sensor_threshold_capability_requires_exact_validation_identity(
         ("2", "2.03.08", "01.00", False),
     ],
 )
-def test_humidity_response_capability_requires_exact_candidate_identity(
+def test_humidity_response_capability_requires_exact_validated_identity(
     model: str,
     firmware: str,
     hardware: str,
@@ -1169,7 +1169,7 @@ def test_humidity_response_capability_requires_exact_candidate_identity(
         model=model, firmware=firmware, hardware=hardware
     )
 
-    # Act - evaluate the candidate-only capability gate.
+    # Act - evaluate the physically validated capability gate.
     result = device.supports_humidity_response_configuration
 
     # Assert - firmware, hardware, and model must all match.
