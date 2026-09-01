@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.2-rc.7] - 2026-09-01
+
+### Added
+
+- Add disabled-by-default diagnostics for Delay On, Overrun, and both paired
+  timeout values.
+- Add an exact-identity guarded validation flow for packet-136 fields 7–10.
+
+### Safety
+
+- Use the official Multihome 1–60 minute limits and LS-input-only semantics.
+- Treat each enabled flag and timeout as one pair: write a valid timeout before
+  enabling, and disable the flag before changing its timeout.
+- Require strict booleans, valid current timers, full 36-byte snapshot review,
+  explicit acknowledgement, stale-snapshot rejection, and exact fresh
+  packet-137 readback after every changed field.
+- Keep fields 7–10 in the validation-candidate profile until physical
+  change/readback/restore evidence is recorded.
+
 ## [0.6.2-rc.6] - 2026-09-01
 
 ### Fixed

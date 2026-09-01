@@ -5,6 +5,7 @@ from __future__ import annotations
 from custom_components.ventaxia_multihome.capabilities import (
     AIRFLOW_FIELDS,
     COMFORT_MODE_FIELDS,
+    DELAY_OVERRUN_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
     INSTALLER_FIELD_DEFINITIONS,
     MODEL_CAPABILITIES,
@@ -138,8 +139,8 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     ]
 
 
-def test_no_installer_fields_remain_in_prerelease_validation() -> None:
-    """Physical restoration promotes Comfort mode to stable evidence."""
+def test_delay_overrun_fields_are_exact_identity_validation_candidates() -> None:
+    """The paired LS timers remain separate from stable writable fields."""
 
     # Arrange - include the intended unit plus firmware, hardware, and model misses.
     identities = [
@@ -154,9 +155,9 @@ def test_no_installer_fields_remain_in_prerelease_validation() -> None:
         installer_validation_candidate_fields(*identity) for identity in identities
     ]
 
-    # Assert - all currently configurable fields have physical evidence.
+    # Assert - only the exact designated identity exposes candidate timers.
     assert resolved == [
-        frozenset(),
+        DELAY_OVERRUN_FIELDS,
         frozenset(),
         frozenset(),
         frozenset(),

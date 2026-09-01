@@ -55,6 +55,8 @@ from .coordinator import (
     CalibrationRateLimitedError,
     ComfortModeConfigurationNotSupportedError,
     ComfortModeConfigurationUnavailableError,
+    DelayOverrunConfigurationNotSupportedError,
+    DelayOverrunConfigurationUnavailableError,
     HumidityResponseConfigurationNotSupportedError,
     HumidityResponseConfigurationUnavailableError,
     SensorThresholdConfigurationNotSupportedError,
@@ -76,7 +78,9 @@ from .protocol import (
     GLOBAL_CO2_THRESHOLD_STEP,
     GLOBAL_SETTING_FIELD_SPECS,
     MAX_CO2_CALIBRATION_REFERENCE,
+    MAX_GLOBAL_TIMER_MINUTES,
     MIN_CO2_CALIBRATION_REFERENCE,
+    MIN_GLOBAL_TIMER_MINUTES,
     GlobalSettingField,
     GlobalSettings,
     ProtocolError,
@@ -84,6 +88,7 @@ from .protocol import (
     SilentHourSlot,
     decode_silent_hour,
     encode_silent_hour,
+    plan_delay_overrun_updates,
     validate_airflow_profile,
     validate_sensor_thresholds,
 )
@@ -108,6 +113,11 @@ CONF_AMBIENT_RESPONSE = "ambient_response"
 CONF_CONFIRM_HUMIDITY_RESPONSE = "confirm_humidity_response"
 CONF_COMFORT_MODE = "comfort_mode"
 CONF_CONFIRM_COMFORT_MODE = "confirm_comfort_mode"
+CONF_DELAY_ENABLED = "delay_enabled"
+CONF_DELAY_TIMEOUT = "delay_timeout"
+CONF_OVERRUN_ENABLED = "overrun_enabled"
+CONF_OVERRUN_TIMEOUT = "overrun_timeout"
+CONF_CONFIRM_DELAY_OVERRUN = "confirm_delay_overrun"
 CONF_SILENT_HOUR_SLOT = "silent_hour_slot"
 CONF_SILENT_HOUR_ACTION = "silent_hour_action"
 CONF_SILENT_HOUR_START = "silent_hour_start"
@@ -388,6 +398,8 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._humidity_response_baseline_raw: bytes | None = None
         self._comfort_mode: bool | None = None
         self._comfort_mode_baseline_raw: bytes | None = None
+        self._delay_overrun: tuple[bool, int, bool, int] | None = None
+        self._delay_overrun_baseline_raw: bytes | None = None
         self._silent_hour_index: int | None = None
         self._silent_hours_baseline: tuple[tuple[int, bytes | None], ...] | None = (
             None
@@ -433,6 +445,11 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             and coordinator.data.global_settings.comfort_enabled is not None
         ):
             menu_options.append("comfort_mode")
+        if (
+            coordinator.device.supports_delay_overrun_configuration
+            and self._current_delay_overrun_settings() is not None
+        ):
+            menu_options.append("delay_overrun")
         if self.config_entry.runtime_data.device.supports_internal_co2_calibration:
             menu_options.append("calibrate_co2")
         if (
@@ -1069,6 +1086,166 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             },
         )
 
+
+    async def async_step_delay_overrun(
+        self,
+        user_input: dict[str, Any] | None = None,
+        *,
+        errors: dict[str, str] | None = None,
+    ) -> ConfigFlowResult:
+        """Collect one reviewed paired LS timer profile."""
+
+        coordinator = self.config_entry.runtime_data
+        if not coordinator.device.supports_delay_overrun_configuration:
+            return self.async_abort(reason="delay_overrun_not_supported")
+        settings = self._current_delay_overrun_settings()
+        if settings is None:
+            return self.async_abort(reason="global_settings_unavailable")
+
+        if user_input is not None:
+            try:
+                profile = (
+                    user_input[CONF_DELAY_ENABLED],
+                    self._integer_setting(user_input[CONF_DELAY_TIMEOUT]),
+                    user_input[CONF_OVERRUN_ENABLED],
+                    self._integer_setting(user_input[CONF_OVERRUN_TIMEOUT]),
+                )
+                plan = plan_delay_overrun_updates(
+                    settings,
+                    delay_enabled=profile[0],
+                    delay_minutes=profile[1],
+                    overrun_enabled=profile[2],
+                    overrun_minutes=profile[3],
+                )
+            except (KeyError, ProtocolError, TypeError, ValueError):
+                errors = {"base": "delay_overrun_invalid"}
+            else:
+                if not plan:
+                    errors = {"base": "delay_overrun_unchanged"}
+                else:
+                    self._delay_overrun = profile
+                    self._delay_overrun_baseline_raw = settings.raw_record
+                    return await self.async_step_delay_overrun_confirm()
+
+        return self.async_show_form(
+            step_id="delay_overrun",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_DELAY_ENABLED, default=settings.delay_enabled
+                    ): selector.BooleanSelector(),
+                    vol.Required(
+                        CONF_DELAY_TIMEOUT,
+                        default=settings.delay_timeout_minutes,
+                    ): self._timer_selector(),
+                    vol.Required(
+                        CONF_OVERRUN_ENABLED, default=settings.overrun_enabled
+                    ): selector.BooleanSelector(),
+                    vol.Required(
+                        CONF_OVERRUN_TIMEOUT,
+                        default=settings.overrun_timeout_minutes,
+                    ): self._timer_selector(),
+                }
+            ),
+            errors=errors or {},
+            description_placeholders={
+                "current_timers": self._format_delay_overrun(
+                    settings.delay_enabled,
+                    settings.delay_timeout_minutes,
+                    settings.overrun_enabled,
+                    settings.overrun_timeout_minutes,
+                )
+            },
+        )
+
+    async def async_step_delay_overrun_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Recheck all 36 bytes and confirm the paired timer profile."""
+
+        assert self._delay_overrun is not None
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input[CONF_CONFIRM_DELAY_OVERRUN]:
+                errors["base"] = "delay_overrun_confirmation_required"
+            else:
+                settings = self._current_delay_overrun_settings()
+                if settings is None:
+                    errors["base"] = "global_settings_unavailable"
+                elif settings.raw_record != self._delay_overrun_baseline_raw:
+                    self._delay_overrun = None
+                    self._delay_overrun_baseline_raw = None
+                    return await self.async_step_delay_overrun(
+                        errors={"base": "delay_overrun_settings_changed"}
+                    )
+                else:
+                    try:
+                        coordinator = self.config_entry.runtime_data
+                        await coordinator.async_set_delay_overrun(
+                            delay_enabled=self._delay_overrun[0],
+                            delay_minutes=self._delay_overrun[1],
+                            overrun_enabled=self._delay_overrun[2],
+                            overrun_minutes=self._delay_overrun[3],
+                        )
+                    except DelayOverrunConfigurationNotSupportedError:
+                        return self.async_abort(reason="delay_overrun_not_supported")
+                    except DelayOverrunConfigurationUnavailableError:
+                        errors["base"] = "global_settings_unavailable"
+                    except HomeAssistantError as err:
+                        _LOGGER.warning(
+                            "Unable to update Multihome delay/overrun timers: %s", err
+                        )
+                        errors["base"] = "delay_overrun_update_failed"
+                    else:
+                        return await self.async_step_delay_overrun_result()
+
+        settings = self._current_delay_overrun_settings()
+        current = (
+            self._format_delay_overrun(
+                settings.delay_enabled,
+                settings.delay_timeout_minutes,
+                settings.overrun_enabled,
+                settings.overrun_timeout_minutes,
+            )
+            if settings is not None
+            else "Unavailable"
+        )
+        return self.async_show_form(
+            step_id="delay_overrun_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONFIRM_DELAY_OVERRUN, default=False
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "device": self.config_entry.title,
+                "current_timers": current,
+                "new_timers": self._format_delay_overrun(*self._delay_overrun),
+            },
+        )
+
+    async def async_step_delay_overrun_result(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report paired LS timers confirmed by exact packet-137 readback."""
+
+        assert self._delay_overrun is not None
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        return self.async_show_form(
+            step_id="delay_overrun_result",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "device": self.config_entry.title,
+                "new_timers": self._format_delay_overrun(*self._delay_overrun),
+            },
+        )
+
     def _current_airflow_settings(self) -> GlobalSettings | None:
         """Return a current writable settings record or no capability."""
 
@@ -1113,11 +1290,59 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             return None
         return settings
 
+    def _current_delay_overrun_settings(self) -> GlobalSettings | None:
+        """Return a current, strictly decoded LS timer snapshot."""
+
+        settings = self._current_sensor_threshold_settings()
+        if (
+            settings is None
+            or settings.delay_enabled is None
+            or settings.overrun_enabled is None
+            or not MIN_GLOBAL_TIMER_MINUTES
+            <= settings.delay_timeout_minutes
+            <= MAX_GLOBAL_TIMER_MINUTES
+            or not MIN_GLOBAL_TIMER_MINUTES
+            <= settings.overrun_timeout_minutes
+            <= MAX_GLOBAL_TIMER_MINUTES
+        ):
+            return None
+        return settings
+
     @staticmethod
     def _format_enabled(enabled: bool) -> str:
         """Return a clear enabled/disabled review label."""
 
         return "Enabled" if enabled else "Disabled"
+
+    @staticmethod
+    def _timer_selector() -> selector.NumberSelector:
+        """Return the official 1..60 minute LS timer selector."""
+
+        return selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=MIN_GLOBAL_TIMER_MINUTES,
+                max=MAX_GLOBAL_TIMER_MINUTES,
+                step=1,
+                mode=selector.NumberSelectorMode.BOX,
+                unit_of_measurement="min",
+            )
+        )
+
+    @staticmethod
+    def _format_delay_overrun(
+        delay_enabled: bool,
+        delay_minutes: int,
+        overrun_enabled: bool,
+        overrun_minutes: int,
+    ) -> str:
+        """Return an unambiguous review string for both paired timers."""
+
+        return (
+            f"Delay {'enabled' if delay_enabled else 'disabled'} "
+            f"({delay_minutes} min) · "
+            f"Overrun {'enabled' if overrun_enabled else 'disabled'} "
+            f"({overrun_minutes} min)"
+        )
 
     @staticmethod
     def _format_humidity_response(rapid: bool, ambient: bool) -> str:

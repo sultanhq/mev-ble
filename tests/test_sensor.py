@@ -42,6 +42,33 @@ def test_installer_threshold_entities_are_disabled_diagnostics() -> None:
     assert co2_purge.device_class is SensorDeviceClass.CO2
 
 
+def test_installer_timer_entities_are_disabled_duration_diagnostics() -> None:
+    """Paired timer values are read-only minute diagnostics by default."""
+
+    # Arrange - select both recovered packet-137 timer descriptions.
+    delay = _description("delay_timeout_minutes")
+    overrun = _description("overrun_timeout_minutes")
+
+    # Act - inspect their registry, semantic type, unit, and decoded values.
+    data = SimpleNamespace(
+        global_settings=SimpleNamespace(
+            delay_timeout_minutes=10,
+            overrun_timeout_minutes=12,
+        )
+    )
+    descriptions = (delay, overrun)
+    values = tuple(description.value_fn(data) for description in descriptions)
+
+    # Assert - both are disabled diagnostic duration sensors backed by settings.
+    assert values == (10, 12)
+    assert all(
+        description.entity_category is EntityCategory.DIAGNOSTIC
+        and description.entity_registry_enabled_default is False
+        and description.device_class is SensorDeviceClass.DURATION
+        for description in descriptions
+    )
+
+
 def test_installer_threshold_entities_read_packet_137_values() -> None:
     """Diagnostic values come from global settings, not live zone telemetry."""
 

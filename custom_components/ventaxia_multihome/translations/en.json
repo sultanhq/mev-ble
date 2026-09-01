@@ -47,7 +47,8 @@
           "humidity_response": "Configure humidity response",
           "comfort_mode": "Configure Comfort mode",
           "silent_hours": "Manage silent hours",
-          "calibrate_co2": "Calibrate internal CO₂ sensor"
+          "calibrate_co2": "Calibrate internal CO₂ sensor",
+          "delay_overrun": "Configure Delay On and Overrun"
         }
       },
       "fan_options": {
@@ -197,6 +198,27 @@
       "calibration_result": {
         "title": "Sampling period elapsed",
         "description": "The MEV manual's three-minute sampling period has elapsed for the {reference_ppm} ppm command sent to {device}. You may now close the windows and use the rooms normally. This Home Assistant timer does not prove firmware completion because the MEV protocol exposes no calibration-status readback.\n\nCalibration can be run again after the five-minute safety cooldown. Home Assistant has no safe calibration-reset command; repeat the prepared flow with the official 450 ppm default or a trusted measured value."
+      },
+      "delay_overrun": {
+        "title": "Configure Delay On and Overrun",
+        "description": "Current timers: **{current_timers}**\\n\\nThese installer settings apply to the unit's mains-voltage switched-live (LS) inputs. Delay On waits before responding to an active LS input; Overrun continues the selected response after the input is removed. The official Multihome range is 1–60 minutes for each timer.\\n\\nThis prerelease flow is restricted to model 10 / firmware 2.03.08 / hardware 01.00 for controlled validation. Record all four current values and restore them after testing.",
+        "data": {
+          "delay_enabled": "Delay On",
+          "delay_timeout": "Delay On time",
+          "overrun_enabled": "Overrun",
+          "overrun_timeout": "Overrun time"
+        }
+      },
+      "delay_overrun_confirm": {
+        "title": "Confirm Delay On and Overrun",
+        "description": "Device: **{device}**\\n\\nCurrent timers: **{current_timers}**\\n\\nNew timers: **{new_timers}**\\n\\nHome Assistant will treat each enabled flag and timeout as a pair. When enabling, it writes the valid timeout before the flag; when disabling, it clears the flag first. Every changed field must be returned exactly by a fresh packet-137 read before the next write.",
+        "data": {
+          "confirm_delay_overrun": "I recorded the current values and want to apply this paired timer profile"
+        }
+      },
+      "delay_overrun_result": {
+        "title": "Delay On and Overrun confirmed",
+        "description": "The installed unit returned **{new_timers}** through exact fresh packet-137 readback. For validation, restore the original four values through the same flow."
       }
     },
     "progress": {
@@ -241,7 +263,12 @@
       "invalid_reference": "Select only numeric CO₂ sensors that report ppm.",
       "reference_out_of_range": "Every reference reading must be between 400 and 2,000 ppm.",
       "reference_unavailable": "A selected reference sensor is currently unavailable. No calibration was sent.",
-      "self_reference": "The MEV cannot use its own CO₂ entity as a calibration reference."
+      "self_reference": "The MEV cannot use its own CO₂ entity as a calibration reference.",
+      "delay_overrun_confirmation_required": "Confirm the reviewed Delay On and Overrun profile before changing installer settings.",
+      "delay_overrun_invalid": "Both enabled values must be on or off, and both timer values must be whole minutes from 1 to 60.",
+      "delay_overrun_unchanged": "The selected Delay On and Overrun profile is already active.",
+      "delay_overrun_settings_changed": "The unit's settings changed after review. Review all four current values and try again.",
+      "delay_overrun_update_failed": "The complete paired timer profile could not be confirmed. Reopen the flow and inspect all four current values before retrying."
     },
     "abort": {
       "airflow_not_supported": "Airflow configuration is not validated for this model, firmware, and hardware. No setting was changed.",
@@ -253,7 +280,8 @@
       "silent_hours_unavailable": "The complete six-slot schedule table is unavailable or not yet confirmed. No schedule was changed.",
       "silent_hour_empty": "The selected slot is already empty. No schedule was changed.",
       "silent_hours_changed": "The schedule table changed after review. No schedule was changed; reopen the flow and review the current slots.",
-      "calibration_not_supported": "Internal CO₂ calibration is not validated for this model. No command was sent."
+      "calibration_not_supported": "Internal CO₂ calibration is not validated for this model. No command was sent.",
+      "delay_overrun_not_supported": "Delay On and Overrun configuration is not enabled for this model, firmware, and hardware. No setting was changed."
     }
   },
   "selector": {
@@ -283,16 +311,42 @@
   },
   "entity": {
     "sensor": {
-      "temperature": {"name": "Temperature"},
-      "relative_humidity": {"name": "Relative humidity"},
-      "co2": {"name": "CO₂"},
-      "humidity_threshold": {"name": "Humidity threshold"},
-      "co2_boost_threshold": {"name": "CO₂ boost threshold"},
-      "co2_purge_threshold": {"name": "CO₂ purge threshold"},
-      "fan_rpm": {"name": "Fan RPM"},
-      "fan_level": {"name": "Fan level"},
-      "fan_state": {"name": "Fan state"},
-      "override_remaining": {"name": "Override remaining"}
+      "temperature": {
+        "name": "Temperature"
+      },
+      "relative_humidity": {
+        "name": "Relative humidity"
+      },
+      "co2": {
+        "name": "CO₂"
+      },
+      "humidity_threshold": {
+        "name": "Humidity threshold"
+      },
+      "co2_boost_threshold": {
+        "name": "CO₂ boost threshold"
+      },
+      "co2_purge_threshold": {
+        "name": "CO₂ purge threshold"
+      },
+      "fan_rpm": {
+        "name": "Fan RPM"
+      },
+      "fan_level": {
+        "name": "Fan level"
+      },
+      "fan_state": {
+        "name": "Fan state"
+      },
+      "override_remaining": {
+        "name": "Override remaining"
+      },
+      "delay_timeout": {
+        "name": "Delay On time"
+      },
+      "overrun_timeout": {
+        "name": "Overrun time"
+      }
     },
     "fan": {
       "ventilation": {
@@ -310,24 +364,62 @@
       }
     },
     "button": {
-      "cancel_override": {"name": "Cancel override"}
+      "cancel_override": {
+        "name": "Cancel override"
+      }
     },
     "binary_sensor": {
-      "motor_not_running": {"name": "Motor not running"},
-      "internal_temperature_sensor_fault": {"name": "Internal temperature sensor fault"},
-      "internal_co2_sensor_fault": {"name": "Internal CO₂ sensor fault"},
-      "external_temperature_sensor_offline": {"name": "External temperature sensor offline"},
-      "external_co2_sensor_offline": {"name": "External CO₂ sensor offline"},
-      "speed_switch_unit_offline": {"name": "Speed switch unit offline"},
-      "alarm_triggered": {"name": "Alarm"},
-      "device_lost": {"name": "Device lost"},
-      "firmware_update_failed": {"name": "Firmware update failed"},
-      "battery_critical": {"name": "Battery critical"},
-      "filter_timeout": {"name": "Filter timeout"},
-      "service_timeout": {"name": "Service timeout"}
-      ,"rapid_humidity_response": {"name": "Rapid humidity response"}
-      ,"ambient_humidity_response": {"name": "Ambient humidity response"}
-      ,"comfort_mode": {"name": "Comfort mode"}
+      "motor_not_running": {
+        "name": "Motor not running"
+      },
+      "internal_temperature_sensor_fault": {
+        "name": "Internal temperature sensor fault"
+      },
+      "internal_co2_sensor_fault": {
+        "name": "Internal CO₂ sensor fault"
+      },
+      "external_temperature_sensor_offline": {
+        "name": "External temperature sensor offline"
+      },
+      "external_co2_sensor_offline": {
+        "name": "External CO₂ sensor offline"
+      },
+      "speed_switch_unit_offline": {
+        "name": "Speed switch unit offline"
+      },
+      "alarm_triggered": {
+        "name": "Alarm"
+      },
+      "device_lost": {
+        "name": "Device lost"
+      },
+      "firmware_update_failed": {
+        "name": "Firmware update failed"
+      },
+      "battery_critical": {
+        "name": "Battery critical"
+      },
+      "filter_timeout": {
+        "name": "Filter timeout"
+      },
+      "service_timeout": {
+        "name": "Service timeout"
+      },
+      "rapid_humidity_response": {
+        "name": "Rapid humidity response"
+      },
+      "ambient_humidity_response": {
+        "name": "Ambient humidity response"
+      },
+      "comfort_mode": {
+        "name": "Comfort mode"
+      },
+      "delay_on": {
+        "name": "Delay On"
+      },
+      "overrun": {
+        "name": "Overrun"
+      }
     }
   },
   "services": {
@@ -335,8 +427,14 @@
       "name": "Set timed override",
       "description": "Set an airflow preset for an explicit duration.",
       "fields": {
-        "preset": {"name": "Preset", "description": "Airflow preset to apply."},
-        "duration": {"name": "Duration", "description": "Override duration in seconds."}
+        "preset": {
+          "name": "Preset",
+          "description": "Airflow preset to apply."
+        },
+        "duration": {
+          "name": "Duration",
+          "description": "Override duration in seconds."
+        }
       }
     }
   }

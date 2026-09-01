@@ -22,6 +22,7 @@ from .bluetooth import (
 from .capabilities import (
     AIRFLOW_FIELDS,
     COMFORT_MODE_FIELDS,
+    DELAY_OVERRUN_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
     SENSOR_THRESHOLD_FIELDS,
     installer_configurable_fields,
@@ -70,6 +71,7 @@ from .protocol import (
     global_settings_after_update,
     plan_airflow_profile_updates,
     plan_comfort_mode_update,
+    plan_delay_overrun_updates,
     plan_humidity_response_updates,
     plan_sensor_threshold_updates,
     preserve_unknown_silent_hour_slot,
@@ -266,6 +268,12 @@ class MultihomeDevice:
         """Return whether Comfort mode writes are physically validated."""
 
         return COMFORT_MODE_FIELDS <= self.writable_installer_fields
+
+    @property
+    def supports_delay_overrun_configuration(self) -> bool:
+        """Return whether paired LS timers are exact-identity candidates."""
+
+        return DELAY_OVERRUN_FIELDS <= self.configurable_installer_fields
 
     @property
     def supports_silent_hours_management(self) -> bool:
@@ -591,6 +599,41 @@ class MultihomeDevice:
                     "global settings must be read successfully before an update"
                 )
             plan = plan_comfort_mode_update(confirmed, enabled=enabled)
+            result = confirmed
+            for field, value in plan:
+                result = await self._set_global_setting_locked(field, value)
+            return result
+
+    async def set_delay_overrun(
+        self,
+        ble_device: BLEDevice,
+        *,
+        delay_enabled: bool,
+        delay_minutes: int,
+        overrun_enabled: bool,
+        overrun_minutes: int,
+    ) -> GlobalSettings:
+        """Apply guarded paired LS timers with exact per-field readback."""
+
+        if not self.supports_delay_overrun_configuration:
+            raise DeviceError(
+                "delay/overrun configuration is not enabled for this model, "
+                "firmware, and hardware"
+            )
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            confirmed = self._confirmed_global_settings
+            if confirmed is None or not self._global_settings_write_ready:
+                raise GlobalSettingsUnavailableError(
+                    "global settings must be read successfully before an update"
+                )
+            plan = plan_delay_overrun_updates(
+                confirmed,
+                delay_enabled=delay_enabled,
+                delay_minutes=delay_minutes,
+                overrun_enabled=overrun_enabled,
+                overrun_minutes=overrun_minutes,
+            )
             result = confirmed
             for field, value in plan:
                 result = await self._set_global_setting_locked(field, value)

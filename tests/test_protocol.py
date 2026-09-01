@@ -45,6 +45,7 @@ from custom_components.ventaxia_multihome.protocol import (
     global_settings_after_update,
     plan_airflow_profile_updates,
     plan_comfort_mode_update,
+    plan_delay_overrun_updates,
     plan_humidity_response_updates,
     plan_sensor_threshold_updates,
     reassemble_fragments,
@@ -1018,3 +1019,65 @@ def test_silent_hour_rejects_malformed_table_items(payload: bytes) -> None:
 
     # Assert - ambiguous or unsupported response forms are rejected.
     assert raised.value
+
+def test_delay_overrun_plan_preserves_valid_paired_intermediates() -> None:
+    """Paired timers use safe ordering when one pair enables and one disables."""
+
+    # Arrange - start with Delay disabled, Overrun enabled, and both at ten minutes.
+    settings = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+
+    # Act - enable Delay at 11 minutes and disable Overrun at 12 minutes.
+    result = plan_delay_overrun_updates(
+        settings,
+        delay_enabled=True,
+        delay_minutes=11,
+        overrun_enabled=False,
+        overrun_minutes=12,
+    )
+
+    # Assert - timeout precedes enabling while disabling precedes timeout mutation.
+    assert result == (
+        (GlobalSettingField.DELAY_TIMEOUT_MINUTES, 11),
+        (GlobalSettingField.DELAY_ENABLED, True),
+        (GlobalSettingField.OVERRUN_ENABLED, False),
+        (GlobalSettingField.OVERRUN_TIMEOUT_MINUTES, 12),
+    )
+
+
+@pytest.mark.parametrize(
+    ("delay_enabled", "delay_minutes", "overrun_enabled", "overrun_minutes"),
+    [
+        (1, 10, True, 10),
+        (True, 0, True, 10),
+        (True, 61, True, 10),
+        (True, 10, False, 1.5),
+    ],
+)
+def test_delay_overrun_plan_rejects_invalid_candidate_values(
+    delay_enabled,
+    delay_minutes,
+    overrun_enabled,
+    overrun_minutes,
+) -> None:
+    """Invalid booleans and out-of-range timers fail before packet encoding."""
+
+    # Arrange - start from a complete, strictly decoded timer snapshot.
+    settings = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+
+    # Act / Assert - the guarded planner rejects the unsafe profile.
+    with pytest.raises(ProtocolError):
+        plan_delay_overrun_updates(
+            settings,
+            delay_enabled=delay_enabled,
+            delay_minutes=delay_minutes,
+            overrun_enabled=overrun_enabled,
+            overrun_minutes=overrun_minutes,
+        )

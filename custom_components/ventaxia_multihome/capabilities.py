@@ -170,13 +170,13 @@ INSTALLER_FIELD_DEFINITIONS: Final = {
     GlobalSettingField.OVERRUN_TIMEOUT_MINUTES: _field(
         GlobalSettingField.OVERRUN_TIMEOUT_MINUTES,
         unit="minutes",
-        dependencies="requires overrun_enabled; safe UI range is unvalidated",
+        dependencies="paired with overrun_enabled; official range 1..60 minutes",
         risk=InstallerFieldRisk.WIRED_INPUT,
     ),
     GlobalSettingField.DELAY_TIMEOUT_MINUTES: _field(
         GlobalSettingField.DELAY_TIMEOUT_MINUTES,
         unit="minutes",
-        dependencies="requires delay_enabled; safe UI range is unvalidated",
+        dependencies="paired with delay_enabled; official range 1..60 minutes",
         risk=InstallerFieldRisk.WIRED_INPUT,
     ),
     GlobalSettingField.LS1_ACTION: _field(
@@ -355,6 +355,15 @@ HUMIDITY_RESPONSE_FIELDS: Final = frozenset(
 
 COMFORT_MODE_FIELDS: Final = frozenset({GlobalSettingField.COMFORT_ENABLED})
 
+DELAY_OVERRUN_FIELDS: Final = frozenset(
+    {
+        GlobalSettingField.DELAY_ENABLED,
+        GlobalSettingField.OVERRUN_ENABLED,
+        GlobalSettingField.OVERRUN_TIMEOUT_MINUTES,
+        GlobalSettingField.DELAY_TIMEOUT_MINUTES,
+    }
+)
+
 VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
     InstallerWriteProfile(
         model_number=10,
@@ -376,7 +385,19 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
     ),
 )
 
-VALIDATION_CANDIDATE_WRITE_PROFILES: Final = ()
+VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
+    InstallerWriteProfile(
+        model_number=10,
+        firmware="2.03.08",
+        hardware="01.00",
+        fields=DELAY_OVERRUN_FIELDS,
+        evidence=(
+            "official Multihome manual documents LS-input Delay On and Overrun "
+            "flags with paired 1..60 minute timers; packet-136 field mapping is "
+            "recovered; physical change/readback/restore remains pending"
+        ),
+    ),
+)
 
 
 def model_capability(model_number: int | None) -> ModelCapability | None:

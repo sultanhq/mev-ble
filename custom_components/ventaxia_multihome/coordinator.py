@@ -112,6 +112,14 @@ class ComfortModeConfigurationUnavailableError(HomeAssistantError):
     """Raised when no current record permits a Comfort mode update."""
 
 
+class DelayOverrunConfigurationNotSupportedError(HomeAssistantError):
+    """Raised when delay/overrun writes are not enabled."""
+
+
+class DelayOverrunConfigurationUnavailableError(HomeAssistantError):
+    """Raised when no current record permits a delay/overrun update."""
+
+
 class SilentHoursNotSupportedError(HomeAssistantError):
     """Raised when schedule management is not validated for the model."""
 
@@ -473,6 +481,53 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             self.async_set_update_error(err)
             raise HomeAssistantError(
                 f"Unable to update Multihome Comfort mode: {err}"
+            ) from err
+        self.async_set_updated_data(replace(self.data, global_settings=settings))
+
+    async def async_set_delay_overrun(
+        self,
+        *,
+        delay_enabled: bool,
+        delay_minutes: int,
+        overrun_enabled: bool,
+        overrun_minutes: int,
+    ) -> None:
+        """Apply and publish confirmed LS delay/overrun timer state."""
+
+        if not self.device.supports_delay_overrun_configuration:
+            raise DelayOverrunConfigurationNotSupportedError(
+                "Delay/overrun configuration is not enabled for this model, "
+                "firmware, and hardware"
+            )
+        if (
+            self.data is None
+            or not self.last_update_success
+            or not self.device.global_settings_write_ready
+        ):
+            raise DelayOverrunConfigurationUnavailableError(
+                "Current global settings are unavailable; wait for a successful poll"
+            )
+        try:
+            settings = await self.device.set_delay_overrun(
+                self._ble_device(),
+                delay_enabled=delay_enabled,
+                delay_minutes=delay_minutes,
+                overrun_enabled=overrun_enabled,
+                overrun_minutes=overrun_minutes,
+            )
+        except GlobalSettingsUnavailableError as err:
+            raise DelayOverrunConfigurationUnavailableError(str(err)) from err
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            await self.device.disconnect()
+            self.async_set_update_error(err)
+            raise HomeAssistantError(
+                f"Unable to update Multihome delay/overrun timers: {err}"
             ) from err
         self.async_set_updated_data(replace(self.data, global_settings=settings))
 

@@ -39,10 +39,15 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_CONFIRM_AIRFLOW,
     CONF_CONFIRM_CALIBRATION,
     CONF_CONFIRM_COMFORT_MODE,
+    CONF_CONFIRM_DELAY_OVERRUN,
     CONF_CONFIRM_HUMIDITY_RESPONSE,
     CONF_CONFIRM_SENSOR_THRESHOLDS,
     CONF_CONFIRM_SILENT_HOUR_DELETE,
+    CONF_DELAY_ENABLED,
+    CONF_DELAY_TIMEOUT,
     CONF_HUMIDITY_THRESHOLD,
+    CONF_OVERRUN_ENABLED,
+    CONF_OVERRUN_TIMEOUT,
     CONF_RAPID_RESPONSE,
     CONF_REFERENCE_PPM,
     CONF_REFERENCE_SENSORS,
@@ -97,6 +102,7 @@ def _options_entry(
     supports_thresholds: bool = False,
     supports_humidity_response: bool = False,
     supports_comfort_mode: bool = False,
+    supports_delay_overrun: bool = False,
     airflow_available: bool = True,
     supports_schedules: bool = False,
     schedules_available: bool = True,
@@ -119,6 +125,7 @@ def _options_entry(
             supports_sensor_threshold_configuration=supports_thresholds,
             supports_humidity_response_configuration=supports_humidity_response,
             supports_comfort_mode_configuration=supports_comfort_mode,
+            supports_delay_overrun_configuration=supports_delay_overrun,
             global_settings_write_ready=airflow_available,
             supports_silent_hours_management=supports_schedules,
             silent_hours_write_ready=schedules_available,
@@ -134,6 +141,7 @@ def _options_entry(
         async_set_sensor_thresholds=AsyncMock(),
         async_set_humidity_response=AsyncMock(),
         async_set_comfort_mode=AsyncMock(),
+        async_set_delay_overrun=AsyncMock(),
         async_set_silent_hour=AsyncMock(),
         async_delete_silent_hour=AsyncMock(),
     )
@@ -204,6 +212,17 @@ async def _open_comfort_mode_options(hass, entry):
     assert initial["step_id"] == "init"
     return await hass.config_entries.options.async_configure(
         initial["flow_id"], {"next_step_id": "comfort_mode"}
+    )
+
+
+async def _open_delay_overrun_options(hass, entry):
+    """Open the guarded paired LS timer validation screen."""
+
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    assert initial["type"] is data_entry_flow.FlowResultType.MENU
+    assert initial["step_id"] == "init"
+    return await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "delay_overrun"}
     )
 
 
@@ -1556,3 +1575,96 @@ async def test_silent_hours_delete_rejects_semantic_table_change(hass) -> None:
     assert rejected["type"] is data_entry_flow.FlowResultType.ABORT
     assert rejected["reason"] == "silent_hours_changed"
     coordinator.async_delete_silent_hour.assert_not_awaited()
+
+@pytest.mark.asyncio
+async def test_delay_overrun_requires_review_and_confirmation(hass) -> None:
+    """Paired LS timers are written only after explicit review and confirmation."""
+
+    # Arrange - open the exact-identity candidate with Delay off and Overrun on.
+    entry, coordinator = _options_entry(hass, supports_delay_overrun=True)
+    form = await _open_delay_overrun_options(hass, entry)
+
+    # Act - request safe paired changes, decline once, then confirm.
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {
+            CONF_DELAY_ENABLED: True,
+            CONF_DELAY_TIMEOUT: 11,
+            CONF_OVERRUN_ENABLED: False,
+            CONF_OVERRUN_TIMEOUT: 12,
+        },
+    )
+    declined = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_DELAY_OVERRUN: False}
+    )
+    result = await hass.config_entries.options.async_configure(
+        declined["flow_id"], {CONF_CONFIRM_DELAY_OVERRUN: True}
+    )
+
+    # Assert - no Bluetooth mutation precedes confirmation and all values are passed.
+    assert form["step_id"] == "delay_overrun"
+    assert confirm["step_id"] == "delay_overrun_confirm"
+    assert declined["errors"] == {"base": "delay_overrun_confirmation_required"}
+    coordinator.async_set_delay_overrun.assert_awaited_once_with(
+        delay_enabled=True,
+        delay_minutes=11,
+        overrun_enabled=False,
+        overrun_minutes=12,
+    )
+    assert result["step_id"] == "delay_overrun_result"
+
+
+@pytest.mark.asyncio
+async def test_delay_overrun_rechecks_full_snapshot_before_write(hass) -> None:
+    """Any intervening packet-137 change invalidates the paired timer review."""
+
+    # Arrange - review one valid timer change on the exact candidate identity.
+    entry, coordinator = _options_entry(hass, supports_delay_overrun=True)
+    form = await _open_delay_overrun_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {
+            CONF_DELAY_ENABLED: True,
+            CONF_DELAY_TIMEOUT: 10,
+            CONF_OVERRUN_ENABLED: True,
+            CONF_OVERRUN_TIMEOUT: 10,
+        },
+    )
+    changed = bytearray(coordinator.data.global_settings.raw_record)
+    changed[4] += 1
+    coordinator.data.global_settings = decode_global_settings(bytes(changed))
+
+    # Act - confirm after an unrelated installer setting changed.
+    result = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_DELAY_OVERRUN: True}
+    )
+
+    # Assert - the complete snapshot guard aborts before Bluetooth I/O.
+    assert result["step_id"] == "delay_overrun"
+    assert result["errors"] == {"base": "delay_overrun_settings_changed"}
+    coordinator.async_set_delay_overrun.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delay_overrun_rejects_out_of_range_timer(hass) -> None:
+    """The official 1..60 minute range is enforced before review or writes."""
+
+    # Arrange - open the exact-identity paired timer candidate.
+    entry, coordinator = _options_entry(hass, supports_delay_overrun=True)
+    form = await _open_delay_overrun_options(hass, entry)
+
+    # Act - submit a timer beyond the documented maximum.
+    result = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {
+            CONF_DELAY_ENABLED: True,
+            CONF_DELAY_TIMEOUT: 61,
+            CONF_OVERRUN_ENABLED: True,
+            CONF_OVERRUN_TIMEOUT: 10,
+        },
+    )
+
+    # Assert - the flow remains on input and no coordinator write is attempted.
+    assert result["step_id"] == "delay_overrun"
+    assert result["errors"] == {"base": "delay_overrun_invalid"}
+    coordinator.async_set_delay_overrun.assert_not_awaited()

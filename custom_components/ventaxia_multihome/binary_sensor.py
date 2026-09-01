@@ -16,6 +16,8 @@ from .protocol import DIAGNOSTIC_FAULTS, FaultFlag
 
 INSTALLER_FLAG_ENTITIES = (
     ("comfort_enabled", "comfort_mode"),
+    ("delay_enabled", "delay_on"),
+    ("overrun_enabled", "overrun"),
     ("rapid_response_enabled", "rapid_humidity_response"),
     ("ambient_response_enabled", "ambient_humidity_response"),
 )

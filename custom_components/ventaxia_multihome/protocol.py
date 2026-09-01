@@ -27,6 +27,8 @@ GLOBAL_SETTINGS_SIZE: Final = 36
 MIN_GLOBAL_CO2_THRESHOLD: Final = 0
 MAX_GLOBAL_CO2_THRESHOLD: Final = 2000
 GLOBAL_CO2_THRESHOLD_STEP: Final = 10
+MIN_GLOBAL_TIMER_MINUTES: Final = 1
+MAX_GLOBAL_TIMER_MINUTES: Final = 60
 SILENT_HOUR_SLOT_COUNT: Final = 6
 SILENT_HOUR_RECORD_SIZE: Final = 9
 SILENT_HOUR_TABLE_ITEM_SIZE: Final = 13
@@ -871,10 +873,16 @@ GLOBAL_SETTING_FIELD_SPECS: Final = {
         "overrun_enabled", 8, 0, 1, boolean=True
     ),
     GlobalSettingField.OVERRUN_TIMEOUT_MINUTES: GlobalSettingFieldSpec(
-        "overrun_timeout_minutes", 17, 0, 0xFF
+        "overrun_timeout_minutes",
+        17,
+        MIN_GLOBAL_TIMER_MINUTES,
+        MAX_GLOBAL_TIMER_MINUTES,
     ),
     GlobalSettingField.DELAY_TIMEOUT_MINUTES: GlobalSettingFieldSpec(
-        "delay_timeout_minutes", 18, 0, 0xFF
+        "delay_timeout_minutes",
+        18,
+        MIN_GLOBAL_TIMER_MINUTES,
+        MAX_GLOBAL_TIMER_MINUTES,
     ),
     GlobalSettingField.LS1_ACTION: GlobalSettingFieldSpec("ls1_action", 19, 0, 0xFF),
     GlobalSettingField.LS2_ACTION: GlobalSettingFieldSpec("ls2_action", 20, 0, 0xFF),
@@ -1285,6 +1293,77 @@ def plan_comfort_mode_update(
     if settings.comfort_enabled == enabled:
         return ()
     return ((GlobalSettingField.COMFORT_ENABLED, enabled),)
+
+
+def plan_delay_overrun_updates(
+    settings: GlobalSettings,
+    *,
+    delay_enabled: bool,
+    delay_minutes: int,
+    overrun_enabled: bool,
+    overrun_minutes: int,
+) -> tuple[tuple[GlobalSettingField, int | bool], ...]:
+    """Plan paired LS timer writes without invalid enabled intermediates."""
+
+    if not isinstance(delay_enabled, bool) or not isinstance(overrun_enabled, bool):
+        raise ProtocolError("delay and overrun enabled values must be boolean")
+    for name, value in (
+        ("delay", delay_minutes),
+        ("overrun", overrun_minutes),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ProtocolError(f"{name} timeout requires whole minutes")
+        if not MIN_GLOBAL_TIMER_MINUTES <= value <= MAX_GLOBAL_TIMER_MINUTES:
+            raise ProtocolError(
+                f"{name} timeout must be "
+                f"{MIN_GLOBAL_TIMER_MINUTES}..{MAX_GLOBAL_TIMER_MINUTES} minutes"
+            )
+    if settings.delay_enabled is None or settings.overrun_enabled is None:
+        raise ProtocolError("current delay or overrun enabled value is invalid")
+    if not (
+        MIN_GLOBAL_TIMER_MINUTES
+        <= settings.delay_timeout_minutes
+        <= MAX_GLOBAL_TIMER_MINUTES
+        and MIN_GLOBAL_TIMER_MINUTES
+        <= settings.overrun_timeout_minutes
+        <= MAX_GLOBAL_TIMER_MINUTES
+    ):
+        raise ProtocolError("current delay or overrun timeout is outside 1..60 minutes")
+
+    updates: list[tuple[GlobalSettingField, int | bool]] = []
+    pairs = (
+        (
+            GlobalSettingField.DELAY_ENABLED,
+            GlobalSettingField.DELAY_TIMEOUT_MINUTES,
+            settings.delay_enabled,
+            settings.delay_timeout_minutes,
+            delay_enabled,
+            delay_minutes,
+        ),
+        (
+            GlobalSettingField.OVERRUN_ENABLED,
+            GlobalSettingField.OVERRUN_TIMEOUT_MINUTES,
+            settings.overrun_enabled,
+            settings.overrun_timeout_minutes,
+            overrun_enabled,
+            overrun_minutes,
+        ),
+    )
+    for (
+        enabled_field,
+        timeout_field,
+        current_enabled,
+        current_minutes,
+        desired_enabled,
+        desired_minutes,
+    ) in pairs:
+        if current_enabled and not desired_enabled:
+            updates.append((enabled_field, False))
+        if current_minutes != desired_minutes:
+            updates.append((timeout_field, desired_minutes))
+        if not current_enabled and desired_enabled:
+            updates.append((enabled_field, True))
+    return tuple(updates)
 
 
 def decode_faults(mask: int) -> tuple[FaultFlag, ...]:

@@ -22,6 +22,8 @@ def test_installer_boolean_entities_are_disabled_diagnostics() -> None:
     # Arrange - construct both coordinator-backed response entities.
     settings = SimpleNamespace(
         comfort_enabled=True,
+        delay_enabled=False,
+        overrun_enabled=True,
         rapid_response_enabled=True,
         ambient_response_enabled=False,
     )
@@ -38,7 +40,7 @@ def test_installer_boolean_entities_are_disabled_diagnostics() -> None:
     values = tuple(entity.is_on for entity in entities)
 
     # Assert - values are read-only diagnostics and disabled until user-enabled.
-    assert values == (True, True, False)
+    assert values == (True, False, True, True, False)
     assert all(
         entity.entity_category is EntityCategory.DIAGNOSTIC
         and entity.entity_registry_enabled_default is False
