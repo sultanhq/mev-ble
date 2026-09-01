@@ -169,7 +169,7 @@
       "self_reference": "The MEV cannot use its own CO₂ entity as a calibration reference."
     },
     "abort": {
-      "airflow_not_supported": "Airflow configuration is not validated for this model. No setting was changed.",
+      "airflow_not_supported": "Airflow configuration is not validated for this model, firmware, and hardware. No setting was changed.",
       "global_settings_unavailable": "Current settings are unavailable or not yet confirmed. No setting was changed.",
       "silent_hours_not_supported": "Silent-hours management is not validated for this model. No schedule was changed.",
       "silent_hours_unavailable": "The complete six-slot schedule table is unavailable or not yet confirmed. No schedule was changed.",

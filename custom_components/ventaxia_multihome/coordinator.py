@@ -293,7 +293,8 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
 
         if not self.device.supports_global_airflow_configuration:
             raise AirflowConfigurationNotSupportedError(
-                "Global airflow configuration is not validated for this model"
+                "Global airflow configuration is not validated for this model, "
+                "firmware, and hardware"
             )
         if (
             self.data is None

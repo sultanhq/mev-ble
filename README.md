@@ -83,8 +83,8 @@ Detailed instructions:
 - Guarded internal CO₂ calibration for validated CO₂-equipped models, using
   either documented fresh-air exposure or trusted Home Assistant references
 - Lossless global-settings snapshots in redacted diagnostics
-- Guarded four-level airflow commissioning for validated models, with exact
-  readback and explicit review
+- Guarded four-level airflow commissioning for a validated device identity,
+  with exact readback and explicit review
 - Redacted Home Assistant diagnostics
 
 The physically inspected MEV remote exposes speed levels 1–4 and timers for 30,
@@ -93,9 +93,10 @@ integration therefore does not expose inferred ventilation-mode power commands.
 Cancel override is retained as a separate official-app protocol operation; it
 returns control to the unit and is not a power action. Internal CO₂ calibration
 is available only through a guarded Configure flow on validated CO₂-equipped
-models. Validated four-speed models can configure Low, Normal, Boost, and Purge
-through a guarded Configure flow. These values are commissioned motor-speed
-percentages, not measured RPM; the flow applies documented limits, preserves
+models. The exact validated model 10 / firmware 2.03.08 / hardware 01.00
+identity can configure Low, Normal, Boost, and Purge through a guarded Configure
+flow. These values are commissioned motor-speed percentages, not measured RPM;
+the flow applies documented limits, preserves
 strict ordering, and requires exact immediate readback. Environmental options,
 resets and unvalidated installer controls remain unavailable. Version 0.5 adds
 guarded six-slot silent-hours management for validated model 10 hardware; see
@@ -139,10 +140,10 @@ establish a safe discovery or control path for it.
 Initial testing has used one physical unit advertising as `MEV` through an
 ESPHome proxy. Automatic pairing, fragmented telemetry, and long-running
 connection recovery have been observed on that setup. Guarded airflow
-commissioning is writable only on the physically validated model 10; models 1,
-2 and 9 retain read-only settings diagnostics. Whole-packet transport, other
-model/firmware combinations, telemetry scaling across the full operating range,
-and broader timed-override behaviour still need more hardware reports.
+commissioning is writable only on model 10 / firmware 2.03.08 / hardware 01.00;
+models 1, 2 and 9 retain read-only settings diagnostics. Whole-packet transport,
+other model/firmware combinations, telemetry scaling across the full operating
+range, and broader timed-override behaviour still need more hardware reports.
 The v0.2 speed/timer and Cancel matrix is explicitly tracked in the linked
 validation record. Recovered Off/Stop mode bytes remain offline research and are
 not sent by the Home Assistant integration.

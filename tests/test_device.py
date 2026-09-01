@@ -799,6 +799,9 @@ async def test_global_setting_write_requires_a_current_confirmed_record() -> Non
             raise AssertionError("no readback expected")
 
     device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
     device._client = DeviceClient([])
     device._transport = NoReadTransport()
     device._authenticated = True
@@ -809,6 +812,30 @@ async def test_global_setting_write_requires_a_current_confirmed_record() -> Non
     assert sent == []
     assert device.confirmed_global_settings is None
     assert device.global_settings_write_ready is False
+
+
+@pytest.mark.asyncio
+async def test_global_setting_write_rejects_unvalidated_field_before_io() -> None:
+    """A decoded but unvalidated field cannot reach packet 136."""
+
+    # Arrange - use the validated identity but select a static-analysis-only field.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._client_factory = AsyncMock(side_effect=AssertionError("no I/O expected"))
+
+    # Act - attempt a write whose wire format is known but physically unvalidated.
+    with pytest.raises(DeviceError) as error:
+        await device.set_global_setting(
+            object(),
+            GlobalSettingField.HUMIDITY_THRESHOLD,
+            70,
+        )
+
+    # Assert - the identity-aware field guard rejects it before Bluetooth I/O.
+    assert "model, firmware, and hardware" in str(error.value)
+    device._client_factory.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -838,6 +865,9 @@ async def test_global_setting_write_uses_target_zero_and_exact_readback() -> Non
             )
 
     device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
     device._client = DeviceClient([])
     device._transport = ConfirmingTransport()
     device._authenticated = True
@@ -890,6 +920,9 @@ async def test_global_setting_mismatch_retains_last_confirmed_snapshot() -> None
             )
 
     device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
     device._client = DeviceClient([])
     device._transport = MismatchTransport()
     device._authenticated = True
@@ -928,6 +961,9 @@ async def test_global_setting_failure_retains_confirmed_snapshot(
             raise ConnectionError("device disconnected during readback")
 
     device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
     device._client = DeviceClient([])
     device._transport = FailingTransport()
     device._authenticated = True
@@ -943,29 +979,39 @@ async def test_global_setting_failure_retains_confirmed_snapshot(
 
 
 @pytest.mark.parametrize(
-    ("model", "supported"),
+    ("model", "firmware", "hardware", "supported"),
     [
-        ("1", False),
-        ("2", False),
-        ("9", False),
-        ("10", True),
-        ("11", False),
-        (None, False),
+        ("1", "2.03.08", "01.00", False),
+        ("2", "2.03.08", "01.00", False),
+        ("9", "2.03.08", "01.00", False),
+        ("10", "2.03.08", "01.00", True),
+        ("10", "2.03.09", "01.00", False),
+        ("10", "2.03.08", "01.01", False),
+        ("10", None, "01.00", False),
+        ("11", "2.03.08", "01.00", False),
+        (None, "2.03.08", "01.00", False),
     ],
 )
-def test_global_airflow_capability_requires_physical_model_validation(
-    model: str | None, supported: bool
+def test_global_airflow_capability_requires_exact_validated_identity(
+    model: str | None,
+    firmware: str | None,
+    hardware: str | None,
+    supported: bool,
 ) -> None:
-    """Only the physically validated MEV model exposes stable commissioning."""
+    """Only the physically validated identity exposes stable commissioning."""
 
-    # Arrange - apply one official or unknown model number.
+    # Arrange - apply one exact or partially matching device identity.
     device = MultihomeDevice("AA", "MEV", 1234)
-    device.device_info = MultihomeDeviceInfo(model=model)
+    device.device_info = MultihomeDeviceInfo(
+        model=model,
+        firmware=firmware,
+        hardware=hardware,
+    )
 
     # Act - evaluate the user-facing capability gate.
     result = device.supports_global_airflow_configuration
 
-    # Assert - model 10 passes while static-only and unknown models stay hidden.
+    # Assert - only the identity backed by physical evidence passes.
     assert result is supported
 
 
@@ -1005,7 +1051,9 @@ async def test_airflow_profile_updates_each_field_with_exact_readback() -> None:
             )
 
     device = MultihomeDevice("AA", "MEV", 1234)
-    device.device_info = MultihomeDeviceInfo(model="10")
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
     device._client = DeviceClient([])
     device._transport = ApplyingTransport()
     device._authenticated = True

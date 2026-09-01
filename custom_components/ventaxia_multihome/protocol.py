@@ -850,7 +850,7 @@ class GlobalSettingFieldSpec:
     co2: bool = False
 
 
-_GLOBAL_SETTING_FIELD_SPECS: Final = {
+GLOBAL_SETTING_FIELD_SPECS: Final = {
     GlobalSettingField.SPEED_LOW: GlobalSettingFieldSpec("speed_low", 0, 1, 97),
     GlobalSettingField.SPEED_MEDIUM: GlobalSettingFieldSpec("speed_medium", 1, 2, 98),
     GlobalSettingField.SPEED_BOOST: GlobalSettingFieldSpec("speed_boost", 2, 3, 99),
@@ -1038,7 +1038,7 @@ def encode_global_setting_value(
     """Encode one strictly validated packet 136 field value."""
 
     normalized_field = _normalize_global_setting_field(field)
-    spec = _GLOBAL_SETTING_FIELD_SPECS[normalized_field]
+    spec = GLOBAL_SETTING_FIELD_SPECS[normalized_field]
     if spec.boolean:
         if not isinstance(value, bool):
             raise ProtocolError(f"{spec.attribute} requires a boolean value")
@@ -1081,7 +1081,7 @@ def global_settings_after_update(
     if len(settings.raw_record) != GLOBAL_SETTINGS_SIZE:
         raise ProtocolError("global settings snapshot has an invalid raw record")
     normalized_field = _normalize_global_setting_field(field)
-    spec = _GLOBAL_SETTING_FIELD_SPECS[normalized_field]
+    spec = GLOBAL_SETTING_FIELD_SPECS[normalized_field]
     encoded_value = encode_global_setting_value(normalized_field, value)
     expected = bytearray(settings.raw_record)
     expected[spec.record_offset : spec.record_offset + len(encoded_value)] = (

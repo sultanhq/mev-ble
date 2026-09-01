@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Add a version-controlled installer capability matrix covering all 11 recovered
+  model classifications and all 33 packet-136 field definitions, including
+  encoding, unit, range, dependencies, risk and evidence level.
+- Select installer-write capabilities from the complete device identity. Airflow
+  writes now require the physically validated model 10 / firmware 2.03.08 /
+  hardware 01.00 combination; missing or unvalidated identities expose no
+  installer controls.
+- Route the existing packet-136 airflow write guard through the documented field
+  matrix. All other decoded installer fields remain read-only.
+
 ## [0.5.0] - 2026-09-01
 
 ### Added

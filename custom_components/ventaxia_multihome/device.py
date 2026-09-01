@@ -10,7 +10,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from math import ceil
 from time import monotonic
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING
 
 from .bluetooth import (
     BluetoothClient,
@@ -18,6 +18,11 @@ from .bluetooth import (
     ProtocolTransport,
     WholePacketTransport,
     async_establish_connection,
+)
+from .capabilities import (
+    AIRFLOW_FIELDS,
+    installer_writable_fields,
+    model_capability,
 )
 from .const import (
     DEVICE_INFO_CHARACTERISTICS,
@@ -66,11 +71,6 @@ if TYPE_CHECKING:
     from bleak.backends.device import BLEDevice
 
 _LOGGER = logging.getLogger(__name__)
-
-INTERNAL_CO2_CALIBRATION_MODELS: Final = frozenset({2, 10})
-# Stable writes remain limited to the model with physical packet-136 evidence.
-GLOBAL_AIRFLOW_CONFIGURATION_MODELS: Final = frozenset({10})
-SILENT_HOURS_MODELS: Final = frozenset({10})
 
 ClientFactory = Callable[
     ["BLEDevice", str, Callable[[BluetoothClient], None]],
@@ -202,19 +202,30 @@ class MultihomeDevice:
     def supports_internal_co2_calibration(self) -> bool:
         """Return whether the recovered model map identifies an internal CO2 sensor."""
 
-        return self.model_number in INTERNAL_CO2_CALIBRATION_MODELS
+        capability = model_capability(self.model_number)
+        return bool(capability and capability.internal_co2)
+
+    @property
+    def writable_installer_fields(self) -> frozenset[GlobalSettingField]:
+        """Return fields validated for this exact device identity."""
+
+        return installer_writable_fields(
+            self.model_number,
+            self.device_info.firmware,
+            self.device_info.hardware,
+        )
 
     @property
     def supports_global_airflow_configuration(self) -> bool:
-        """Return whether the official model map identifies four settable speeds."""
+        """Return whether all four airflow writes are validated for this identity."""
 
-        return self.model_number in GLOBAL_AIRFLOW_CONFIGURATION_MODELS
+        return AIRFLOW_FIELDS <= self.writable_installer_fields
 
     @property
     def supports_silent_hours_management(self) -> bool:
-        """Return whether silent-hours writes are enabled for this RC model."""
+        """Return whether silent-hours writes are enabled for this stable model."""
 
-        return self.model_number in SILENT_HOURS_MODELS
+        return self.model_number == 10
 
     @property
     def confirmed_global_settings(self) -> GlobalSettings | None:
@@ -436,6 +447,15 @@ class MultihomeDevice:
     ) -> GlobalSettings:
         """Update one validated field and accept only an exact fresh readback."""
 
+        if (
+            isinstance(field, bool)
+            or not isinstance(field, int)
+            or field not in self.writable_installer_fields
+        ):
+            raise DeviceError(
+                "global setting is not validated for this model, firmware, and "
+                "hardware"
+            )
         async with self._operation_lock:
             await self.connect(ble_device)
             return await self._set_global_setting_locked(field, value)
@@ -453,7 +473,8 @@ class MultihomeDevice:
 
         if not self.supports_global_airflow_configuration:
             raise DeviceError(
-                "global airflow configuration is not validated for this model"
+                "global airflow configuration is not validated for this model, "
+                "firmware, and hardware"
             )
         async with self._operation_lock:
             await self.connect(ble_device)
