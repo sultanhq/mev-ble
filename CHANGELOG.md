@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0-rc.6
+
+- Compare the reviewed six-slot silent-hours table by slot index and actual
+  nine-byte schedule record or empty state, so changing packet metadata and CRC
+  values cannot falsely block confirmation before a write.
+- Retain the existing concurrency guard for genuine schedule changes and keep
+  the original raw packet-49 responses available in diagnostics.
+
 ## 0.5.0-rc.4
 
 - Decode the model-10 firmware's 14-byte packet-49 response only when its final
