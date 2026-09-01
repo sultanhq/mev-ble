@@ -102,8 +102,8 @@ def test_field_matrix_separates_wire_bounds_from_physical_write_evidence() -> No
         GlobalSettingField.CO2_BOOST_THRESHOLD: (22, "ppm", 0, 2000, 10),
     }
     assert low.evidence is CapabilityEvidence.PHYSICAL_VALIDATION
-    assert humidity.evidence is CapabilityEvidence.STATIC_ANALYSIS
-    assert co2.evidence is CapabilityEvidence.STATIC_ANALYSIS
+    assert humidity.evidence is CapabilityEvidence.PHYSICAL_VALIDATION
+    assert co2.evidence is CapabilityEvidence.PHYSICAL_VALIDATION
 
 
 def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
@@ -121,9 +121,9 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     # Act - resolve each identity through the production capability selector.
     resolved = [installer_writable_fields(*identity) for identity in identities]
 
-    # Assert - only the exact evidence-backed identity exposes the four fields.
+    # Assert - only the exact evidence-backed identity exposes the seven fields.
     assert resolved == [
-        AIRFLOW_FIELDS,
+        AIRFLOW_FIELDS | SENSOR_THRESHOLD_FIELDS,
         frozenset(),
         frozenset(),
         frozenset(),
@@ -131,8 +131,8 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     ]
 
 
-def test_sensor_threshold_candidates_require_the_exact_validation_identity() -> None:
-    """Prerelease threshold writes cannot leak to near-match devices."""
+def test_no_installer_fields_remain_in_prerelease_validation() -> None:
+    """Stable promotion leaves no threshold fields marked as experimental."""
 
     # Arrange - include the intended unit plus firmware, hardware, and model misses.
     identities = [
@@ -147,9 +147,9 @@ def test_sensor_threshold_candidates_require_the_exact_validation_identity() -> 
         installer_validation_candidate_fields(*identity) for identity in identities
     ]
 
-    # Assert - only the exact test identity can expose the guarded RC flow.
+    # Assert - physical restoration promoted all three fields to stable evidence.
     assert resolved == [
-        SENSOR_THRESHOLD_FIELDS,
+        frozenset(),
         frozenset(),
         frozenset(),
         frozenset(),

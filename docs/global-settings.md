@@ -90,14 +90,7 @@ The only installer write profile currently enabled is:
 
 | Model | Firmware | Hardware | Writable fields | Evidence |
 | ---: | --- | --- | --- | --- |
-| 10 | `2.03.08` | `01.00` | IDs 0–3, airflow percentages | Fragmented packet-136 writes with exact packet-137 readback and restored baseline |
-
-The `0.6.1-rc.1` hardware-validation candidate is deliberately tracked
-separately from that stable field set:
-
-| Model | Firmware | Hardware | Candidate fields | Evidence |
-| ---: | --- | --- | --- | --- |
-| 10 | `2.03.08` | `01.00` | ID 5 humidity; IDs 21–22 CO₂ thresholds | Official-app packet-136 mapping and exact packet-137 codec; physical write/readback/restore pending |
+| 10 | `2.03.08` | `01.00` | IDs 0–3 airflow; ID 5 humidity; IDs 21–22 CO₂ thresholds | Fragmented packet-136 writes with exact packet-137 readback and restored baselines |
 
 All three identity values must match. Missing identity data, a newer firmware, or
 a different hardware revision exposes no installer controls until separately
@@ -117,7 +110,7 @@ are proven.
 | 2 | `speed_boost` | 2 | UInt8, % | 3–99, step 1 | `low < normal < boost < purge` | Ventilation | Physical; exact validated identity only |
 | 3 | `speed_purge` | 3 | UInt8, % | 4–100, step 1 | `low < normal < boost < purge` | Ventilation | Physical; exact validated identity only |
 | 4 | `boost_minimum` | 4 | UInt8, % | 0–100 | Model-specific interaction | Ventilation | Static; read-only |
-| 5 | `humidity_threshold` | 5 | UInt8, %RH | 0–100 | Sensor and response-mode semantics | Sensor control | Static; guarded RC candidate on exact identity |
+| 5 | `humidity_threshold` | 5 | UInt8, %RH | 0–100 | Humidity demand threshold | Sensor control | Physical; exact validated identity only |
 | 6 | `comfort_enabled` | 6 | strict UInt8 boolean | 0/1 | Model-specific interaction | Comfort | Static; read-only |
 | 7 | `delay_enabled` | 7 | strict UInt8 boolean | 0/1 | Paired with ID 10 | Wired input | Static; read-only |
 | 8 | `overrun_enabled` | 8 | strict UInt8 boolean | 0/1 | Paired with ID 9 | Wired input | Static; read-only |
@@ -129,7 +122,7 @@ are proven.
 | 16 | `low_temperature_enabled` | 11 | strict UInt8 boolean | 0/1 | Paired thresholds and actions | Sensor control | Static; read-only |
 | 17–18 | `low_threshold_action`, `high_threshold_action` | 12–13 | UInt8 action code | 0–255 | Temperature action enum | Sensor control | Static; read-only |
 | 19–20 | `low_temperature_threshold`, `high_temperature_threshold` | 14–15 | UInt8, unit unknown | 0–255 | Unit, ordering and safe range | Sensor control | Static; read-only |
-| 21–22 | `co2_boost_threshold`, `co2_purge_threshold` | 22, 24 | UInt16LE value ÷ 10, ppm | 0–2000, step 10 | CO₂ model; `boost < purge` | Sensor control | Static; guarded RC candidates on exact identity |
+| 21–22 | `co2_boost_threshold`, `co2_purge_threshold` | 22, 24 | UInt16LE value ÷ 10, ppm | 0–2000, step 10 | CO₂ model; `boost < purge` | Sensor control | Physical; exact validated identity only |
 | 23–24 | analogue input 1 low/high actions | 28–29 | UInt8 action code | 0–255 | Installed wiring and action enum | Wired input | Static; read-only |
 | 25–26 | analogue input 1 low/high values | 26–27 | UInt8, scaling unknown | 0–100 | Scaling and paired actions | Wired input | Static; read-only |
 | 27–28 | analogue input 2 low/high actions | 32–33 | UInt8 action code | 0–255 | Installed wiring and action enum | Wired input | Static; read-only |
@@ -155,3 +148,9 @@ The four-field operation returned exact readback with write readiness retained.
 Confirmation while the settings snapshot was unavailable was rejected before a
 write with “No setting was changed.” Restoring the proxy recovered polling and
 the configuration flow automatically, and a later update worked normally.
+
+The threshold flow was then physically validated on the same unit. It changed
+humidity/CO₂ boost/CO₂ purge from `81/1500/1750` to `82/1550/1800`, received
+exact fresh readback for all three fields, and restored `81/1500/1750` with
+another exact readback. The restored values match the original packet-137
+snapshot.

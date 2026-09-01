@@ -77,7 +77,7 @@
       },
       "sensor_thresholds": {
         "title": "Configure CO₂ and humidity thresholds",
-        "description": "Current thresholds: **{current_thresholds}**\n\nThese values control when humidity and internal CO₂ demand can request higher ventilation. They are installer settings, not the current sensor readings. CO₂ Boost must remain below CO₂ Purge.\n\nThis prerelease flow is restricted to the exact model 10 / firmware 2.03.08 / hardware 01.00 validation identity. Record the current values and change them only for controlled testing.",
+        "description": "Current thresholds: **{current_thresholds}**\n\nThese values control when humidity and internal CO₂ demand can request higher ventilation. They are installer settings, not the current sensor readings. CO₂ Boost must remain below CO₂ Purge.\n\nWrites are enabled only for the physically validated model 10 / firmware 2.03.08 / hardware 01.00 identity. Record the current values before making an installer change.",
         "data": {
           "humidity_threshold": "Humidity threshold",
           "co2_boost_threshold": "CO₂ boost threshold",
@@ -93,7 +93,7 @@
       },
       "sensor_thresholds_result": {
         "title": "CO₂ and humidity thresholds confirmed",
-        "description": "The installed unit returned **{new_thresholds}** through exact fresh settings readback. For validation, restore the original values through the same flow after confirming the temporary values appear correctly."
+        "description": "The installed unit returned **{new_thresholds}** through exact fresh settings readback. The complete threshold profile is confirmed."
       },
       "silent_hours": {
         "title": "Manage silent hours",

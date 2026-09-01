@@ -141,8 +141,9 @@ INSTALLER_FIELD_DEFINITIONS: Final = {
     GlobalSettingField.HUMIDITY_THRESHOLD: _field(
         GlobalSettingField.HUMIDITY_THRESHOLD,
         unit="percent_rh",
-        dependencies="humidity sensor and response mode semantics are unvalidated",
+        dependencies="humidity-capable model; trigger behavior was not exercised",
         risk=InstallerFieldRisk.SENSOR_CONTROL,
+        evidence=CapabilityEvidence.PHYSICAL_VALIDATION,
     ),
     GlobalSettingField.COMFORT_ENABLED: _field(
         GlobalSettingField.COMFORT_ENABLED,
@@ -238,16 +239,18 @@ INSTALLER_FIELD_DEFINITIONS: Final = {
         encoding="uint16_le_div10",
         unit="ppm",
         step=10,
-        dependencies="CO2-capable model and threshold ordering are unvalidated",
+        dependencies="CO2-capable model and boost < purge",
         risk=InstallerFieldRisk.SENSOR_CONTROL,
+        evidence=CapabilityEvidence.PHYSICAL_VALIDATION,
     ),
     GlobalSettingField.CO2_PURGE_THRESHOLD: _field(
         GlobalSettingField.CO2_PURGE_THRESHOLD,
         encoding="uint16_le_div10",
         unit="ppm",
         step=10,
-        dependencies="CO2-capable model and threshold ordering are unvalidated",
+        dependencies="CO2-capable model and boost < purge",
         risk=InstallerFieldRisk.SENSOR_CONTROL,
+        evidence=CapabilityEvidence.PHYSICAL_VALIDATION,
     ),
     GlobalSettingField.ANALOGUE_INPUT_1_LOW_ACTION: _field(
         GlobalSettingField.ANALOGUE_INPUT_1_LOW_ACTION,
@@ -347,29 +350,16 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
         model_number=10,
         firmware="2.03.08",
         hardware="01.00",
-        fields=AIRFLOW_FIELDS,
+        fields=AIRFLOW_FIELDS | SENSOR_THRESHOLD_FIELDS,
         evidence=(
             "fragmented packet-136 writes with exact packet-137 readback; "
-            "6/8/37/50 -> 7/9/38/51 -> 6/8/37/50"
+            "airflow 6/8/37/50 -> 7/9/38/51 -> 6/8/37/50; "
+            "thresholds 81/1500/1750 -> 82/1550/1800 -> 81/1500/1750"
         ),
     ),
 )
 
-# These fields have a recovered official-app encoding and can be exercised only on
-# the exact unit used for protocol validation. Keep them separate from the stable,
-# physically validated field set until a write/readback/restore cycle succeeds.
-VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
-    InstallerWriteProfile(
-        model_number=10,
-        firmware="2.03.08",
-        hardware="01.00",
-        fields=SENSOR_THRESHOLD_FIELDS,
-        evidence=(
-            "official-app packet-136 mapping with exact packet-137 readback; "
-            "physical write and restore validation pending"
-        ),
-    ),
-)
+VALIDATION_CANDIDATE_WRITE_PROFILES: Final = ()
 
 
 def model_capability(model_number: int | None) -> ModelCapability | None:

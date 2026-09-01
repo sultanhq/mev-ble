@@ -82,24 +82,22 @@ threshold**. Enable them from the device's entity list when an entity is more
 useful than downloaded diagnostics. They report installer thresholds from
 packet 137; they are not duplicates of the current humidity and CO₂ readings.
 
-In `0.6.1-rc.1`, the exact model 10 / firmware 2.03.08 / hardware 01.00
-validation identity also exposes **Configure → Configure CO₂ and humidity
-thresholds**. This is a guarded prerelease hardware-validation flow. It requires
+The physically validated model 10 / firmware 2.03.08 / hardware 01.00 identity
+also exposes **Configure → Configure CO₂ and humidity thresholds**. It requires
 `CO₂ Boost < CO₂ Purge`, uses ten-ppm CO₂ steps, displays the complete current
 and proposed profile, requires explicit confirmation, rejects a stale 36-byte
 snapshot, and rereads packet 137 after every changed field.
 
-Record the three original values before the first test. A failed multi-field
+Record the three original values before changing them. A failed multi-field
 operation can leave earlier individually confirmed fields applied, so reopen the
-flow and inspect the current values before retrying. Restore the original values
-through the same flow after confirming temporary write/readback behavior.
+flow and inspect the current values before retrying.
 
 The application setup code, BLE address and config-entry unique ID are redacted
 from downloaded diagnostics. Internal routing addresses used to explain CO₂
 calibration target selection remain present; they are protocol row numbers, not
 Bluetooth device identifiers.
 
-Outside that exact prerelease validation identity, all non-airflow global fields
+Outside that exact validated identity, all non-airflow global fields
 remain read-only. See the
 [global-settings safety model and supported-field matrix](global-settings.md)
 for the current confidence and hardware-validation status.

@@ -87,7 +87,7 @@ Detailed instructions:
   installer thresholds
 - Guarded four-level airflow commissioning for a validated device identity,
   with exact readback and explicit review
-- Prerelease guarded CO₂/humidity threshold validation on the exact tested
+- Guarded CO₂/humidity threshold configuration on the exact physically validated
   model/firmware/hardware identity
 - Redacted Home Assistant diagnostics
 
@@ -145,9 +145,9 @@ Initial testing has used one physical unit advertising as `MEV` through an
 ESPHome proxy. Automatic pairing, fragmented telemetry, and long-running
 connection recovery have been observed on that setup. Guarded airflow
 commissioning is writable only on model 10 / firmware 2.03.08 / hardware 01.00;
-the `0.6.1-rc.1` threshold flow is restricted to that same identity while its
-humidity and CO₂ writes undergo controlled physical validation. Models 1, 2 and
-9 retain read-only settings diagnostics. Whole-packet transport,
+the threshold flow is restricted to that same identity after exact physical
+change-and-restore validation. Models 1, 2 and 9 retain read-only settings
+diagnostics. Whole-packet transport,
 other model/firmware combinations, telemetry scaling across the full operating
 range, and broader timed-override behaviour still need more hardware reports.
 The v0.2 speed/timer and Cancel matrix is explicitly tracked in the linked

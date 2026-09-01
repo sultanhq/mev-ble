@@ -247,9 +247,9 @@ class MultihomeDevice:
 
     @property
     def supports_sensor_threshold_configuration(self) -> bool:
-        """Return whether guarded CO2/humidity writes are enabled for validation."""
+        """Return whether CO2/humidity writes are validated for this identity."""
 
-        return SENSOR_THRESHOLD_FIELDS <= self.validation_candidate_installer_fields
+        return SENSOR_THRESHOLD_FIELDS <= self.writable_installer_fields
 
     @property
     def supports_silent_hours_management(self) -> bool:
