@@ -86,12 +86,15 @@ Detailed instructions:
 - Disabled-by-default diagnostic entities for humidity, CO₂ boost, and CO₂ purge
   installer thresholds
 - Disabled-by-default diagnostic flags for Rapid and Ambient humidity response
+- Disabled-by-default diagnostic flag for Comfort mode
 - Guarded four-level airflow commissioning for a validated device identity,
   with exact readback and explicit review
 - Guarded CO₂/humidity threshold configuration on the exact physically validated
   model/firmware/hardware identity
 - Guarded Rapid/Ambient humidity-response configuration on the exact physically
   validated model/firmware/hardware identity
+- Prerelease guarded Comfort-mode validation on that exact identity, pending
+  physical change-and-restore evidence
 - Redacted Home Assistant diagnostics
 
 The physically inspected MEV remote exposes speed levels 1–4 and timers for 30,

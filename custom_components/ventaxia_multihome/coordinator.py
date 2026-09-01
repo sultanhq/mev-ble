@@ -104,6 +104,14 @@ class HumidityResponseConfigurationUnavailableError(HomeAssistantError):
     """Raised when no current record permits a humidity-response update."""
 
 
+class ComfortModeConfigurationNotSupportedError(HomeAssistantError):
+    """Raised when Comfort mode writes are not enabled."""
+
+
+class ComfortModeConfigurationUnavailableError(HomeAssistantError):
+    """Raised when no current record permits a Comfort mode update."""
+
+
 class SilentHoursNotSupportedError(HomeAssistantError):
     """Raised when schedule management is not validated for the model."""
 
@@ -429,6 +437,42 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             self.async_set_update_error(err)
             raise HomeAssistantError(
                 f"Unable to update Multihome humidity response: {err}"
+            ) from err
+        self.async_set_updated_data(replace(self.data, global_settings=settings))
+
+    async def async_set_comfort_mode(self, *, enabled: bool) -> None:
+        """Apply and publish confirmed Comfort mode state."""
+
+        if not self.device.supports_comfort_mode_configuration:
+            raise ComfortModeConfigurationNotSupportedError(
+                "Comfort-mode configuration is not enabled for this model, "
+                "firmware, and hardware"
+            )
+        if (
+            self.data is None
+            or not self.last_update_success
+            or not self.device.global_settings_write_ready
+        ):
+            raise ComfortModeConfigurationUnavailableError(
+                "Current global settings are unavailable; wait for a successful poll"
+            )
+        try:
+            settings = await self.device.set_comfort_mode(
+                self._ble_device(), enabled=enabled
+            )
+        except GlobalSettingsUnavailableError as err:
+            raise ComfortModeConfigurationUnavailableError(str(err)) from err
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            await self.device.disconnect()
+            self.async_set_update_error(err)
+            raise HomeAssistantError(
+                f"Unable to update Multihome Comfort mode: {err}"
             ) from err
         self.async_set_updated_data(replace(self.data, global_settings=settings))
 

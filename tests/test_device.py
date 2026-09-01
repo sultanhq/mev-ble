@@ -1240,6 +1240,87 @@ async def test_humidity_response_updates_each_flag_with_exact_readback() -> None
     assert device.confirmed_global_settings == result
 
 
+@pytest.mark.parametrize(
+    ("model", "firmware", "hardware", "supported"),
+    [
+        ("10", "2.03.08", "01.00", True),
+        ("10", "2.03.09", "01.00", False),
+        ("10", "2.03.08", "01.01", False),
+        ("2", "2.03.08", "01.00", False),
+    ],
+)
+def test_comfort_mode_capability_requires_exact_candidate_identity(
+    model: str,
+    firmware: str,
+    hardware: str,
+    supported: bool,
+) -> None:
+    """The Comfort validation flow is restricted to one exact identity."""
+
+    # Arrange - apply one exact or near-match identity.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model=model, firmware=firmware, hardware=hardware
+    )
+
+    # Act - evaluate the separate validation-candidate capability gate.
+    result = device.supports_comfort_mode_configuration
+
+    # Assert - firmware, hardware, and model must all match.
+    assert result is supported
+
+
+@pytest.mark.asyncio
+async def test_comfort_mode_update_uses_exact_readback() -> None:
+    """Comfort mode is confirmed from a fresh complete settings record."""
+
+    # Arrange - emulate firmware applying one RawWithId boolean write.
+    record = bytearray(decode_packet(_responses()[2]).payload)
+    record[6] = 0
+    current = decode_global_settings(bytes(record))
+    sent: list[bytes] = []
+
+    class ApplyingTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            nonlocal current
+            sent.append(packet)
+            wrapped = decode_data_object_array(decode_packet(packet).payload)
+            assert wrapped.object_id == GlobalSettingField.COMFORT_ENABLED
+            current = global_settings_after_update(
+                current,
+                GlobalSettingField.COMFORT_ENABLED,
+                bool(wrapped.payload[0]),
+            )
+
+        async def request(self, packet: bytes) -> bytes:
+            return encode_packet(
+                PacketType.GLOBAL_DATA,
+                Operation.RESPONSE,
+                current.raw_record,
+                timestamp=2,
+            )
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._client = DeviceClient([])
+    device._transport = ApplyingTransport()
+    device._authenticated = True
+    device._confirmed_global_settings = current
+    device._global_settings_write_ready = True
+
+    # Act - enable the candidate Comfort flag.
+    result = await device.set_comfort_mode(object(), enabled=True)
+
+    # Assert - exactly one field-6 write was returned and confirmed.
+    assert len(sent) == 1
+    assert result.comfort_enabled is True
+    assert device.confirmed_global_settings == result
+
+
 @pytest.mark.asyncio
 async def test_sensor_thresholds_update_each_field_with_exact_readback() -> None:
     """Humidity and both CO2 thresholds are confirmed independently."""

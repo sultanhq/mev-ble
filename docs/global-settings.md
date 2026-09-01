@@ -92,6 +92,10 @@ The only installer write profile currently enabled is:
 | ---: | --- | --- | --- | --- |
 | 10 | `2.03.08` | `01.00` | IDs 0–3 airflow; ID 5 humidity; IDs 14–15 humidity response; IDs 21–22 CO₂ thresholds | Fragmented packet-136 writes with exact packet-137 readback and restored baselines |
 
+RC3 separately exposes ID 6 (Comfort mode) as a validation candidate on that
+exact identity. It is not part of the physically validated profile until it is
+changed, read back and restored on the designated unit.
+
 All three identity values must match. Missing identity data, a newer firmware, or
 a different hardware revision exposes no installer controls until separately
 validated. Models 1, 2 and 9 retain read-only decoded airflow diagnostics.
@@ -111,7 +115,7 @@ are proven.
 | 3 | `speed_purge` | 3 | UInt8, % | 4–100, step 1 | `low < normal < boost < purge` | Ventilation | Physical; exact validated identity only |
 | 4 | `boost_minimum` | 4 | UInt8, % | 0–100 | Model-specific interaction | Ventilation | Static; read-only |
 | 5 | `humidity_threshold` | 5 | UInt8, %RH | 0–100 | Humidity demand threshold | Sensor control | Physical; exact validated identity only |
-| 6 | `comfort_enabled` | 6 | strict UInt8 boolean | 0/1 | Model-specific interaction | Comfort | Static; read-only |
+| 6 | `comfort_enabled` | 6 | strict UInt8 boolean | 0/1 | Model-specific interaction | Comfort | RC3 validation candidate; exact identity only |
 | 7 | `delay_enabled` | 7 | strict UInt8 boolean | 0/1 | Paired with ID 10 | Wired input | Static; read-only |
 | 8 | `overrun_enabled` | 8 | strict UInt8 boolean | 0/1 | Paired with ID 9 | Wired input | Static; read-only |
 | 9 | `overrun_timeout_minutes` | 17 | UInt8, minutes | 0–255 | Requires ID 8; safe UI range unknown | Wired input | Static; read-only |

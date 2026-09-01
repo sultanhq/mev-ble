@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from custom_components.ventaxia_multihome.capabilities import (
     AIRFLOW_FIELDS,
+    COMFORT_MODE_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
     INSTALLER_FIELD_DEFINITIONS,
     MODEL_CAPABILITIES,
@@ -132,8 +133,8 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     ]
 
 
-def test_no_installer_fields_remain_in_prerelease_validation() -> None:
-    """Physical restoration promotes both response flags to stable evidence."""
+def test_comfort_mode_is_the_exact_identity_validation_candidate() -> None:
+    """Only Comfort mode uses the prerelease write gate in RC3."""
 
     # Arrange - include the intended unit plus firmware, hardware, and model misses.
     identities = [
@@ -148,9 +149,9 @@ def test_no_installer_fields_remain_in_prerelease_validation() -> None:
         installer_validation_candidate_fields(*identity) for identity in identities
     ]
 
-    # Assert - all currently configurable fields have physical evidence.
+    # Assert - only the exact identity receives the Comfort candidate field.
     assert resolved == [
-        frozenset(),
+        COMFORT_MODE_FIELDS,
         frozenset(),
         frozenset(),
         frozenset(),

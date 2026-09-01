@@ -14,7 +14,8 @@ from . import VentaxiaMultihomeConfigEntry
 from .entity import VentaxiaMultihomeEntity
 from .protocol import DIAGNOSTIC_FAULTS, FaultFlag
 
-HUMIDITY_RESPONSE_ENTITIES = (
+INSTALLER_FLAG_ENTITIES = (
+    ("comfort_enabled", "comfort_mode"),
     ("rapid_response_enabled", "rapid_humidity_response"),
     ("ambient_response_enabled", "ambient_humidity_response"),
 )
@@ -32,10 +33,10 @@ async def async_setup_entry(
         for fault in DIAGNOSTIC_FAULTS
     ]
     entities.extend(
-        MultihomeHumidityResponseBinarySensor(
+        MultihomeInstallerFlagBinarySensor(
             entry.runtime_data, entry, attribute, translation_key
         )
-        for attribute, translation_key in HUMIDITY_RESPONSE_ENTITIES
+        for attribute, translation_key in INSTALLER_FLAG_ENTITIES
     )
     async_add_entities(entities)
 
@@ -61,10 +62,8 @@ class MultihomeFaultBinarySensor(VentaxiaMultihomeEntity, BinarySensorEntity):
         return bool(data.fault_mask & self._fault)
 
 
-class MultihomeHumidityResponseBinarySensor(
-    VentaxiaMultihomeEntity, BinarySensorEntity
-):
-    """Represent one read-only installer humidity-response flag."""
+class MultihomeInstallerFlagBinarySensor(VentaxiaMultihomeEntity, BinarySensorEntity):
+    """Represent one read-only installer boolean flag."""
 
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False

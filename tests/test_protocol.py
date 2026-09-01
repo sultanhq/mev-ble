@@ -44,6 +44,7 @@ from custom_components.ventaxia_multihome.protocol import (
     fragment_packet,
     global_settings_after_update,
     plan_airflow_profile_updates,
+    plan_comfort_mode_update,
     plan_humidity_response_updates,
     plan_sensor_threshold_updates,
     reassemble_fragments,
@@ -704,6 +705,34 @@ def test_humidity_response_plan_rejects_malformed_current_boolean() -> None:
     # Act / Assert - refuse to construct any field-update plan.
     with pytest.raises(ProtocolError, match="current humidity response"):
         plan_humidity_response_updates(settings, rapid=True, ambient=False)
+
+
+def test_comfort_mode_plan_requires_a_changed_strict_boolean() -> None:
+    """Comfort writes carry a real bool and are omitted when unchanged."""
+
+    # Arrange - decode a complete record with Comfort disabled.
+    settings = decode_global_settings(bytes(36))
+
+    # Act - plan one changed value and one identical value.
+    changed = plan_comfort_mode_update(settings, enabled=True)
+    unchanged = plan_comfort_mode_update(settings, enabled=False)
+
+    # Assert - only the changed field-6 boolean produces a write.
+    assert changed == ((GlobalSettingField.COMFORT_ENABLED, True),)
+    assert unchanged == ()
+
+
+def test_comfort_mode_plan_rejects_unknown_current_value() -> None:
+    """A malformed Comfort byte blocks writes before Bluetooth I/O."""
+
+    # Arrange - decode a record whose Comfort byte is neither zero nor one.
+    record = bytearray(36)
+    record[6] = 2
+    settings = decode_global_settings(bytes(record))
+
+    # Act / Assert - reject the candidate write plan.
+    with pytest.raises(ProtocolError, match="current comfort mode"):
+        plan_comfort_mode_update(settings, enabled=True)
 
 
 def test_override_and_cancel_encoding() -> None:

@@ -1271,6 +1271,22 @@ def plan_humidity_response_updates(
     )
 
 
+def plan_comfort_mode_update(
+    settings: GlobalSettings,
+    *,
+    enabled: bool,
+) -> tuple[tuple[GlobalSettingField, bool], ...]:
+    """Plan one strict boolean comfort-mode write when its value changes."""
+
+    if not isinstance(enabled, bool):
+        raise ProtocolError("comfort mode requires a boolean value")
+    if settings.comfort_enabled is None:
+        raise ProtocolError("current comfort mode setting is invalid")
+    if settings.comfort_enabled == enabled:
+        return ()
+    return ((GlobalSettingField.COMFORT_ENABLED, enabled),)
+
+
 def decode_faults(mask: int) -> tuple[FaultFlag, ...]:
     """Return every documented flag present in a fault mask."""
 

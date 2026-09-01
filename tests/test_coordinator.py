@@ -26,6 +26,8 @@ from custom_components.ventaxia_multihome.coordinator import (
     CalibrationDeliveryUncertainError,
     CalibrationNotSupportedError,
     CalibrationRateLimitedError,
+    ComfortModeConfigurationNotSupportedError,
+    ComfortModeConfigurationUnavailableError,
     HumidityResponseConfigurationNotSupportedError,
     HumidityResponseConfigurationUnavailableError,
     SensorThresholdConfigurationNotSupportedError,
@@ -646,6 +648,89 @@ async def test_humidity_response_rejects_unsupported_or_stale_state_before_io(
         )
     coordinator._ble_device.assert_not_called()
     device.set_humidity_response.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_comfort_mode_publishes_only_confirmed_settings() -> None:
+    """A successful Comfort operation publishes its exact readback."""
+
+    # Arrange - retain telemetry and return a distinct confirmed settings object.
+    current = MultihomeData(
+        zone=object(),
+        system=object(),
+        global_settings=_settings(),
+        last_successful_update=datetime.now(UTC),
+    )
+    confirmed = decode_global_settings(bytes(36))
+    ble_device = object()
+    device = SimpleNamespace(
+        supports_comfort_mode_configuration=True,
+        global_settings_write_ready=True,
+        set_comfort_mode=AsyncMock(return_value=confirmed),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=current,
+        last_update_success=True,
+        _ble_device=lambda: ble_device,
+        async_set_updated_data=Mock(),
+        async_set_update_error=Mock(),
+    )
+
+    # Act - apply one reviewed Comfort value.
+    await VentaxiaMultihomeCoordinator.async_set_comfort_mode(
+        coordinator, enabled=True
+    )
+
+    # Assert - only the exact confirmed settings snapshot is replaced.
+    device.set_comfort_mode.assert_awaited_once_with(ble_device, enabled=True)
+    published = coordinator.async_set_updated_data.call_args.args[0]
+    assert published.global_settings is confirmed
+    assert published.zone is current.zone
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("supported", "data", "last_success", "write_ready", "error"),
+    [
+        (
+            False,
+            object(),
+            True,
+            True,
+            ComfortModeConfigurationNotSupportedError,
+        ),
+        (True, None, True, True, ComfortModeConfigurationUnavailableError),
+        (True, object(), False, True, ComfortModeConfigurationUnavailableError),
+        (True, object(), True, False, ComfortModeConfigurationUnavailableError),
+    ],
+)
+async def test_comfort_mode_rejects_unsupported_or_stale_state_before_io(
+    supported, data, last_success, write_ready, error
+) -> None:
+    """Comfort identity and snapshot guards run before Bluetooth lookup."""
+
+    # Arrange - vary each prerequisite for the candidate operation.
+    device = SimpleNamespace(
+        supports_comfort_mode_configuration=supported,
+        global_settings_write_ready=write_ready,
+        set_comfort_mode=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=data,
+        last_update_success=last_success,
+        _ble_device=Mock(),
+    )
+
+    # Act / Assert - reject without resolving or using a BLE path.
+    with pytest.raises(error):
+        await VentaxiaMultihomeCoordinator.async_set_comfort_mode(
+            coordinator, enabled=True
+        )
+    coordinator._ble_device.assert_not_called()
+    device.set_comfort_mode.assert_not_awaited()
 
 
 @pytest.mark.asyncio

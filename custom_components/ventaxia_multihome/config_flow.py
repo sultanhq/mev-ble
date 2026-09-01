@@ -53,6 +53,8 @@ from .coordinator import (
     CalibrationDeliveryUncertainError,
     CalibrationNotSupportedError,
     CalibrationRateLimitedError,
+    ComfortModeConfigurationNotSupportedError,
+    ComfortModeConfigurationUnavailableError,
     HumidityResponseConfigurationNotSupportedError,
     HumidityResponseConfigurationUnavailableError,
     SensorThresholdConfigurationNotSupportedError,
@@ -104,6 +106,8 @@ CONF_CONFIRM_SENSOR_THRESHOLDS = "confirm_sensor_thresholds"
 CONF_RAPID_RESPONSE = "rapid_response"
 CONF_AMBIENT_RESPONSE = "ambient_response"
 CONF_CONFIRM_HUMIDITY_RESPONSE = "confirm_humidity_response"
+CONF_COMFORT_MODE = "comfort_mode"
+CONF_CONFIRM_COMFORT_MODE = "confirm_comfort_mode"
 CONF_SILENT_HOUR_SLOT = "silent_hour_slot"
 CONF_SILENT_HOUR_ACTION = "silent_hour_action"
 CONF_SILENT_HOUR_START = "silent_hour_start"
@@ -382,6 +386,8 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._sensor_thresholds_baseline_raw: bytes | None = None
         self._humidity_response: tuple[bool, bool] | None = None
         self._humidity_response_baseline_raw: bytes | None = None
+        self._comfort_mode: bool | None = None
+        self._comfort_mode_baseline_raw: bytes | None = None
         self._silent_hour_index: int | None = None
         self._silent_hours_baseline: tuple[tuple[int, bytes | None], ...] | None = (
             None
@@ -419,6 +425,14 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             and coordinator.data.global_settings.ambient_response_enabled is not None
         ):
             menu_options.append("humidity_response")
+        if (
+            coordinator.device.supports_comfort_mode_configuration
+            and coordinator.data is not None
+            and coordinator.last_update_success
+            and coordinator.device.global_settings_write_ready
+            and coordinator.data.global_settings.comfort_enabled is not None
+        ):
+            menu_options.append("comfort_mode")
         if self.config_entry.runtime_data.device.supports_internal_co2_calibration:
             menu_options.append("calibrate_co2")
         if (
@@ -931,6 +945,130 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             },
         )
 
+    async def async_step_comfort_mode(
+        self,
+        user_input: dict[str, Any] | None = None,
+        *,
+        errors: dict[str, str] | None = None,
+    ) -> ConfigFlowResult:
+        """Collect one reviewed Comfort mode candidate value."""
+
+        coordinator = self.config_entry.runtime_data
+        if not coordinator.device.supports_comfort_mode_configuration:
+            return self.async_abort(reason="comfort_mode_not_supported")
+        settings = self._current_comfort_mode_settings()
+        if settings is None:
+            return self.async_abort(reason="global_settings_unavailable")
+
+        if user_input is not None:
+            enabled = user_input.get(CONF_COMFORT_MODE)
+            if not isinstance(enabled, bool):
+                errors = {"base": "comfort_mode_invalid"}
+            elif enabled == settings.comfort_enabled:
+                errors = {"base": "comfort_mode_unchanged"}
+            else:
+                self._comfort_mode = enabled
+                self._comfort_mode_baseline_raw = settings.raw_record
+                return await self.async_step_comfort_mode_confirm()
+
+        return self.async_show_form(
+            step_id="comfort_mode",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_COMFORT_MODE,
+                        default=settings.comfort_enabled,
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors or {},
+            description_placeholders={
+                "current_comfort_mode": self._format_enabled(
+                    settings.comfort_enabled
+                )
+            },
+        )
+
+    async def async_step_comfort_mode_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Recheck the full record and require confirmation before writing."""
+
+        assert self._comfort_mode is not None
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input[CONF_CONFIRM_COMFORT_MODE]:
+                errors["base"] = "comfort_mode_confirmation_required"
+            else:
+                settings = self._current_comfort_mode_settings()
+                if settings is None:
+                    errors["base"] = "global_settings_unavailable"
+                elif settings.raw_record != self._comfort_mode_baseline_raw:
+                    self._comfort_mode = None
+                    self._comfort_mode_baseline_raw = None
+                    return await self.async_step_comfort_mode(
+                        errors={"base": "comfort_mode_settings_changed"}
+                    )
+                else:
+                    try:
+                        coordinator = self.config_entry.runtime_data
+                        await coordinator.async_set_comfort_mode(
+                            enabled=self._comfort_mode
+                        )
+                    except ComfortModeConfigurationNotSupportedError:
+                        return self.async_abort(reason="comfort_mode_not_supported")
+                    except ComfortModeConfigurationUnavailableError:
+                        errors["base"] = "global_settings_unavailable"
+                    except HomeAssistantError as err:
+                        _LOGGER.warning(
+                            "Unable to update Multihome Comfort mode: %s", err
+                        )
+                        errors["base"] = "comfort_mode_update_failed"
+                    else:
+                        return await self.async_step_comfort_mode_result()
+
+        settings = self._current_comfort_mode_settings()
+        current = (
+            self._format_enabled(settings.comfort_enabled)
+            if settings is not None
+            else "Unavailable"
+        )
+        return self.async_show_form(
+            step_id="comfort_mode_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONFIRM_COMFORT_MODE, default=False
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "device": self.config_entry.title,
+                "current_comfort_mode": current,
+                "new_comfort_mode": self._format_enabled(self._comfort_mode),
+            },
+        )
+
+    async def async_step_comfort_mode_result(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report Comfort mode confirmed through exact packet-137 readback."""
+
+        assert self._comfort_mode is not None
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        return self.async_show_form(
+            step_id="comfort_mode_result",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "device": self.config_entry.title,
+                "new_comfort_mode": self._format_enabled(self._comfort_mode),
+            },
+        )
+
     def _current_airflow_settings(self) -> GlobalSettings | None:
         """Return a current writable settings record or no capability."""
 
@@ -966,6 +1104,20 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         ):
             return None
         return settings
+
+    def _current_comfort_mode_settings(self) -> GlobalSettings | None:
+        """Return a current, strictly decoded Comfort mode snapshot."""
+
+        settings = self._current_sensor_threshold_settings()
+        if settings is None or settings.comfort_enabled is None:
+            return None
+        return settings
+
+    @staticmethod
+    def _format_enabled(enabled: bool) -> str:
+        """Return a clear enabled/disabled review label."""
+
+        return "Enabled" if enabled else "Disabled"
 
     @staticmethod
     def _format_humidity_response(rapid: bool, ambient: bool) -> str:

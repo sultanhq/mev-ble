@@ -76,9 +76,10 @@ are labelled `raw_code_semantics_unknown` instead of being assigned guessed
 meanings. A boolean byte other than zero or one is retained and labelled
 `unknown_boolean_value` without breaking the coordinator update.
 
-Five of these values are also available as disabled-by-default diagnostic
+Six of these values are also available as disabled-by-default diagnostic
 entities: **Humidity threshold**, **CO₂ boost threshold**, **CO₂ purge
-threshold**, **Rapid humidity response**, and **Ambient humidity response**.
+threshold**, **Rapid humidity response**, **Ambient humidity response**, and
+**Comfort mode**.
 Enable them from the device's entity list when an entity is more useful than
 downloaded diagnostics. They report installer settings from packet 137; they
 are not duplicates of the current humidity and CO₂ readings. The two response
@@ -99,6 +100,12 @@ for the same exact identity. Rapid and Ambient response are strict boolean
 fields recovered from the official app mapping. The flow uses the same
 full-record concurrency check and exact per-field readback guard. Both flags
 were independently changed, read back and restored on the validated unit.
+
+Version 0.6.2 RC3 adds **Configure → Validate Comfort mode** for the same exact
+identity. Comfort is packet-136 field 6 and a strict boolean at packet-137 byte
+6. The flag's wider operating behaviour is not inferred from its name. Record
+the original value, change it once, confirm the exact readback, and restore it
+through the same guarded flow.
 
 The application setup code, BLE address and config-entry unique ID are redacted
 from downloaded diagnostics. Internal routing addresses used to explain CO₂

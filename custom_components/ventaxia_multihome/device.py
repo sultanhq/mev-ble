@@ -21,6 +21,7 @@ from .bluetooth import (
 )
 from .capabilities import (
     AIRFLOW_FIELDS,
+    COMFORT_MODE_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
     SENSOR_THRESHOLD_FIELDS,
     installer_configurable_fields,
@@ -68,6 +69,7 @@ from .protocol import (
     encode_user_override,
     global_settings_after_update,
     plan_airflow_profile_updates,
+    plan_comfort_mode_update,
     plan_humidity_response_updates,
     plan_sensor_threshold_updates,
     preserve_unknown_silent_hour_slot,
@@ -258,6 +260,12 @@ class MultihomeDevice:
         """Return whether humidity-response writes are physically validated."""
 
         return HUMIDITY_RESPONSE_FIELDS <= self.writable_installer_fields
+
+    @property
+    def supports_comfort_mode_configuration(self) -> bool:
+        """Return whether guarded prerelease Comfort writes are enabled."""
+
+        return COMFORT_MODE_FIELDS <= self.validation_candidate_installer_fields
 
     @property
     def supports_silent_hours_management(self) -> bool:
@@ -557,6 +565,32 @@ class MultihomeDevice:
                 rapid=rapid,
                 ambient=ambient,
             )
+            result = confirmed
+            for field, value in plan:
+                result = await self._set_global_setting_locked(field, value)
+            return result
+
+    async def set_comfort_mode(
+        self,
+        ble_device: BLEDevice,
+        *,
+        enabled: bool,
+    ) -> GlobalSettings:
+        """Apply guarded Comfort mode with exact packet-137 readback."""
+
+        if not self.supports_comfort_mode_configuration:
+            raise DeviceError(
+                "comfort-mode configuration is not enabled for this model, "
+                "firmware, and hardware"
+            )
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            confirmed = self._confirmed_global_settings
+            if confirmed is None or not self._global_settings_write_ready:
+                raise GlobalSettingsUnavailableError(
+                    "global settings must be read successfully before an update"
+                )
+            plan = plan_comfort_mode_update(confirmed, enabled=enabled)
             result = confirmed
             for field, value in plan:
                 result = await self._set_global_setting_locked(field, value)

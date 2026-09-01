@@ -352,6 +352,8 @@ HUMIDITY_RESPONSE_FIELDS: Final = frozenset(
     }
 )
 
+COMFORT_MODE_FIELDS: Final = frozenset({GlobalSettingField.COMFORT_ENABLED})
+
 VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
     InstallerWriteProfile(
         model_number=10,
@@ -367,7 +369,18 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
     ),
 )
 
-VALIDATION_CANDIDATE_WRITE_PROFILES: Final = ()
+VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
+    InstallerWriteProfile(
+        model_number=10,
+        firmware="2.03.08",
+        hardware="01.00",
+        fields=COMFORT_MODE_FIELDS,
+        evidence=(
+            "official-app field mapping and exact packet-137 offset recovered; "
+            "physical write/readback/restore validation pending"
+        ),
+    ),
+)
 
 
 def model_capability(model_number: int | None) -> ModelCapability | None:

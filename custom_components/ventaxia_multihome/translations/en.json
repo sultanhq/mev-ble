@@ -45,6 +45,7 @@
           "airflow_profile": "Configure airflow levels",
           "sensor_thresholds": "Configure CO₂ and humidity thresholds",
           "humidity_response": "Configure humidity response",
+          "comfort_mode": "Validate Comfort mode",
           "silent_hours": "Manage silent hours",
           "calibrate_co2": "Calibrate internal CO₂ sensor"
         }
@@ -114,6 +115,24 @@
       "humidity_response_result": {
         "title": "Humidity response confirmed",
         "description": "The installed unit returned **{new_response}** through exact fresh settings readback. The complete humidity-response profile is confirmed."
+      },
+      "comfort_mode": {
+        "title": "Configure Comfort mode",
+        "description": "Current setting: **{current_comfort_mode}**\n\nComfort mode is a recovered installer flag, not a live operating-state sensor. Its precise effect on this firmware is not yet physically validated. This prerelease flow is restricted to model 10 / firmware 2.03.08 / hardware 01.00. Record the original value and restore it after the controlled test.",
+        "data": {
+          "comfort_mode": "Comfort mode"
+        }
+      },
+      "comfort_mode_confirm": {
+        "title": "Confirm Comfort mode",
+        "description": "Device: **{device}**\n\nCurrent setting: **{current_comfort_mode}**\n\nNew setting: **{new_comfort_mode}**\n\nHome Assistant will send only field 6 and require exact fresh packet-137 readback. Restore the original value after confirming the temporary result.",
+        "data": {
+          "confirm_comfort_mode": "I recorded the original value and want to apply this temporary Comfort mode setting"
+        }
+      },
+      "comfort_mode_result": {
+        "title": "Comfort mode confirmed",
+        "description": "The installed unit returned **{new_comfort_mode}** through exact fresh settings readback. Reopen this flow and restore the original value."
       },
       "silent_hours": {
         "title": "Manage silent hours",
@@ -204,6 +223,11 @@
       "humidity_response_unchanged": "The selected humidity-response profile is already active.",
       "humidity_response_settings_changed": "The unit's settings changed after the review was opened. Review the current values and try again.",
       "humidity_response_update_failed": "The complete humidity-response profile could not be confirmed. Reopen the flow and inspect both current values before retrying.",
+      "comfort_mode_confirmation_required": "Confirm the reviewed Comfort mode value before changing the installer setting.",
+      "comfort_mode_invalid": "Comfort mode must be enabled or disabled.",
+      "comfort_mode_unchanged": "The selected Comfort mode value is already active.",
+      "comfort_mode_settings_changed": "The unit's settings changed after the review was opened. Review the current value and try again.",
+      "comfort_mode_update_failed": "The Comfort mode value could not be confirmed. Reopen the flow and inspect the current value before retrying.",
       "global_settings_unavailable": "Current settings are unavailable or not yet confirmed. Wait for the integration to complete a successful update, then reopen this flow.",
       "silent_hours_unavailable": "The complete six-slot schedule table is unavailable or not yet confirmed. Wait for a successful integration update, then reopen this flow.",
       "silent_hour_invalid": "Select a valid slot, start time, end time and at least one weekday.",
@@ -223,6 +247,7 @@
       "airflow_not_supported": "Airflow configuration is not validated for this model, firmware, and hardware. No setting was changed.",
       "sensor_thresholds_not_supported": "CO₂ and humidity threshold configuration is not enabled for this model, firmware, and hardware. No setting was changed.",
       "humidity_response_not_supported": "Humidity-response configuration is not enabled for this model, firmware, and hardware. No setting was changed.",
+      "comfort_mode_not_supported": "Comfort mode configuration is not enabled for this model, firmware, and hardware. No setting was changed.",
       "global_settings_unavailable": "Current settings are unavailable or not yet confirmed. No setting was changed.",
       "silent_hours_not_supported": "Silent-hours management is not validated for this model. No schedule was changed.",
       "silent_hours_unavailable": "The complete six-slot schedule table is unavailable or not yet confirmed. No schedule was changed.",
@@ -302,6 +327,7 @@
       "service_timeout": {"name": "Service timeout"}
       ,"rapid_humidity_response": {"name": "Rapid humidity response"}
       ,"ambient_humidity_response": {"name": "Ambient humidity response"}
+      ,"comfort_mode": {"name": "Comfort mode"}
     }
   },
   "services": {

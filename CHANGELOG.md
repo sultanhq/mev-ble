@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.2-rc.3] - 2026-09-01
+
+### Added
+
+- Add a disabled-by-default read-only diagnostic binary sensor for the recovered
+  Comfort mode flag.
+- Add an exact-identity guarded validation flow for packet-136 field 6.
+
+### Safety
+
+- Keep Comfort mode in the validation-candidate matrix until a physical
+  change/readback/restore test confirms firmware behaviour.
+- Require a strict boolean current value, complete 36-byte settings snapshot,
+  explicit review and acknowledgement, stale-snapshot rejection, and exact
+  fresh packet-137 readback.
+- Do not infer temperature, timing, or airflow behaviour from the flag name.
+
 ## [0.6.2-rc.2] - 2026-09-01
 
 ### Validated

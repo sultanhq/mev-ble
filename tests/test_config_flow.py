@@ -35,8 +35,10 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_CALIBRATION_METHOD,
     CONF_CO2_BOOST_THRESHOLD,
     CONF_CO2_PURGE_THRESHOLD,
+    CONF_COMFORT_MODE,
     CONF_CONFIRM_AIRFLOW,
     CONF_CONFIRM_CALIBRATION,
+    CONF_CONFIRM_COMFORT_MODE,
     CONF_CONFIRM_HUMIDITY_RESPONSE,
     CONF_CONFIRM_SENSOR_THRESHOLDS,
     CONF_CONFIRM_SILENT_HOUR_DELETE,
@@ -94,6 +96,7 @@ def _options_entry(
     supports_airflow: bool = False,
     supports_thresholds: bool = False,
     supports_humidity_response: bool = False,
+    supports_comfort_mode: bool = False,
     airflow_available: bool = True,
     supports_schedules: bool = False,
     schedules_available: bool = True,
@@ -115,6 +118,7 @@ def _options_entry(
             supports_global_airflow_configuration=supports_airflow,
             supports_sensor_threshold_configuration=supports_thresholds,
             supports_humidity_response_configuration=supports_humidity_response,
+            supports_comfort_mode_configuration=supports_comfort_mode,
             global_settings_write_ready=airflow_available,
             supports_silent_hours_management=supports_schedules,
             silent_hours_write_ready=schedules_available,
@@ -129,6 +133,7 @@ def _options_entry(
         async_set_airflow_profile=AsyncMock(),
         async_set_sensor_thresholds=AsyncMock(),
         async_set_humidity_response=AsyncMock(),
+        async_set_comfort_mode=AsyncMock(),
         async_set_silent_hour=AsyncMock(),
         async_delete_silent_hour=AsyncMock(),
     )
@@ -188,6 +193,17 @@ async def _open_humidity_response_options(hass, entry):
     assert initial["step_id"] == "init"
     return await hass.config_entries.options.async_configure(
         initial["flow_id"], {"next_step_id": "humidity_response"}
+    )
+
+
+async def _open_comfort_mode_options(hass, entry):
+    """Open the guarded Comfort mode validation screen."""
+
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    assert initial["type"] is data_entry_flow.FlowResultType.MENU
+    assert initial["step_id"] == "init"
+    return await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "comfort_mode"}
     )
 
 
@@ -685,6 +701,58 @@ async def test_humidity_response_rechecks_full_snapshot_before_write(hass) -> No
     assert result["step_id"] == "humidity_response"
     assert result["errors"] == {"base": "humidity_response_settings_changed"}
     coordinator.async_set_humidity_response.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_comfort_mode_requires_review_and_confirmation(hass) -> None:
+    """The candidate Comfort flag is written only after confirmation."""
+
+    # Arrange - open the exact-identity flow with Comfort currently enabled.
+    entry, coordinator = _options_entry(hass, supports_comfort_mode=True)
+    form = await _open_comfort_mode_options(hass, entry)
+
+    # Act - request disabled, decline once, then confirm explicitly.
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"], {CONF_COMFORT_MODE: False}
+    )
+    declined = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_COMFORT_MODE: False}
+    )
+    result = await hass.config_entries.options.async_configure(
+        declined["flow_id"], {CONF_CONFIRM_COMFORT_MODE: True}
+    )
+
+    # Assert - no write precedes confirmation and the result is explicit.
+    assert form["step_id"] == "comfort_mode"
+    assert confirm["step_id"] == "comfort_mode_confirm"
+    assert declined["errors"] == {"base": "comfort_mode_confirmation_required"}
+    coordinator.async_set_comfort_mode.assert_awaited_once_with(enabled=False)
+    assert result["step_id"] == "comfort_mode_result"
+
+
+@pytest.mark.asyncio
+async def test_comfort_mode_rechecks_full_snapshot_before_write(hass) -> None:
+    """Any intervening packet-137 change invalidates the Comfort review."""
+
+    # Arrange - open and review a changed Comfort value.
+    entry, coordinator = _options_entry(hass, supports_comfort_mode=True)
+    form = await _open_comfort_mode_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"], {CONF_COMFORT_MODE: False}
+    )
+    changed = bytearray(coordinator.data.global_settings.raw_record)
+    changed[4] += 1
+    coordinator.data.global_settings = decode_global_settings(bytes(changed))
+
+    # Act - confirm after an unrelated setting changed.
+    result = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_COMFORT_MODE: True}
+    )
+
+    # Assert - the complete snapshot guard blocks Bluetooth I/O.
+    assert result["step_id"] == "comfort_mode"
+    assert result["errors"] == {"base": "comfort_mode_settings_changed"}
+    coordinator.async_set_comfort_mode.assert_not_awaited()
 
 
 @pytest.mark.asyncio
