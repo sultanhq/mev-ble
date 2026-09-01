@@ -101,11 +101,11 @@ fields recovered from the official app mapping. The flow uses the same
 full-record concurrency check and exact per-field readback guard. Both flags
 were independently changed, read back and restored on the validated unit.
 
-Version 0.6.2 RC3 adds **Configure → Validate Comfort mode** for the same exact
-identity. Comfort is packet-136 field 6 and a strict boolean at packet-137 byte
-6. The flag's wider operating behaviour is not inferred from its name. Record
-the original value, change it once, confirm the exact readback, and restore it
-through the same guarded flow.
+Version 0.6.2 RC5 exposes **Configure → Configure Comfort mode** for the same
+exact identity. Comfort is packet-136 field 6 and a strict boolean at packet-137
+byte 6. The flag's wider operating behaviour is not inferred from its name. It
+was disabled, confirmed through exact fresh readback, and restored enabled on
+the validated unit.
 
 The application setup code, BLE address and config-entry unique ID are redacted
 from downloaded diagnostics. Internal routing addresses used to explain CO₂

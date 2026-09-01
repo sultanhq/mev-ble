@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.2-rc.5] - 2026-09-01
+
+### Validated
+
+- On model 10, firmware 2.03.08, hardware 01.00, disabled Comfort
+  mode, received exact fresh packet-137 readback, and restored enabled through
+  the same guarded flow.
+- Promote packet-136 field 6 from validation candidate to the exact identity's
+  physically validated installer-write profile.
+
 ## [0.6.2-rc.4] - 2026-09-01
 
 ### Fixed

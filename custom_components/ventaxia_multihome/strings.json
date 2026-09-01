@@ -45,7 +45,7 @@
           "airflow_profile": "Configure airflow levels",
           "sensor_thresholds": "Configure CO₂ and humidity thresholds",
           "humidity_response": "Configure humidity response",
-          "comfort_mode": "Validate Comfort mode",
+          "comfort_mode": "Configure Comfort mode",
           "silent_hours": "Manage silent hours",
           "calibrate_co2": "Calibrate internal CO₂ sensor"
         }
@@ -118,21 +118,21 @@
       },
       "comfort_mode": {
         "title": "Configure Comfort mode",
-        "description": "Current setting: **{current_comfort_mode}**\n\nComfort mode is a recovered installer flag, not a live operating-state sensor. Its precise effect on this firmware is not yet physically validated. This prerelease flow is restricted to model 10 / firmware 2.03.08 / hardware 01.00. Record the original value and restore it after the controlled test.",
+        "description": "Current setting: **{current_comfort_mode}**\n\nComfort mode is an installer flag, not a live operating-state sensor. Writes are enabled only for the physically validated model 10 / firmware 2.03.08 / hardware 01.00 identity. Its wider airflow, timing, and temperature behaviour is not inferred from the flag name.",
         "data": {
           "comfort_mode": "Comfort mode"
         }
       },
       "comfort_mode_confirm": {
         "title": "Confirm Comfort mode",
-        "description": "Device: **{device}**\n\nCurrent setting: **{current_comfort_mode}**\n\nNew setting: **{new_comfort_mode}**\n\nHome Assistant will send only field 6 and require exact fresh packet-137 readback. Restore the original value after confirming the temporary result.",
+        "description": "Device: **{device}**\n\nCurrent setting: **{current_comfort_mode}**\n\nNew setting: **{new_comfort_mode}**\n\nHome Assistant will send only field 6 and require exact fresh packet-137 readback.",
         "data": {
-          "confirm_comfort_mode": "I recorded the original value and want to apply this temporary Comfort mode setting"
+          "confirm_comfort_mode": "I have reviewed the Comfort mode value and want to apply it"
         }
       },
       "comfort_mode_result": {
         "title": "Comfort mode confirmed",
-        "description": "The installed unit returned **{new_comfort_mode}** through exact fresh settings readback. Reopen this flow and restore the original value."
+        "description": "The installed unit returned **{new_comfort_mode}** through exact fresh settings readback. Comfort mode is confirmed."
       },
       "silent_hours": {
         "title": "Manage silent hours",

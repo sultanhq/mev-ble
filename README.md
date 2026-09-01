@@ -93,8 +93,8 @@ Detailed instructions:
   model/firmware/hardware identity
 - Guarded Rapid/Ambient humidity-response configuration on the exact physically
   validated model/firmware/hardware identity
-- Prerelease guarded Comfort-mode validation on that exact identity, pending
-  physical change-and-restore evidence
+- Guarded Comfort-mode configuration on the exact physically validated
+  model/firmware/hardware identity
 - Redacted Home Assistant diagnostics
 
 The physically inspected MEV remote exposes speed levels 1–4 and timers for 30,

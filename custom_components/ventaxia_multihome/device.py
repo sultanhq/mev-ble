@@ -263,9 +263,9 @@ class MultihomeDevice:
 
     @property
     def supports_comfort_mode_configuration(self) -> bool:
-        """Return whether guarded prerelease Comfort writes are enabled."""
+        """Return whether Comfort mode writes are physically validated."""
 
-        return COMFORT_MODE_FIELDS <= self.validation_candidate_installer_fields
+        return COMFORT_MODE_FIELDS <= self.writable_installer_fields
 
     @property
     def supports_silent_hours_management(self) -> bool:

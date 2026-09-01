@@ -125,7 +125,12 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
 
     # Assert - only the exact identity exposes all nine validated fields.
     assert resolved == [
-        AIRFLOW_FIELDS | SENSOR_THRESHOLD_FIELDS | HUMIDITY_RESPONSE_FIELDS,
+        (
+            AIRFLOW_FIELDS
+            | SENSOR_THRESHOLD_FIELDS
+            | HUMIDITY_RESPONSE_FIELDS
+            | COMFORT_MODE_FIELDS
+        ),
         frozenset(),
         frozenset(),
         frozenset(),
@@ -133,8 +138,8 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     ]
 
 
-def test_comfort_mode_is_the_exact_identity_validation_candidate() -> None:
-    """Only Comfort mode uses the prerelease write gate in RC3."""
+def test_no_installer_fields_remain_in_prerelease_validation() -> None:
+    """Physical restoration promotes Comfort mode to stable evidence."""
 
     # Arrange - include the intended unit plus firmware, hardware, and model misses.
     identities = [
@@ -149,9 +154,9 @@ def test_comfort_mode_is_the_exact_identity_validation_candidate() -> None:
         installer_validation_candidate_fields(*identity) for identity in identities
     ]
 
-    # Assert - only the exact identity receives the Comfort candidate field.
+    # Assert - all currently configurable fields have physical evidence.
     assert resolved == [
-        COMFORT_MODE_FIELDS,
+        frozenset(),
         frozenset(),
         frozenset(),
         frozenset(),

@@ -1249,7 +1249,7 @@ async def test_humidity_response_updates_each_flag_with_exact_readback() -> None
         ("2", "2.03.08", "01.00", False),
     ],
 )
-def test_comfort_mode_capability_requires_exact_candidate_identity(
+def test_comfort_mode_capability_requires_exact_validated_identity(
     model: str,
     firmware: str,
     hardware: str,
@@ -1263,7 +1263,7 @@ def test_comfort_mode_capability_requires_exact_candidate_identity(
         model=model, firmware=firmware, hardware=hardware
     )
 
-    # Act - evaluate the separate validation-candidate capability gate.
+    # Act - evaluate the physically validated capability gate.
     result = device.supports_comfort_mode_configuration
 
     # Assert - firmware, hardware, and model must all match.
