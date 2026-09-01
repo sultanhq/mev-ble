@@ -16,8 +16,9 @@ from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import (
     ATTR_DEVICE_CLASS,
     ATTR_UNIT_OF_MEASUREMENT,
-    CONCENTRATION_PARTS_PER_MILLION,
+    UnitOfRatio.PARTS_PER_MILLION,
     CONF_ADDRESS,
+    UnitOfRatio,
 )
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -1037,7 +1038,7 @@ async def test_reference_calibration_rereads_and_averages_sensors(
     entry, coordinator = _options_entry(hass)
     attributes = {
         ATTR_DEVICE_CLASS: SensorDeviceClass.CO2,
-        ATTR_UNIT_OF_MEASUREMENT: CONCENTRATION_PARTS_PER_MILLION,
+        ATTR_UNIT_OF_MEASUREMENT: UnitOfRatio.PARTS_PER_MILLION,
     }
     hass.states.async_set("sensor.study_co2", "420", attributes)
     hass.states.async_set("sensor.bedroom_co2", "440", attributes)
@@ -1089,7 +1090,7 @@ async def test_single_reference_calibration_is_supported_with_warning(
         "450",
         {
             ATTR_DEVICE_CLASS: SensorDeviceClass.CO2,
-            ATTR_UNIT_OF_MEASUREMENT: CONCENTRATION_PARTS_PER_MILLION,
+            ATTR_UNIT_OF_MEASUREMENT: UnitOfRatio.PARTS_PER_MILLION,
         },
     )
     method = await _open_calibration_options(hass, entry)
@@ -1180,7 +1181,7 @@ async def test_reference_calibration_rejects_own_co2_entity(hass) -> None:
         "500",
         {
             ATTR_DEVICE_CLASS: SensorDeviceClass.CO2,
-            ATTR_UNIT_OF_MEASUREMENT: CONCENTRATION_PARTS_PER_MILLION,
+            ATTR_UNIT_OF_MEASUREMENT: UnitOfRatio.PARTS_PER_MILLION,
         },
     )
     method = await _open_calibration_options(hass, entry)
@@ -1208,7 +1209,7 @@ async def test_reference_is_rejected_if_unavailable_at_confirmation(hass) -> Non
     entry, coordinator = _options_entry(hass)
     attributes = {
         ATTR_DEVICE_CLASS: SensorDeviceClass.CO2,
-        ATTR_UNIT_OF_MEASUREMENT: CONCENTRATION_PARTS_PER_MILLION,
+        ATTR_UNIT_OF_MEASUREMENT: UnitOfRatio.PARTS_PER_MILLION,
     }
     hass.states.async_set("sensor.reference_co2", "450", attributes)
     method = await _open_calibration_options(hass, entry)
@@ -1295,7 +1296,7 @@ async def test_reference_calibration_rejects_unsafe_values(hass, reading) -> Non
         reading,
         {
             ATTR_DEVICE_CLASS: SensorDeviceClass.CO2,
-            ATTR_UNIT_OF_MEASUREMENT: CONCENTRATION_PARTS_PER_MILLION,
+            ATTR_UNIT_OF_MEASUREMENT: UnitOfRatio.PARTS_PER_MILLION,
         },
     )
     method = await _open_calibration_options(hass, entry)
@@ -1588,7 +1589,6 @@ async def test_delay_overrun_requires_review_and_confirmation(hass) -> None:
     confirm = await hass.config_entries.options.async_configure(
         form["flow_id"],
         {
-            CONF_DELAY_ENABLED: True,
             CONF_DELAY_TIMEOUT: 11,
             CONF_OVERRUN_ENABLED: False,
             CONF_OVERRUN_TIMEOUT: 12,
@@ -1606,7 +1606,7 @@ async def test_delay_overrun_requires_review_and_confirmation(hass) -> None:
     assert confirm["step_id"] == "delay_overrun_confirm"
     assert declined["errors"] == {"base": "delay_overrun_confirmation_required"}
     coordinator.async_set_delay_overrun.assert_awaited_once_with(
-        delay_enabled=True,
+        delay_enabled=False,
         delay_minutes=11,
         overrun_enabled=False,
         overrun_minutes=12,
@@ -1624,7 +1624,6 @@ async def test_delay_overrun_rechecks_full_snapshot_before_write(hass) -> None:
     confirm = await hass.config_entries.options.async_configure(
         form["flow_id"],
         {
-            CONF_DELAY_ENABLED: True,
             CONF_DELAY_TIMEOUT: 10,
             CONF_OVERRUN_ENABLED: True,
             CONF_OVERRUN_TIMEOUT: 10,

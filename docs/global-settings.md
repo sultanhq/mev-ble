@@ -112,10 +112,10 @@ are proven.
 | 4 | `boost_minimum` | 4 | UInt8, % | 0–100 | Model-specific interaction | Ventilation | Static; read-only |
 | 5 | `humidity_threshold` | 5 | UInt8, %RH | 0–100 | Humidity demand threshold | Sensor control | Physical; exact validated identity only |
 | 6 | `comfort_enabled` | 6 | strict UInt8 boolean | 0/1 | Model-specific interaction | Comfort | Physical; exact validated identity only |
-| 7 | `delay_enabled` | 7 | strict UInt8 boolean | 0/1 | Paired with ID 10; LS inputs only | Wired input | Official manual + static mapping; validation candidate |
-| 8 | `overrun_enabled` | 8 | strict UInt8 boolean | 0/1 | Paired with ID 9; LS inputs only | Wired input | Official manual + static mapping; validation candidate |
-| 9 | `overrun_timeout_minutes` | 17 | UInt8, minutes | 1–60 | Paired with ID 8 | Wired input | Official manual + static mapping; validation candidate |
-| 10 | `delay_timeout_minutes` | 18 | UInt8, minutes | 1–60 | Paired with ID 7 | Wired input | Official manual + static mapping; validation candidate |
+| 7 | `delay_enabled` | 7 | strict UInt8 boolean | 0/1 | Paired with ID 10; LS inputs only | Wired input | Physical readback mismatch; blocked/read-only |
+| 8 | `overrun_enabled` | 8 | strict UInt8 boolean | 0/1 | Paired with ID 9; LS inputs only | Wired input | Physical change/readback passed; validation candidate |
+| 9 | `overrun_timeout_minutes` | 17 | UInt8, minutes | 1–60 | Paired with ID 8 | Wired input | Physical change/readback passed; validation candidate |
+| 10 | `delay_timeout_minutes` | 18 | UInt8, minutes | 1–60 | Paired with blocked ID 7 | Wired input | Physical change/readback passed; validation candidate |
 | 11–13 | `ls1_action` … `ls3_action` | 19–21 | UInt8 action code | 0–255 | Installed wiring and action enum | Wired input | Static; read-only |
 | 14 | `rapid_response_enabled` | 9 | strict UInt8 boolean | 0/1 | Humidity-response semantics | Sensor control | Physical; exact validated identity only |
 | 15 | `ambient_response_enabled` | 10 | strict UInt8 boolean | 0/1 | Humidity-response semantics | Sensor control | Physical; exact validated identity only |
@@ -162,10 +162,10 @@ packet-137 read, and restored to their original values through the guarded flow.
 Comfort mode was then disabled on the same unit, returned exactly by a fresh
 packet-137 read, and restored enabled through the guarded flow.
 
-Delay On and Overrun are the next prerelease validation group. The official
-Multihome manual documents both flags, their LS-input-only behaviour, and paired
-1–60 minute ranges. Home Assistant exposes their decoded values as
-disabled-by-default diagnostic entities and gates the guarded candidate flow to
-the exact model 10 / firmware 2.03.08 / hardware 01.00 identity. They remain
-outside the stable write profile until a physical change/readback/restore test
-is recorded.
+Delay On and Overrun are the current prerelease validation group. The official
+Multihome manual documents their LS-input-only behaviour and 1–60 minute ranges.
+On the exact validation unit, fields 8–10 changed with exact readback, while
+field 7 (Delay On enabled) produced a readback mismatch. Field 7 is therefore
+blocked and read-only; the guarded candidate flow cannot send it. The remaining
+three fields stay outside the stable profile until restored baselines are
+explicitly confirmed.

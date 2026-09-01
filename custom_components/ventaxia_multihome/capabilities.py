@@ -357,7 +357,6 @@ COMFORT_MODE_FIELDS: Final = frozenset({GlobalSettingField.COMFORT_ENABLED})
 
 DELAY_OVERRUN_FIELDS: Final = frozenset(
     {
-        GlobalSettingField.DELAY_ENABLED,
         GlobalSettingField.OVERRUN_ENABLED,
         GlobalSettingField.OVERRUN_TIMEOUT_MINUTES,
         GlobalSettingField.DELAY_TIMEOUT_MINUTES,
@@ -393,8 +392,8 @@ VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
         fields=DELAY_OVERRUN_FIELDS,
         evidence=(
             "official Multihome manual documents LS-input Delay On and Overrun "
-            "flags with paired 1..60 minute timers; packet-136 field mapping is "
-            "recovered; physical change/readback/restore remains pending"
+            "with 1..60 minute timers; fields 8..10 changed with exact readback; "
+            "field 7 produced a readback mismatch and remains blocked"
         ),
     ),
 )

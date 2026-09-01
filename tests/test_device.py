@@ -1877,3 +1877,71 @@ async def test_active_poll_finishes_before_control_and_its_readback() -> None:
     ]
     assert poll_data.zone.fan_rpm == 1200
     assert control_data.system.fan_speed == 3
+
+@pytest.mark.asyncio
+async def test_delay_enabled_is_blocked_after_physical_readback_mismatch() -> None:
+    """Field 7 cannot reach Bluetooth through the guarded timer method."""
+
+    # Arrange - prepare the exact candidate identity with Delay currently disabled.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._confirmed_global_settings = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    device._global_settings_write_ready = True
+    device.connect = AsyncMock()
+    device._send = AsyncMock()
+
+    # Act - request the failed field-7 transition through the grouped API.
+    with pytest.raises(DeviceError, match="field 7 failed") as raised:
+        await device.set_delay_overrun(
+            object(),
+            delay_enabled=True,
+            delay_minutes=10,
+            overrun_enabled=True,
+            overrun_minutes=10,
+        )
+
+    # Assert - the rejection is explicit and no packet-136 write is attempted.
+    assert raised.value
+    device._send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_global_setting_mismatch_reports_exact_record_differences() -> None:
+    """A rejected readback records enough byte evidence for diagnosis."""
+
+    # Arrange - request field 8 while firmware unexpectedly changes bytes 6 and 8.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    current = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    unexpected = bytearray(current.raw_record)
+    unexpected[6] = 0
+    unexpected[8] = 0
+    device._confirmed_global_settings = current
+    device._global_settings_write_ready = True
+    device._send = AsyncMock()
+    device._request = AsyncMock(
+        return_value=SimpleNamespace(payload=bytes(unexpected))
+    )
+
+    # Act - apply the isolated write whose fresh record contains a coupled change.
+    with pytest.raises(GlobalSettingUpdateError) as raised:
+        await device._set_global_setting_locked(
+            GlobalSettingField.OVERRUN_ENABLED, False
+        )
+
+    # Assert - field, offsets, and both complete records are retained in the error.
+    message = str(raised.value)
+    assert "field 8" in message
+    assert "6:01->00" in message
+    assert f"expected={current.raw_record[:8].hex()}" in message
+    assert f"received={bytes(unexpected).hex()}" in message
+    assert not device.global_settings_write_ready

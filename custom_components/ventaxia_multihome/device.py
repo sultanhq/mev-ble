@@ -627,6 +627,14 @@ class MultihomeDevice:
                 raise GlobalSettingsUnavailableError(
                     "global settings must be read successfully before an update"
                 )
+            if (
+                confirmed.delay_enabled is None
+                or delay_enabled != confirmed.delay_enabled
+            ):
+                raise DeviceError(
+                    "Delay On enable is read-only after field 7 failed physical "
+                    "readback validation"
+                )
             plan = plan_delay_overrun_updates(
                 confirmed,
                 delay_enabled=delay_enabled,
@@ -707,8 +715,18 @@ class MultihomeDevice:
             ) from err
         if received.raw_record != expected.raw_record:
             self._global_settings_write_ready = False
+            differences = ", ".join(
+                f"{offset}:{wanted:02x}->{actual:02x}"
+                for offset, (wanted, actual) in enumerate(
+                    zip(expected.raw_record, received.raw_record, strict=True)
+                )
+                if wanted != actual
+            )
             raise GlobalSettingUpdateError(
-                "global setting readback did not match the requested update; "
+                "global setting readback did not match the requested update "
+                f"for field {int(field)}; differing bytes [{differences}]; "
+                f"expected={expected.raw_record.hex()}; "
+                f"received={received.raw_record.hex()}; "
                 "the last confirmed snapshot was retained"
             )
         self._confirmed_global_settings = received

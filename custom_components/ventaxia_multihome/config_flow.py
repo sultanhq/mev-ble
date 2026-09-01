@@ -23,8 +23,8 @@ from homeassistant.config_entries import (
 from homeassistant.const import (
     ATTR_DEVICE_CLASS,
     ATTR_UNIT_OF_MEASUREMENT,
-    CONCENTRATION_PARTS_PER_MILLION,
     CONF_ADDRESS,
+    UnitOfRatio,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
 )
@@ -1105,7 +1105,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         if user_input is not None:
             try:
                 profile = (
-                    user_input[CONF_DELAY_ENABLED],
+                    settings.delay_enabled,
                     self._integer_setting(user_input[CONF_DELAY_TIMEOUT]),
                     user_input[CONF_OVERRUN_ENABLED],
                     self._integer_setting(user_input[CONF_OVERRUN_TIMEOUT]),
@@ -1131,9 +1131,6 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             step_id="delay_overrun",
             data_schema=vol.Schema(
                 {
-                    vol.Required(
-                        CONF_DELAY_ENABLED, default=settings.delay_enabled
-                    ): selector.BooleanSelector(),
                     vol.Required(
                         CONF_DELAY_TIMEOUT,
                         default=settings.delay_timeout_minutes,
@@ -1993,7 +1990,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                 raise CalibrationReferenceError("invalid_reference")
             unit = state.attributes.get(ATTR_UNIT_OF_MEASUREMENT)
             if not isinstance(unit, str) or unit.casefold() != (
-                CONCENTRATION_PARTS_PER_MILLION
+                UnitOfRatio.PARTS_PER_MILLION
             ):
                 raise CalibrationReferenceError("invalid_reference")
             try:

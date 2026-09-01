@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.6.2-rc.9] - 2026-09-01
+
+### Fixed
+
+- Block packet-136 field 7 after the validated unit returned a non-exact
+  packet-137 result; Delay On remains visible as a read-only diagnostic.
+- Include the requested field, differing offsets, expected record, and received
+  record in future global-setting mismatch errors.
+- Render Delay/Overrun descriptions with real line breaks.
+- Replace Home Assistant's deprecated ppm constant with
+  `UnitOfRatio.PARTS_PER_MILLION`.
+
+### Validated
+
+- Fields 8–10 (Overrun enabled, Overrun time, and Delay time) changed with exact
+  readback on model 10 / firmware 2.03.08 / hardware 01.00. They remain
+  prerelease candidates until restoration is explicitly confirmed.
+
 ## [0.6.2-rc.8] - 2026-09-01
 
 ### Fixed
