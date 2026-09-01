@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Offline reference codec for the Vent-Axia MEV/Multihome BLE protocol.
 
-This module performs no Bluetooth I/O.  It is a small, dependency-free
-translation of the packet formats found in Vent-Axia Connect 7.2.2, with the
+This module performs no Bluetooth I/O. It is a small, dependency-free,
+independently implemented reference codec based on protocol formats identified
+through interoperability analysis of Vent-Axia Connect 7.2.2, with the
 compatible fragmented transport retained from 6.0.28.
 """
 
@@ -171,7 +172,9 @@ def serialize_protocol_v2(
         if not 0 <= int(value) <= 0xFF:
             raise ValueError(f"{label} must fit uint8")
     if backtracking_count:
-        raise ValueError("reference serializer only supports the app's normal zero-backtracking requests")
+        raise ValueError(
+            "reference serializer only supports the app's normal zero-backtracking requests"
+        )
     total_size = 10 + len(payload)
     if total_size > 128:
         raise ValueError("protocol packet exceeds the app's 128-byte maximum")
@@ -187,16 +190,22 @@ def serialize_protocol_v2(
     return bytes(packet)
 
 
-def deserialize_protocol_v2(data: bytes, *, validate_checksum: bool = True) -> ProtocolPacket:
+def deserialize_protocol_v2(
+    data: bytes, *, validate_checksum: bool = True
+) -> ProtocolPacket:
     if len(data) < 10:
         raise ValueError("protocol packet is shorter than its 10-byte header")
     total_size = data[1]
     if total_size < 10 or total_size > len(data):
-        raise ValueError(f"invalid declared packet size {total_size} for {len(data)} bytes")
+        raise ValueError(
+            f"invalid declared packet size {total_size} for {len(data)} bytes"
+        )
     packet = data[:total_size]
     expected = crc8_zirconia(packet[1:])
     if validate_checksum and packet[0] != expected:
-        raise ValueError(f"checksum mismatch: got 0x{packet[0]:02x}, expected 0x{expected:02x}")
+        raise ValueError(
+            f"checksum mismatch: got 0x{packet[0]:02x}, expected 0x{expected:02x}"
+        )
     backtracking_count = packet[2]
     backtracking_size = backtracking_count * 3
     payload_end = total_size - backtracking_size
@@ -286,7 +295,9 @@ def serialize_user_override(
 
 
 def serialize_cancel_override() -> bytes:
-    return serialize_user_override(AirflowPreset.LOW, 0, command=MevCommand.CANCEL)
+    return serialize_user_override(
+        AirflowPreset.LOW, 0, command=MevCommand.CANCEL
+    )
 
 
 def serialize_ventilation_mode(mode: VentilationMode | int) -> bytes:
@@ -314,10 +325,14 @@ def serialize_co2_calibration(
 ) -> bytes:
     if not 400 <= value_ppm <= 2000:
         raise ValueError("Connect 7.2.2 restricts calibration to 400..2000 ppm")
-    return struct.pack("<HBB", value_ppm, automatic_enabled, start_forced_calibration)
+    return struct.pack(
+        "<HBB", value_ppm, automatic_enabled, start_forced_calibration
+    )
 
 
-def serialize_silent_hour(start_seconds: int, end_seconds: int, weekdays_mask: int) -> bytes:
+def serialize_silent_hour(
+    start_seconds: int, end_seconds: int, weekdays_mask: int
+) -> bytes:
     if not 0 <= start_seconds < 86_400 or not 0 <= end_seconds < 86_400:
         raise ValueError("silent-hour times must be seconds within one day")
     if not 0 < weekdays_mask <= 0x7F:
@@ -325,7 +340,9 @@ def serialize_silent_hour(start_seconds: int, end_seconds: int, weekdays_mask: i
     return struct.pack("<IIB", start_seconds, end_seconds, weekdays_mask)
 
 
-def serialize_silent_hour_table(item_index: int, total_count: int, record: bytes) -> bytes:
+def serialize_silent_hour_table(
+    item_index: int, total_count: int, record: bytes
+) -> bytes:
     if not 0 <= item_index < 6:
         raise ValueError("silent-hour item index must be 0..5")
     if len(record) != 9:
@@ -352,7 +369,16 @@ def fragment_packet(packet: bytes, *, channel: int = 0) -> list[bytes]:
     frames = []
     for index in range(total):
         chunk = packet[index * 17 : (index + 1) * 17].ljust(17, b"\0")
-        frames.append(bytes([((index + 1) << 4) | total, crc8_zirconia(chunk), channel]) + chunk)
+        frames.append(
+            bytes(
+                [
+                    ((index + 1) << 4) | total,
+                    crc8_zirconia(chunk),
+                    channel,
+                ]
+            )
+            + chunk
+        )
     return frames
 
 
@@ -394,7 +420,9 @@ def decode_faults(mask: int) -> list[str]:
 def parse_system_status(data_object: bytes) -> dict[str, object]:
     obj = deserialize_data_object_array(data_object)
     if obj.object_type != DataObjectArrayType.RAW or len(obj.payload) < 7:
-        raise ValueError("system status requires a Raw DataObjectArray with at least seven bytes")
+        raise ValueError(
+            "system status requires a Raw DataObjectArray with at least seven bytes"
+        )
     fan_speed, timeout, faults = struct.unpack_from("<BHI", obj.payload)
     return {
         "fan_speed": fan_speed,
@@ -494,10 +522,17 @@ def _self_test() -> None:
     ]
     assert reassemble_fragments(frames) == packet
     assert fragment_ack(2) == bytes([0, 0, 2]) + bytes(17)
-    status = parse_system_status(serialize_data_object_array(DataObjectArrayType.RAW, struct.pack("<BHI", 3, 90, 2 | 2048)))
+    status = parse_system_status(
+        serialize_data_object_array(
+            DataObjectArrayType.RAW,
+            struct.pack("<BHI", 3, 90, 2 | 2048),
+        )
+    )
     assert status["fan_speed"] == 3 and status["timeout_seconds"] == 90
     assert status["faults"] == ["MotorNotRunning", "FilterTimeout"]
-    zone_record = struct.pack("<BBBHfffI", 1, 3, 2, 1450, 21.5, 58.25, 775.0, 0)
+    zone_record = struct.pack(
+        "<BBBHfffI", 1, 3, 2, 1450, 21.5, 58.25, 775.0, 0
+    )
     zone = parse_zone_view(zone_record)
     assert zone["fan_rpm"] == 1450 and zone["co2_ppm"] == 775.0
     print("all MEV protocol self-tests passed")
@@ -508,18 +543,31 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("self-test")
 
-    decode = subparsers.add_parser("decode-protocol", help="decode a hex protocol packet")
+    decode = subparsers.add_parser(
+        "decode-protocol", help="decode a hex protocol packet"
+    )
     decode.add_argument("hex", type=_hex_bytes)
 
-    zone = subparsers.add_parser("decode-zone", help="decode a 21-byte zone-view record")
+    zone = subparsers.add_parser(
+        "decode-zone", help="decode a 21-byte zone-view record"
+    )
     zone.add_argument("hex", type=_hex_bytes)
     zone.add_argument("--zone-id", type=int, default=1)
 
-    status = subparsers.add_parser("decode-status", help="decode a system-status DataObjectArray")
+    status = subparsers.add_parser(
+        "decode-status", help="decode a system-status DataObjectArray"
+    )
     status.add_argument("hex", type=_hex_bytes)
 
-    override = subparsers.add_parser("user-override", help="build a complete whole-packet command")
-    override.add_argument("preset", choices={name.lower(): item for name, item in AirflowPreset.__members__.items()})
+    override = subparsers.add_parser(
+        "user-override", help="build a complete whole-packet command"
+    )
+    override.add_argument(
+        "preset",
+        choices={
+            name.lower(): item for name, item in AirflowPreset.__members__.items()
+        },
+    )
     override.add_argument("seconds", type=int)
     override.add_argument("--timestamp", type=int)
     override.add_argument("--fragments", action="store_true")
@@ -530,7 +578,8 @@ def _build_parser() -> argparse.ArgumentParser:
     mode.add_argument(
         "mode",
         choices={
-            name.lower().replace("_", "-") for name in VentilationMode.__members__
+            name.lower().replace("_", "-")
+            for name in VentilationMode.__members__
         },
     )
     mode.add_argument("--timestamp", type=int)
