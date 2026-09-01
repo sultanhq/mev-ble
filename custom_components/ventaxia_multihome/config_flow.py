@@ -24,9 +24,9 @@ from homeassistant.const import (
     ATTR_DEVICE_CLASS,
     ATTR_UNIT_OF_MEASUREMENT,
     CONF_ADDRESS,
-    UnitOfRatio,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
+    UnitOfRatio,
 )
 from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError

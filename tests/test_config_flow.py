@@ -16,7 +16,6 @@ from homeassistant.components.sensor import SensorDeviceClass
 from homeassistant.const import (
     ATTR_DEVICE_CLASS,
     ATTR_UNIT_OF_MEASUREMENT,
-    UnitOfRatio.PARTS_PER_MILLION,
     CONF_ADDRESS,
     UnitOfRatio,
 )

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.2-rc.10] - 2026-09-01
+
+### Fixed
+
+- Correct the Home Assistant ppm-constant migration imports caught by Ruff.
+
 ## [0.6.2-rc.9] - 2026-09-01
 
 ### Fixed
