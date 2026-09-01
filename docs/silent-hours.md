@@ -57,18 +57,24 @@ If a write, timeout, disconnect or readback fails:
 Deletion of a populated slot requires a separate explicit confirmation. The
 integration never sends the deletion marker for an already empty slot.
 
-## Release-candidate hardware validation
+## Validated hardware scope
 
-Before v0.5 can become stable, a model 10 unit must confirm:
+Stable v0.5 schedule writes are enabled only for model 10. Physical testing on
+firmware 2.03.08 and hardware 01.00 confirmed:
 
-1. Create a short daytime schedule in slot 1 and confirm its start/end state.
-2. Create an overnight schedule in slot 2 and confirm it crosses midnight as
-   described.
-3. Verify the Monday-through-Sunday mapping with observable boundary tests.
-4. Create and read back a record in every slot, 1 through 6.
-5. Delete each test record and confirm every slot returns empty.
-6. Attempt an edit while the Bluetooth proxy is unavailable, confirm that no
-   success is reported, restore the proxy, and verify the previous table returns.
+- deterministic reads of all six indexed slots with the firmware's appended
+  Zirconia CRC;
+- creation and exact complete-table readback of populated schedule records;
+- local-time display and entry with conversion to the firmware's UTC clock;
+- activation at the expected converted boundary, reported as `silent_hour`;
+- deletion of a populated slot with the recovered `0xffff` marker, followed by
+  an empty selected slot in a fresh complete-table readback; and
+- recovery of write readiness after successful communication resumes.
+
+Automated tests additionally cover daytime and overnight records, weekday-mask
+and midnight rotation, every slot index, unsupported or corrupt responses,
+unavailable writes, stale review state and mismatched readback. Other models
+remain read-only until their packet-49 behaviour is physically validated.
 
 Do not use schedules that would leave necessary household ventilation reduced
 for an unsafe period. Keep the normal RF/app control available during testing.
