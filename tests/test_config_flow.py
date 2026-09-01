@@ -58,6 +58,7 @@ from custom_components.ventaxia_multihome.coordinator import (
 )
 from custom_components.ventaxia_multihome.device import SetupCodeRejectedError
 from custom_components.ventaxia_multihome.protocol import (
+    crc8_zirconia,
     decode_global_settings,
     decode_silent_hour_slot,
     encode_silent_hour,
@@ -1153,3 +1154,77 @@ async def test_silent_hours_delete_requires_confirmation_and_readback(hass) -> N
     assert declined["errors"]["base"] == "silent_hour_delete_confirmation_required"
     assert confirmed["step_id"] == "silent_hour_result"
     coordinator.async_delete_silent_hour.assert_awaited_once_with(1)
+
+
+@pytest.mark.asyncio
+async def test_silent_hours_delete_ignores_volatile_packet_metadata(hass) -> None:
+    """Changed table metadata and CRC do not look like a schedule change."""
+
+    # Arrange - select a populated slot returned with one metadata value and CRC.
+    entry, coordinator = _options_entry(hass, supports_schedules=True)
+    record = encode_silent_hour(6 * 3600 + 50 * 60, 6 * 3600 + 51 * 60, 0x7F)
+    slots = list(coordinator.data.silent_hours)
+    baseline_payload = bytes.fromhex("01000120") + record
+    slots[1] = decode_silent_hour_slot(
+        baseline_payload + bytes((crc8_zirconia(baseline_payload),))
+    )
+    coordinator.data.silent_hours = tuple(slots)
+    selection = await _open_silent_hours_options(hass, entry)
+    delete = await hass.config_entries.options.async_configure(
+        selection["flow_id"],
+        {
+            CONF_SILENT_HOUR_SLOT: "1",
+            CONF_SILENT_HOUR_ACTION: SILENT_HOUR_ACTION_DELETE,
+        },
+    )
+    current_payload = bytes.fromhex("01000220") + record
+    slots[1] = decode_silent_hour_slot(
+        current_payload + bytes((crc8_zirconia(current_payload),))
+    )
+    coordinator.data.silent_hours = tuple(slots)
+
+    # Act - confirm after a poll changed only the packet metadata and checksum.
+    confirmed = await hass.config_entries.options.async_configure(
+        delete["flow_id"], {CONF_CONFIRM_SILENT_HOUR_DELETE: True}
+    )
+
+    # Assert - the semantic table matches and the actual deletion command is attempted.
+    assert confirmed["step_id"] == "silent_hour_result"
+    coordinator.async_delete_silent_hour.assert_awaited_once_with(1)
+
+
+@pytest.mark.asyncio
+async def test_silent_hours_delete_rejects_semantic_table_change(hass) -> None:
+    """A real schedule change still blocks a deletion reviewed against stale state."""
+
+    # Arrange - select a populated slot for deletion, then change another slot.
+    entry, coordinator = _options_entry(hass, supports_schedules=True)
+    slots = list(coordinator.data.silent_hours)
+    slots[1] = decode_silent_hour_slot(
+        bytes.fromhex("01000000")
+        + encode_silent_hour(6 * 3600 + 50 * 60, 6 * 3600 + 51 * 60, 0x7F)
+    )
+    coordinator.data.silent_hours = tuple(slots)
+    selection = await _open_silent_hours_options(hass, entry)
+    delete = await hass.config_entries.options.async_configure(
+        selection["flow_id"],
+        {
+            CONF_SILENT_HOUR_SLOT: "1",
+            CONF_SILENT_HOUR_ACTION: SILENT_HOUR_ACTION_DELETE,
+        },
+    )
+    slots[2] = decode_silent_hour_slot(
+        bytes.fromhex("02000000")
+        + encode_silent_hour(22 * 3600, 7 * 3600, 0x1F)
+    )
+    coordinator.data.silent_hours = tuple(slots)
+
+    # Act - confirm after the actual six-slot schedule table changed.
+    rejected = await hass.config_entries.options.async_configure(
+        delete["flow_id"], {CONF_CONFIRM_SILENT_HOUR_DELETE: True}
+    )
+
+    # Assert - stale review protection aborts before sending a deletion command.
+    assert rejected["type"] is data_entry_flow.FlowResultType.ABORT
+    assert rejected["reason"] == "silent_hours_changed"
+    coordinator.async_delete_silent_hour.assert_not_awaited()
