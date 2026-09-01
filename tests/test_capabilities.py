@@ -1,1 +1,124 @@
-IiIiSW5zdGFsbGVyIGNhcGFiaWxpdHktbWF0cml4IHRlc3RzLiIiIgoKZnJvbSBfX2Z1dHVyZV9fIGltcG9ydCBhbm5vdGF0aW9ucwoKZnJvbSBjdXN0b21fY29tcG9uZW50cy52ZW50YXhpYV9tdWx0aWhvbWUuY2FwYWJpbGl0aWVzIGltcG9ydCAoCiAgICBBSVJGTE9XX0ZJRUxEUywKICAgIElOU1RBTExFUl9GSUVMRF9ERUZJTklUSU9OUywKICAgIE1PREVMX0NBUEFCSUxJVElFUywKICAgIFZBTElEQVRFRF9JTlNUQUxMRVJfV1JJVEVfUFJPRklMRVMsCiAgICBDYXBhYmlsaXR5RXZpZGVuY2UsCiAgICBpbnN0YWxsZXJfd3JpdGFibGVfZmllbGRzLAopCmZyb20gY3VzdG9tX2NvbXBvbmVudHMudmVudGF4aWFfbXVsdGlob21lLnByb3RvY29sIGltcG9ydCAoCiAgICBHTE9CQUxfU0VUVElOR19GSUVMRF9TUEVDUywKICAgIEdsb2JhbFNldHRpbmdGaWVsZCwKKQoKCmRlZiB0ZXN0X21vZGVsX21hdHJpeF9tYXRjaGVzX3RoZV9yZWNvdmVyZWRfb2ZmaWNpYWxfYXBwX2VudW0oKSAtPiBOb25lOgogICAgIiIiRXZlcnkgcmVjb3ZlcmVkIG1vZGVsIG51bWJlciByZXRhaW5zIGl0cyBvZmZpY2lhbC1hcHAgY2xhc3NpZmljYXRpb24uIiIiCgogICAgIyBBcnJhbmdlIC0gcmVjb3JkIHRoZSBjb21wbGV0ZSBlbnVtIHJlY292ZXJlZCBmcm9tIENvbm5lY3QgNy4yLjIuCiAgICBleHBlY3RlZCA9IHsKICAgICAgICAxOiAoIlNtdlBsdXNIeCIsIFRydWUsIEZhbHNlKSwKICAgICAgICAyOiAoIlNtdlBsdXNIeENvMiIsIFRydWUsIFRydWUpLAogICAgICAgIDM6ICgiVmFab25hbERlbWFuZCIsIEZhbHNlLCBGYWxzZSksCiAgICAgICAgNDogKCJDb21haXJGbHgiLCBGYWxzZSwgRmFsc2UpLAogICAgICAgIDU6ICgiVW5rbm93bjUiLCBGYWxzZSwgRmFsc2UpLAogICAgICAgIDY6ICgiQ29tYWlyWm9uYWxEZW1hbmQiLCBGYWxzZSwgRmFsc2UpLAogICAgICAgIDc6ICgiVW5rbm93bjciLCBGYWxzZSwgRmFsc2UpLAogICAgICAgIDg6ICgiVW5rbm93bjgiLCBGYWxzZSwgRmFsc2UpLAogICAgICAgIDk6ICgiU212SHgiLCBUcnVlLCBGYWxzZSksCiAgICAgICAgMTA6ICgiU212SHhDbzIiLCBUcnVlLCBUcnVlKSwKICAgICAgICAxMTogKCJWYTEyNUVjM1dpcmVsZXNzIiwgRmFsc2UsIEZhbHNlKSwKICAgIH0KCiAgICAjIEFjdCAtIHJlZHVjZSB0aGUgcHJvZHVjdGlvbiBtYXRyaXggdG8gaXRzIHJlY292ZXJlZCBjbGFzc2lmaWNhdGlvbiBmaWVsZHMuCiAgICBhY3R1YWwgPSB7CiAgICAgICAgbnVtYmVyOiAoCiAgICAgICAgICAgIGNhcGFiaWxpdHkubmFtZSwKICAgICAgICAgICAgY2FwYWJpbGl0eS5mb3VyX3NwZWVkX2FpcmZsb3csCiAgICAgICAgICAgIGNhcGFiaWxpdHkuaW50ZXJuYWxfY28yLAogICAgICAgICkKICAgICAgICBmb3IgbnVtYmVyLCBjYXBhYmlsaXR5IGluIE1PREVMX0NBUEFCSUxJVElFUy5pdGVtcygpCiAgICB9CgogICAgIyBBc3NlcnQgLSB1bmtub3duL3Jlc2VydmVkIGVudW0gbmFtZXMgcmVtYWluIGV4cGxpY2l0IGFuZCB1bnN1cHBvcnRlZC4KICAgIGFzc2VydCBhY3R1YWwgPT0gZXhwZWN0ZWQKCgpkZWYgdGVzdF9ldmVyeV9wYWNrZXRfMTM2X2ZpZWxkX2hhc19vbmVfZG9jdW1lbnRlZF9kZWZpbml0aW9uKCkgLT4gTm9uZToKICAgICIiIlRoZSBjb2RlYyBhbmQgc2FmZXR5IG1hdHJpeCBjYW5ub3QgZHJpZnQgdG8gZGlmZmVyZW50IGZpZWxkIHNldHMuIiIiCgogICAgIyBBcnJhbmdlIC0gY29sbGVjdCBlYWNoIHNvdXJjZSBvZiBwYWNrZXQtMTM2IGZpZWxkIGtub3dsZWRnZS4KICAgIGVudW1fZmllbGRzID0gc2V0KEdsb2JhbFNldHRpbmdGaWVsZCkKICAgIGNvZGVjX2ZpZWxkcyA9IHNldChHTE9CQUxfU0VUVElOR19GSUVMRF9TUEVDUykKICAgIGRvY3VtZW50ZWRfZmllbGRzID0gc2V0KElOU1RBTExFUl9GSUVMRF9ERUZJTklUSU9OUykKCiAgICAjIEFjdCAtIGluc3BlY3QgdGhlIGRlZmluaXRpb25zIGFuZCBhbGwgcGh5c2ljYWxseSB2YWxpZGF0ZWQgcHJvZmlsZXMuCiAgICBwcm9maWxlX2ZpZWxkcyA9IHNldCgpLnVuaW9uKAogICAgICAgICoocHJvZmlsZS5maWVsZHMgZm9yIHByb2ZpbGUgaW4gVkFMSURBVEVEX0lOU1RBTExFUl9XUklURV9QUk9GSUxFUykKICAgICkKCiAgICAjIEFzc2VydCAtIGV2ZXJ5IHdyaXRhYmxlIGZpZWxkIGlzIGRvY3VtZW50ZWQgYW5kIGFsbCAzMyBtYXBzIGFyZSBjb21wbGV0ZS4KICAgIGFzc2VydCBlbnVtX2ZpZWxkcyA9PSBjb2RlY19maWVsZHMgPT0gZG9jdW1lbnRlZF9maWVsZHMKICAgIGFzc2VydCBwcm9maWxlX2ZpZWxkcyA8PSBkb2N1bWVudGVkX2ZpZWxkcwogICAgYXNzZXJ0IGxlbihkb2N1bWVudGVkX2ZpZWxkcykgPT0gMzMKCgpkZWYgdGVzdF9maWVsZF9tYXRyaXhfc2VwYXJhdGVzX3dpcmVfYm91bmRzX2Zyb21fcGh5c2ljYWxfd3JpdGVfZXZpZGVuY2UoKSAtPiBOb25lOgogICAgIiIiU3RhdGljIGRlY29kZXJzIHJlbWFpbiByZWFkLW9ubHkgdW5sZXNzIHBoeXNpY2FsIGV2aWRlbmNlIGV4aXN0cy4iIiIKCiAgICAjIEFycmFuZ2UgLSBzZWxlY3Qgb25lIHZhbGlkYXRlZCBmaWVsZCBhbmQgcmVwcmVzZW50YXRpdmUgaW5mZXJyZWQgZmllbGRzLgogICAgbG93ID0gSU5TVEFMTEVSX0ZJRUxEX0RFRklOSVRJT05TW0dsb2JhbFNldHRpbmdGaWVsZC5TUEVFRF9MT1ddCiAgICBodW1pZGl0eSA9IElOU1RBTExFUl9GSUVMRF9ERUZJTklUSU9OU1tHbG9iYWxTZXR0aW5nRmllbGQuSFVNSURJVFlfVEhSRVNIT0xEXQogICAgY28yID0gSU5TVEFMTEVSX0ZJRUxEX0RFRklOSVRJT05TW0dsb2JhbFNldHRpbmdGaWVsZC5DTzJfQk9PU1RfVEhSRVNIT0xEXQoKICAgICMgQWN0IC0gcmVhZCB0aGUgZXhhY3QgY29kZS1sZXZlbCBtZXRhZGF0YSB1c2VkIGZvciBmdXR1cmUgY29udHJvbHMuCiAgICBvYnNlcnZlZCA9IHsKICAgICAgICBsb3cuZmllbGQ6IChsb3cucmVjb3JkX29mZnNldCwgbG93LnVuaXQsIGxvdy5taW5pbXVtLCBsb3cubWF4aW11bSwgbG93LnN0ZXApLAogICAgICAgIGh1bWlkaXR5LmZpZWxkOiAoCiAgICAgICAgICAgIGh1bWlkaXR5LnJlY29yZF9vZmZzZXQsCiAgICAgICAgICAgIGh1bWlkaXR5LnVuaXQsCiAgICAgICAgICAgIGh1bWlkaXR5Lm1pbmltdW0sCiAgICAgICAgICAgIGh1bWlkaXR5Lm1heGltdW0sCiAgICAgICAgICAgIGh1bWlkaXR5LnN0ZXAsCiAgICAgICAgKSwKICAgICAgICBjbzIuZmllbGQ6IChjbzIucmVjb3JkX29mZnNldCwgY28yLnVuaXQsIGNvMi5taW5pbXVtLCBjbzIubWF4aW11bSwgY28yLnN0ZXApLAogICAgfQoKICAgICMgQXNzZXJ0IC0gcmFuZ2VzIGFuZCBlbmNvZGluZ3MgYXJlIGV4YWN0IHdpdGhvdXQgb3ZlcnN0YXRpbmcgdmFsaWRhdGlvbi4KICAgIGFzc2VydCBvYnNlcnZlZCA9PSB7CiAgICAgICAgR2xvYmFsU2V0dGluZ0ZpZWxkLlNQRUVEX0xPVzogKDAsICJwZXJjZW50IiwgMSwgOTcsIDEpLAogICAgICAgIEdsb2JhbFNldHRpbmdGaWVsZC5IVU1JRElUWV9USFJFU0hPTEQ6ICg1LCAicGVyY2VudF9yaCIsIDAsIDEwMCwgMSksCiAgICAgICAgR2xvYmFsU2V0dGluZ0ZpZWxkLkNPMl9CT09TVF9USFJFU0hPTEQ6ICgyMiwgInBwbSIsIDAsIDIwMDAsIDEwKSwKICAgIH0KICAgIGFzc2VydCBsb3cuZXZpZGVuY2UgaXMgQ2FwYWJpbGl0eUV2aWRlbmNlLlBIWVNJQ0FMX1ZBTElEQVRJT04KICAgIGFzc2VydCBodW1pZGl0eS5ldmlkZW5jZSBpcyBDYXBhYmlsaXR5RXZpZGVuY2UuU1RBVElDX0FOQUxZU0lTCiAgICBhc3NlcnQgY28yLmV2aWRlbmNlIGlzIENhcGFiaWxpdHlFdmlkZW5jZS5TVEFUSUNfQU5BTFlTSVMKCgpkZWYgdGVzdF9pbnN0YWxsZXJfd3JpdGVfbWF0cml4X3JlcXVpcmVzX2FuX2V4YWN0X3ZhbGlkYXRlZF9pZGVudGl0eSgpIC0+IE5vbmU6CiAgICAiIiJBIG1vZGVsIG1hdGNoIGFsb25lIG5ldmVyIGVuYWJsZXMgYW4gaW5zdGFsbGVyLXNldHRpbmcgd3JpdGUuIiIiCgogICAgIyBBcnJhbmdlIC0gZGVmaW5lIHRoZSBvbmUgcGh5c2ljYWxseSB0ZXN0ZWQgaWRlbnRpdHkgYW5kIG5lYXIgbWlzc2VzLgogICAgaWRlbnRpdGllcyA9IFsKICAgICAgICAoMTAsICIyLjAzLjA4IiwgIjAxLjAwIiksCiAgICAgICAgKDEwLCAiMi4wMy4wOSIsICIwMS4wMCIpLAogICAgICAgICgxMCwgIjIuMDMuMDgiLCAiMDEuMDEiKSwKICAgICAgICAoMTAsIE5vbmUsICIwMS4wMCIpLAogICAgICAgICgyLCAiMi4wMy4wOCIsICIwMS4wMCIpLAogICAgXQoKICAgICMgQWN0IC0gcmVzb2x2ZSBlYWNoIGlkZW50aXR5IHRocm91Z2ggdGhlIHByb2R1Y3Rpb24gY2FwYWJpbGl0eSBzZWxlY3Rvci4KICAgIHJlc29sdmVkID0gW2luc3RhbGxlcl93cml0YWJsZV9maWVsZHMoKmlkZW50aXR5KSBmb3IgaWRlbnRpdHkgaW4gaWRlbnRpdGllc10KCiAgICAjIEFzc2VydCAtIG9ubHkgdGhlIGV4YWN0IGV2aWRlbmNlLWJhY2tlZCBpZGVudGl0eSBleHBvc2VzIHRoZSBmb3VyIGZpZWxkcy4KICAgIGFzc2VydCByZXNvbHZlZCA9PSBbCiAgICAgICAgQUlSRkxPV19GSUVMRFMsCiAgICAgICAgZnJvemVuc2V0KCksCiAgICAgICAgZnJvemVuc2V0KCksCiAgICAgICAgZnJvemVuc2V0KCksCiAgICAgICAgZnJvemVuc2V0KCksCiAgICBdCg==
+"""Installer capability-matrix tests."""
+
+from __future__ import annotations
+
+from custom_components.ventaxia_multihome.capabilities import (
+    AIRFLOW_FIELDS,
+    INSTALLER_FIELD_DEFINITIONS,
+    MODEL_CAPABILITIES,
+    VALIDATED_INSTALLER_WRITE_PROFILES,
+    CapabilityEvidence,
+    installer_writable_fields,
+)
+from custom_components.ventaxia_multihome.protocol import (
+    GLOBAL_SETTING_FIELD_SPECS,
+    GlobalSettingField,
+)
+
+
+def test_model_matrix_matches_the_recovered_official_app_enum() -> None:
+    """Every recovered model number retains its official-app classification."""
+
+    # Arrange - record the complete enum recovered from Connect 7.2.2.
+    expected = {
+        1: ("SmvPlusHx", True, False),
+        2: ("SmvPlusHxCo2", True, True),
+        3: ("VaZonalDemand", False, False),
+        4: ("ComairFlx", False, False),
+        5: ("Unknown5", False, False),
+        6: ("ComairZonalDemand", False, False),
+        7: ("Unknown7", False, False),
+        8: ("Unknown8", False, False),
+        9: ("SmvHx", True, False),
+        10: ("SmvHxCo2", True, True),
+        11: ("Va125Ec3Wireless", False, False),
+    }
+
+    # Act - reduce the production matrix to its recovered classification fields.
+    actual = {
+        number: (
+            capability.name,
+            capability.four_speed_airflow,
+            capability.internal_co2,
+        )
+        for number, capability in MODEL_CAPABILITIES.items()
+    }
+
+    # Assert - unknown/reserved enum names remain explicit and unsupported.
+    assert actual == expected
+
+
+def test_every_packet_136_field_has_one_documented_definition() -> None:
+    """The codec and safety matrix cannot drift to different field sets."""
+
+    # Arrange - collect each source of packet-136 field knowledge.
+    enum_fields = set(GlobalSettingField)
+    codec_fields = set(GLOBAL_SETTING_FIELD_SPECS)
+    documented_fields = set(INSTALLER_FIELD_DEFINITIONS)
+
+    # Act - inspect the definitions and all physically validated profiles.
+    profile_fields = set().union(
+        *(profile.fields for profile in VALIDATED_INSTALLER_WRITE_PROFILES)
+    )
+
+    # Assert - every writable field is documented and all 33 maps are complete.
+    assert enum_fields == codec_fields == documented_fields
+    assert profile_fields <= documented_fields
+    assert len(documented_fields) == 33
+
+
+def test_field_matrix_separates_wire_bounds_from_physical_write_evidence() -> None:
+    """Static decoders remain read-only unless physical evidence exists."""
+
+    # Arrange - select one validated field and representative inferred fields.
+    low = INSTALLER_FIELD_DEFINITIONS[GlobalSettingField.SPEED_LOW]
+    humidity = INSTALLER_FIELD_DEFINITIONS[GlobalSettingField.HUMIDITY_THRESHOLD]
+    co2 = INSTALLER_FIELD_DEFINITIONS[GlobalSettingField.CO2_BOOST_THRESHOLD]
+
+    # Act - read the exact code-level metadata used for future controls.
+    observed = {
+        low.field: (low.record_offset, low.unit, low.minimum, low.maximum, low.step),
+        humidity.field: (
+            humidity.record_offset,
+            humidity.unit,
+            humidity.minimum,
+            humidity.maximum,
+            humidity.step,
+        ),
+        co2.field: (co2.record_offset, co2.unit, co2.minimum, co2.maximum, co2.step),
+    }
+
+    # Assert - ranges and encodings are exact without overstating validation.
+    assert observed == {
+        GlobalSettingField.SPEED_LOW: (0, "percent", 1, 97, 1),
+        GlobalSettingField.HUMIDITY_THRESHOLD: (5, "percent_rh", 0, 100, 1),
+        GlobalSettingField.CO2_BOOST_THRESHOLD: (22, "ppm", 0, 2000, 10),
+    }
+    assert low.evidence is CapabilityEvidence.PHYSICAL_VALIDATION
+    assert humidity.evidence is CapabilityEvidence.STATIC_ANALYSIS
+    assert co2.evidence is CapabilityEvidence.STATIC_ANALYSIS
+
+
+def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
+    """A model match alone never enables an installer-setting write."""
+
+    # Arrange - define the one physically tested identity and near misses.
+    identities = [
+        (10, "2.03.08", "01.00"),
+        (10, "2.03.09", "01.00"),
+        (10, "2.03.08", "01.01"),
+        (10, None, "01.00"),
+        (2, "2.03.08", "01.00"),
+    ]
+
+    # Act - resolve each identity through the production capability selector.
+    resolved = [installer_writable_fields(*identity) for identity in identities]
+
+    # Assert - only the exact evidence-backed identity exposes the four fields.
+    assert resolved == [
+        AIRFLOW_FIELDS,
+        frozenset(),
+        frozenset(),
+        frozenset(),
+        frozenset(),
+    ]
