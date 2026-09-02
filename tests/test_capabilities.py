@@ -110,6 +110,40 @@ def test_field_matrix_separates_wire_bounds_from_physical_write_evidence() -> No
     assert co2.evidence is CapabilityEvidence.PHYSICAL_VALIDATION
 
 
+def test_temperature_metadata_matches_the_recovered_multihome_screen() -> None:
+    """Temperature diagnostics use only limits and actions shown by the MEV app."""
+
+    # Arrange - select the four fields written by the recovered temperature flow.
+    low_action = INSTALLER_FIELD_DEFINITIONS[GlobalSettingField.LOW_THRESHOLD_ACTION]
+    high_action = INSTALLER_FIELD_DEFINITIONS[GlobalSettingField.HIGH_THRESHOLD_ACTION]
+    low_threshold = INSTALLER_FIELD_DEFINITIONS[
+        GlobalSettingField.LOW_TEMPERATURE_THRESHOLD
+    ]
+    high_threshold = INSTALLER_FIELD_DEFINITIONS[
+        GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD
+    ]
+
+    # Act - collect the semantic metadata exposed to diagnostics and entities.
+    action_metadata = tuple(
+        (definition.unit, definition.known_values)
+        for definition in (low_action, high_action)
+    )
+    threshold_metadata = tuple(
+        (definition.unit, definition.minimum, definition.maximum)
+        for definition in (low_threshold, high_threshold)
+    )
+
+    # Assert - no Normal action or inferred low/high ordering is introduced.
+    expected_actions = ((1, "low"), (3, "boost"), (4, "purge"))
+    assert action_metadata == (
+        ("action_code", expected_actions),
+        ("action_code", expected_actions),
+    )
+    assert threshold_metadata == (("celsius", 0, 30), ("celsius", 15, 40))
+    assert "no cross-threshold ordering check" in low_threshold.dependencies
+    assert "no cross-threshold ordering check" in high_threshold.dependencies
+
+
 def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     """A model match alone never enables an installer-setting write."""
 

@@ -172,6 +172,27 @@ async def test_diagnostics_include_control_validation_state() -> None:
     assert installer["fields"]["ls1_action"]["value_status"] == (
         "raw_code_semantics_unknown"
     )
+    low_action = installer["fields"]["low_threshold_action"]
+    high_action = installer["fields"]["high_threshold_action"]
+    assert low_action["known_values"] == {1: "low", 3: "boost", 4: "purge"}
+    assert low_action["decoded_value"] == 2
+    assert low_action["decoded_name"] is None
+    assert low_action["value_status"] == "unknown_action_code"
+    assert high_action["decoded_value"] == 3
+    assert high_action["decoded_name"] == "boost"
+    assert high_action["value_status"] == "decoded"
+    low_temperature = installer["fields"]["low_temperature_threshold"]
+    high_temperature = installer["fields"]["high_temperature_threshold"]
+    assert (
+        low_temperature["unit"],
+        low_temperature["codec_minimum"],
+        low_temperature["codec_maximum"],
+    ) == ("celsius", 0, 30)
+    assert (
+        high_temperature["unit"],
+        high_temperature["codec_minimum"],
+        high_temperature["codec_maximum"],
+    ) == ("celsius", 15, 40)
     assert installer["read_only_unaddressable_fields"]["purge_low_mode"] == {
         "record_offset": 16,
         "unit": "raw_code",

@@ -89,9 +89,11 @@ def _installer_capability_diagnostics(
             value_status = "unknown_boolean_value"
         elif definition.unit == "raw_code":
             value_status = "raw_code_semantics_unknown"
+        elif definition.known_values and value not in dict(definition.known_values):
+            value_status = "unknown_action_code"
         else:
             value_status = "decoded"
-        fields[definition.attribute] = {
+        field_diagnostics = {
             "field_id": int(field),
             "record_offset": definition.record_offset,
             "encoding": definition.encoding,
@@ -114,6 +116,11 @@ def _installer_capability_diagnostics(
             ),
             "value_status": value_status,
         }
+        if definition.known_values:
+            known_values = dict(definition.known_values)
+            field_diagnostics["known_values"] = known_values
+            field_diagnostics["decoded_name"] = known_values.get(value)
+        fields[definition.attribute] = field_diagnostics
     return {
         "identity_complete": all(
             value is not None for value in (model_number, info.firmware, info.hardware)

@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final
 
-from .protocol import GLOBAL_SETTING_FIELD_SPECS, GlobalSettingField
+from .protocol import (
+    GLOBAL_SETTING_FIELD_SPECS,
+    TEMPERATURE_THRESHOLD_ACTION_NAMES,
+    GlobalSettingField,
+)
 
 
 class CapabilityEvidence(StrEnum):
@@ -38,6 +42,7 @@ class InstallerFieldDefinition:
     dependencies: str
     risk: InstallerFieldRisk
     evidence: CapabilityEvidence
+    known_values: tuple[tuple[int, str], ...] = ()
 
     @property
     def attribute(self) -> str:
@@ -82,6 +87,7 @@ def _field(
     dependencies: str,
     risk: InstallerFieldRisk,
     evidence: CapabilityEvidence = CapabilityEvidence.STATIC_ANALYSIS,
+    known_values: tuple[tuple[int, str], ...] = (),
 ) -> InstallerFieldDefinition:
     """Build a definition while reusing the codec's authoritative bounds."""
 
@@ -96,6 +102,7 @@ def _field(
         dependencies=dependencies,
         risk=risk,
         evidence=evidence,
+        known_values=known_values,
     )
 
 
@@ -217,22 +224,38 @@ INSTALLER_FIELD_DEFINITIONS: Final = {
     ),
     GlobalSettingField.LOW_THRESHOLD_ACTION: _field(
         GlobalSettingField.LOW_THRESHOLD_ACTION,
-        dependencies="temperature action codes are unvalidated",
+        unit="action_code",
+        dependencies="paired with the low-temperature threshold",
         risk=InstallerFieldRisk.SENSOR_CONTROL,
+        known_values=tuple(
+            (int(action), name)
+            for action, name in TEMPERATURE_THRESHOLD_ACTION_NAMES.items()
+        ),
     ),
     GlobalSettingField.HIGH_THRESHOLD_ACTION: _field(
         GlobalSettingField.HIGH_THRESHOLD_ACTION,
-        dependencies="temperature action codes are unvalidated",
+        unit="action_code",
+        dependencies="paired with the high-temperature threshold",
         risk=InstallerFieldRisk.SENSOR_CONTROL,
+        known_values=tuple(
+            (int(action), name)
+            for action, name in TEMPERATURE_THRESHOLD_ACTION_NAMES.items()
+        ),
     ),
     GlobalSettingField.LOW_TEMPERATURE_THRESHOLD: _field(
         GlobalSettingField.LOW_TEMPERATURE_THRESHOLD,
-        dependencies="temperature unit and safe range are unvalidated",
+        unit="celsius",
+        dependencies=(
+            "0..30 C app range; no cross-threshold ordering check was recovered"
+        ),
         risk=InstallerFieldRisk.SENSOR_CONTROL,
     ),
     GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD: _field(
         GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD,
-        dependencies="temperature unit and safe range are unvalidated",
+        unit="celsius",
+        dependencies=(
+            "15..40 C app range; no cross-threshold ordering check was recovered"
+        ),
         risk=InstallerFieldRisk.SENSOR_CONTROL,
     ),
     GlobalSettingField.CO2_BOOST_THRESHOLD: _field(

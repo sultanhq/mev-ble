@@ -387,16 +387,16 @@
         "name": "Boost minimum"
       },
       "low_threshold_action": {
-        "name": "Low-temperature action code"
+        "name": "Low-temperature action"
       },
       "high_threshold_action": {
-        "name": "High-temperature action code"
+        "name": "High-temperature action"
       },
       "low_temperature_threshold": {
-        "name": "Low-temperature threshold (raw)"
+        "name": "Low-temperature threshold"
       },
       "high_temperature_threshold": {
-        "name": "High-temperature threshold (raw)"
+        "name": "High-temperature threshold"
       },
       "purge_low_mode": {
         "name": "Purge-low mode (raw)"

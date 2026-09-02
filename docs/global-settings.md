@@ -115,11 +115,13 @@ Every decoded packet-137 installer value is available as an entity and remains
 disabled by default. Enable only the diagnostic entities useful for the
 installation from the Home Assistant entity registry.
 
-Known percentages, CO₂ thresholds, humidity and timer values carry their
-confirmed units. Unrecovered action enums, temperature units, analogue scaling,
-and `purge_low_mode` are deliberately shown as numeric **code** or **raw**
-values without a unit. These entities are read-only and do not widen the
-packet-136 write capability.
+Known percentages, CO₂ thresholds, humidity, timers and temperature thresholds
+carry their recovered units. Temperature action codes offered by the verified
+MEV app are displayed as `low`, `boost` or `purge`; any other byte is retained
+as `unknown_<code>`. Unrecovered LS/digital/analogue action enums, analogue
+scaling and `purge_low_mode` remain numeric **code** or **raw** values without a
+unit. These entities are read-only and do not widen the packet-136 write
+capability.
 
 ## Installer-field matrix
 
@@ -144,9 +146,10 @@ are proven.
 | 11–13 | `ls1_action` … `ls3_action` | 19–21 | UInt8 action code | 0–255 | Installed wiring and action enum | Wired input | Static; read-only |
 | 14 | `rapid_response_enabled` | 9 | strict UInt8 boolean | 0/1 | Humidity-response semantics | Sensor control | Physical; exact validated identity only |
 | 15 | `ambient_response_enabled` | 10 | strict UInt8 boolean | 0/1 | Humidity-response semantics | Sensor control | Physical; exact validated identity only |
-| 16 | `low_temperature_enabled` | 11 | strict UInt8 boolean | 0/1 | Paired thresholds and actions | Sensor control | Static; read-only |
-| 17–18 | `low_threshold_action`, `high_threshold_action` | 12–13 | UInt8 action code | 0–255 | Temperature action enum | Sensor control | Static; read-only |
-| 19–20 | `low_temperature_threshold`, `high_temperature_threshold` | 14–15 | UInt8, unit unknown | 0–255 | Unit, ordering and safe range | Sensor control | Static; read-only |
+| 16 | `low_temperature_enabled` | 11 | strict UInt8 boolean | 0/1 | Paired thresholds and actions; no recovered app write | Sensor control | Static; read-only |
+| 17–18 | `low_threshold_action`, `high_threshold_action` | 12–13 | UInt8 action code | App choices: 1 Low, 3 Boost, 4 Purge | Paired with the corresponding threshold; other codes preserved as unknown | Sensor control | Static; read-only |
+| 19 | `low_temperature_threshold` | 14 | UInt8, °C | 0–30, step 1 | No cross-threshold ordering check recovered | Sensor control | Static; read-only |
+| 20 | `high_temperature_threshold` | 15 | UInt8, °C | 15–40, step 1 | No cross-threshold ordering check recovered | Sensor control | Static; read-only |
 | 21–22 | `co2_boost_threshold`, `co2_purge_threshold` | 22, 24 | UInt16LE value ÷ 10, ppm | 0–2000, step 10 | CO₂ model; `boost < purge` | Sensor control | Physical; exact validated identity only |
 | 23–24 | analogue input 1 low/high actions | 28–29 | UInt8 action code | 0–255 | Installed wiring and action enum | Wired input | Static; read-only |
 | 25–26 | analogue input 1 low/high values | 26–27 | UInt8, scaling unknown | 0–100 | Scaling and paired actions | Wired input | Static; read-only |
@@ -157,6 +160,22 @@ are proven.
 Packet-137 byte 16 decodes as `purge_low_mode`, but no corresponding packet-136
 field ID was recovered. It is retained losslessly and is never written. Restore
 defaults is also not exposed because its payload and scope are unknown.
+
+### Temperature evidence and limitations
+
+The temperature mapping comes from the SHA-256-verified Vent-Axia Connect
+6.0.28 APK. Its MEV temperature screen sets the low slider to 0–30, stores the
+high slider as 15–40, labels the screen as temperature, and offers only Low,
+Boost and Purge action choices mapped to codes 1, 3 and 4. Its presenter writes
+fields 17, 18, 19 and 20 in that order.
+
+The same screen does not write field 16, contains visible initialization/display
+defects, and performs no recovered comparison between the low and high values.
+The newer 7.2.2 app still confirms the packet-136 field IDs and record layout,
+but its visible 0–40 temperature slider is for a different IAQ-manager device
+family and is not used as Multihome evidence. For those reasons, all five
+Multihome temperature fields remain read-only pending current-value inspection
+and controlled hardware validation on an exact supported identity.
 
 ## Physical validation evidence
 

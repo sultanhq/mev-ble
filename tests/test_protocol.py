@@ -15,6 +15,7 @@ from custom_components.ventaxia_multihome.protocol import (
     Operation,
     PacketType,
     ProtocolError,
+    TemperatureThresholdAction,
     VentilationMode,
     crc8_zirconia,
     decode_data_object_array,
@@ -49,6 +50,7 @@ from custom_components.ventaxia_multihome.protocol import (
     plan_humidity_response_updates,
     plan_sensor_threshold_updates,
     reassemble_fragments,
+    temperature_threshold_action_name,
     validate_airflow_profile,
     validate_sensor_thresholds,
 )
@@ -466,8 +468,8 @@ def test_every_global_setting_field_preserves_all_unrelated_bytes() -> None:
         (GlobalSettingField.LOW_TEMPERATURE_ENABLED, 11, True, b"\x01"),
         (GlobalSettingField.LOW_THRESHOLD_ACTION, 12, 200, b"\xc8"),
         (GlobalSettingField.HIGH_THRESHOLD_ACTION, 13, 200, b"\xc8"),
-        (GlobalSettingField.LOW_TEMPERATURE_THRESHOLD, 14, 200, b"\xc8"),
-        (GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD, 15, 200, b"\xc8"),
+        (GlobalSettingField.LOW_TEMPERATURE_THRESHOLD, 14, 20, b"\x14"),
+        (GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD, 15, 25, b"\x19"),
         (GlobalSettingField.CO2_BOOST_THRESHOLD, 22, 1500, b"\x96\x00"),
         (GlobalSettingField.CO2_PURGE_THRESHOLD, 24, 1500, b"\x96\x00"),
         (GlobalSettingField.ANALOGUE_INPUT_1_LOW_ACTION, 28, 200, b"\xc8"),
@@ -498,6 +500,16 @@ def test_every_global_setting_field_preserves_all_unrelated_bytes() -> None:
         (True, 1, "unknown global setting field ID"),
         (GlobalSettingField.SPEED_LOW, 101, "speed_low must be 1..97"),
         (GlobalSettingField.COMFORT_ENABLED, 1, "requires a boolean"),
+        (
+            GlobalSettingField.LOW_TEMPERATURE_THRESHOLD,
+            31,
+            "must be 0..30",
+        ),
+        (
+            GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD,
+            14,
+            "must be 15..40",
+        ),
         (GlobalSettingField.CO2_BOOST_THRESHOLD, -10, "must be 0..2000"),
         (
             GlobalSettingField.CO2_BOOST_THRESHOLD,
@@ -533,6 +545,31 @@ def test_airflow_profile_rejects_invalid_ranges_or_order(
     # Arrange / Act / Assert - reject the invalid profile before planning writes.
     with pytest.raises(ProtocolError, match=message):
         validate_airflow_profile(*profile)
+
+
+def test_temperature_action_names_preserve_unknown_codes() -> None:
+    """Recovered temperature actions are named without guessing other codes."""
+
+    # Arrange - include every app choice plus known-but-unoffered and unknown codes.
+    actions = (1, 3, 4, 2, 0, 255)
+
+    # Act - decode each raw byte through the public semantic helper.
+    names = tuple(temperature_threshold_action_name(action) for action in actions)
+
+    # Assert - only the three choices offered by the MEV temperature UI are named.
+    assert names == (
+        "low",
+        "boost",
+        "purge",
+        "unknown_2",
+        "unknown_0",
+        "unknown_255",
+    )
+    assert tuple(TemperatureThresholdAction) == (
+        TemperatureThresholdAction.LOW,
+        TemperatureThresholdAction.BOOST,
+        TemperatureThresholdAction.PURGE,
+    )
 
 
 @pytest.mark.parametrize(

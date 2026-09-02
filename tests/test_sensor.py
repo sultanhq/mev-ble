@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip("pytest_homeassistant_custom_component")
 
 from homeassistant.components.sensor import SensorDeviceClass
-from homeassistant.const import PERCENTAGE, EntityCategory
+from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTemperature
 
 from custom_components.ventaxia_multihome.sensor import SENSORS
 
@@ -100,8 +100,8 @@ def test_installer_threshold_entities_read_packet_137_values() -> None:
     }
 
 
-def test_all_numeric_installer_values_are_disabled_diagnostics() -> None:
-    """Every decoded numeric installer value is available without becoming a control."""
+def test_all_installer_sensor_values_are_disabled_diagnostics() -> None:
+    """Every installer sensor value is available without becoming a control."""
 
     # Arrange - provide a distinct value for every numeric packet-137 field.
     expected = {
@@ -111,8 +111,8 @@ def test_all_numeric_installer_values_are_disabled_diagnostics() -> None:
         "speed_purge": 4,
         "boost_minimum": 5,
         "humidity_threshold": 6,
-        "low_threshold_action": 7,
-        "high_threshold_action": 8,
+        "low_threshold_action": 1,
+        "high_threshold_action": 3,
         "low_temperature_threshold": 9,
         "high_temperature_threshold": 10,
         "purge_low_mode": 11,
@@ -144,7 +144,10 @@ def test_all_numeric_installer_values_are_disabled_diagnostics() -> None:
     }
 
     # Assert - all decoded values are read-only diagnostics disabled by default.
-    assert values == expected
+    assert values == expected | {
+        "low_threshold_action": "low",
+        "high_threshold_action": "boost",
+    }
     assert all(
         description.entity_category is EntityCategory.DIAGNOSTIC
         and description.entity_registry_enabled_default is False
@@ -153,14 +156,10 @@ def test_all_numeric_installer_values_are_disabled_diagnostics() -> None:
 
 
 def test_unknown_installer_semantics_remain_raw_and_unitless() -> None:
-    """Unrecovered action, scaling and temperature meanings are not guessed."""
+    """Unrecovered action and scaling meanings are not guessed."""
 
     # Arrange - select every field whose unit or enum meaning is still unknown.
     raw_keys = (
-        "low_threshold_action",
-        "high_threshold_action",
-        "low_temperature_threshold",
-        "high_temperature_threshold",
         "purge_low_mode",
         "ls1_action",
         "ls2_action",
@@ -199,4 +198,48 @@ def test_unknown_installer_semantics_remain_raw_and_unitless() -> None:
     assert all(
         description.native_unit_of_measurement == PERCENTAGE
         for description in percentage_descriptions
+    )
+
+
+def test_temperature_installer_entities_use_recovered_semantics() -> None:
+    """Temperature settings are useful diagnostics while remaining read-only."""
+
+    # Arrange - provide known actions, one unknown code, and both threshold values.
+    known_data = SimpleNamespace(
+        global_settings=SimpleNamespace(
+            low_threshold_action=4,
+            high_threshold_action=3,
+            low_temperature_threshold=15,
+            high_temperature_threshold=25,
+        )
+    )
+    unknown_data = SimpleNamespace(
+        global_settings=SimpleNamespace(low_threshold_action=2)
+    )
+    keys = (
+        "low_threshold_action",
+        "high_threshold_action",
+        "low_temperature_threshold",
+        "high_temperature_threshold",
+    )
+
+    # Act - resolve values and inspect the two threshold descriptions.
+    values = {key: _description(key).value_fn(known_data) for key in keys}
+    unknown = _description("low_threshold_action").value_fn(unknown_data)
+    thresholds = tuple(_description(key) for key in keys[2:])
+
+    # Assert - names and Celsius units are evidence-backed and unknown stays explicit.
+    assert values == {
+        "low_threshold_action": "purge",
+        "high_threshold_action": "boost",
+        "low_temperature_threshold": 15,
+        "high_temperature_threshold": 25,
+    }
+    assert unknown == "unknown_2"
+    assert all(
+        description.device_class is SensorDeviceClass.TEMPERATURE
+        and description.native_unit_of_measurement == UnitOfTemperature.CELSIUS
+        and description.entity_category is EntityCategory.DIAGNOSTIC
+        and description.entity_registry_enabled_default is False
+        for description in thresholds
     )

@@ -24,7 +24,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import VentaxiaMultihomeConfigEntry
 from .device import MultihomeData
 from .entity import VentaxiaMultihomeEntity
-from .protocol import fan_state_name
+from .protocol import fan_state_name, temperature_threshold_action_name
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -118,18 +118,24 @@ SENSORS: tuple[MultihomeSensorDescription, ...] = (
         translation_key="low_threshold_action",
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=lambda data: data.global_settings.low_threshold_action,
+        value_fn=lambda data: temperature_threshold_action_name(
+            data.global_settings.low_threshold_action
+        ),
     ),
     MultihomeSensorDescription(
         key="high_threshold_action",
         translation_key="high_threshold_action",
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
-        value_fn=lambda data: data.global_settings.high_threshold_action,
+        value_fn=lambda data: temperature_threshold_action_name(
+            data.global_settings.high_threshold_action
+        ),
     ),
     MultihomeSensorDescription(
         key="low_temperature_threshold",
         translation_key="low_temperature_threshold",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
         value_fn=lambda data: data.global_settings.low_temperature_threshold,
@@ -137,6 +143,8 @@ SENSORS: tuple[MultihomeSensorDescription, ...] = (
     MultihomeSensorDescription(
         key="high_temperature_threshold",
         translation_key="high_temperature_threshold",
+        device_class=SensorDeviceClass.TEMPERATURE,
+        native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
         value_fn=lambda data: data.global_settings.high_temperature_threshold,

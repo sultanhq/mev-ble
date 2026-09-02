@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.6.2-rc.16] - 2026-09-02
+
+### Added
+
+- Decode the verified Multihome temperature action choices as Low (1), Boost
+  (3), and Purge (4), while preserving every other byte as an explicit unknown
+  code.
+- Type the read-only low and high temperature threshold entities as Celsius,
+  using the recovered 0–30 °C and 15–40 °C app ranges.
+
+### Safety
+
+- Keep packet-136 fields 16–20 read-only. The recovered MEV screen does not
+  write field 16, contains visible defects, and does not establish a safe
+  cross-threshold ordering rule or exact model applicability.
+- Exclude the newer app's unrelated IAQ-manager 0–40 °C control from the
+  Multihome evidence.
+
 ## [0.6.2-rc.15] - 2026-09-02
 
 ### Fixed

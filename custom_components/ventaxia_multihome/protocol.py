@@ -29,6 +29,10 @@ MAX_GLOBAL_CO2_THRESHOLD: Final = 2000
 GLOBAL_CO2_THRESHOLD_STEP: Final = 10
 MIN_GLOBAL_TIMER_MINUTES: Final = 1
 MAX_GLOBAL_TIMER_MINUTES: Final = 60
+MIN_LOW_TEMPERATURE_THRESHOLD: Final = 0
+MAX_LOW_TEMPERATURE_THRESHOLD: Final = 30
+MIN_HIGH_TEMPERATURE_THRESHOLD: Final = 15
+MAX_HIGH_TEMPERATURE_THRESHOLD: Final = 40
 SILENT_HOUR_SLOT_COUNT: Final = 6
 SILENT_HOUR_RECORD_SIZE: Final = 9
 SILENT_HOUR_TABLE_ITEM_SIZE: Final = 13
@@ -143,6 +147,30 @@ class AirflowPreset(IntEnum):
     NORMAL = 2
     BOOST = 3
     PURGE = 4
+
+
+class TemperatureThresholdAction(IntEnum):
+    """Actions offered by the recovered Multihome temperature screen."""
+
+    LOW = 1
+    BOOST = 3
+    PURGE = 4
+
+
+TEMPERATURE_THRESHOLD_ACTION_NAMES: Final = {
+    TemperatureThresholdAction.LOW: "low",
+    TemperatureThresholdAction.BOOST: "boost",
+    TemperatureThresholdAction.PURGE: "purge",
+}
+
+
+def temperature_threshold_action_name(action: int) -> str:
+    """Return a known temperature action name without hiding unknown codes."""
+
+    try:
+        return TEMPERATURE_THRESHOLD_ACTION_NAMES[TemperatureThresholdAction(action)]
+    except ValueError:
+        return f"unknown_{action}"
 
 
 class DeviceType(IntEnum):
@@ -903,10 +931,16 @@ GLOBAL_SETTING_FIELD_SPECS: Final = {
         "high_threshold_action", 13, 0, 0xFF
     ),
     GlobalSettingField.LOW_TEMPERATURE_THRESHOLD: GlobalSettingFieldSpec(
-        "low_temperature_threshold", 14, 0, 0xFF
+        "low_temperature_threshold",
+        14,
+        MIN_LOW_TEMPERATURE_THRESHOLD,
+        MAX_LOW_TEMPERATURE_THRESHOLD,
     ),
     GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD: GlobalSettingFieldSpec(
-        "high_temperature_threshold", 15, 0, 0xFF
+        "high_temperature_threshold",
+        15,
+        MIN_HIGH_TEMPERATURE_THRESHOLD,
+        MAX_HIGH_TEMPERATURE_THRESHOLD,
     ),
     GlobalSettingField.CO2_BOOST_THRESHOLD: GlobalSettingFieldSpec(
         "co2_boost_threshold",
