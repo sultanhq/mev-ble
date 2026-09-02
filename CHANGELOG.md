@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2-rc.14] - 2026-09-02
+
+### Fixed
+
+- Import the protocol exception used by the restricted Boost minimum
+  pre-Bluetooth rejection regression.
+
 ## [0.6.2-rc.13] - 2026-09-02
 
 ### Added

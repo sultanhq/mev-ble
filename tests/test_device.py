@@ -39,6 +39,7 @@ from custom_components.ventaxia_multihome.protocol import (
     GlobalSettingField,
     Operation,
     PacketType,
+    ProtocolError,
     decode_data_object_array,
     decode_global_settings,
     decode_packet,
