@@ -83,10 +83,8 @@ Detailed instructions:
 - Guarded internal CO₂ calibration for validated CO₂-equipped models, using
   either documented fresh-air exposure or trusted Home Assistant references
 - Lossless global-settings snapshots in redacted diagnostics
-- Disabled-by-default diagnostic entities for humidity, CO₂ boost, and CO₂ purge
-  installer thresholds
-- Disabled-by-default diagnostic flags for Rapid and Ambient humidity response
-- Disabled-by-default diagnostic flag for Comfort mode
+- Disabled-by-default read-only diagnostic entities for every decoded installer
+  value; unknown units, scaling, and action meanings remain explicit raw codes
 - Guarded four-level airflow commissioning for a validated device identity,
   with exact readback and explicit review
 - Guarded CO₂/humidity threshold configuration on the exact physically validated

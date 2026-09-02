@@ -20,6 +20,7 @@ INSTALLER_FLAG_ENTITIES = (
     ("overrun_enabled", "overrun"),
     ("rapid_response_enabled", "rapid_humidity_response"),
     ("ambient_response_enabled", "ambient_humidity_response"),
+    ("low_temperature_enabled", "low_temperature_protection"),
 )
 
 

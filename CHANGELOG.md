@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.2-rc.12] - 2026-09-02
+
+### Added
+
+- Add disabled-by-default read-only entities for all remaining decoded
+  packet-137 installer values, including airflow settings, boost minimum,
+  low-temperature fields, LS actions, analogue values/actions, digital actions,
+  and raw purge-low mode.
+
+### Safety
+
+- Keep unresolved action codes, temperature units, analogue scaling, and
+  purge-low semantics numeric and unitless rather than assigning guessed labels.
+- Do not add any writable entity or widen the packet-136 capability profile.
+
 ## [0.6.2-rc.11] - 2026-09-01
 
 ### Fixed

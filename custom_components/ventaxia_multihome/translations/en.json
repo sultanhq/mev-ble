@@ -345,6 +345,75 @@
       },
       "overrun_timeout": {
         "name": "Overrun time"
+      },
+      "speed_low": {
+        "name": "Low airflow setting"
+      },
+      "speed_medium": {
+        "name": "Normal airflow setting"
+      },
+      "speed_boost": {
+        "name": "Boost airflow setting"
+      },
+      "speed_purge": {
+        "name": "Purge airflow setting"
+      },
+      "boost_minimum": {
+        "name": "Boost minimum"
+      },
+      "low_threshold_action": {
+        "name": "Low-temperature action code"
+      },
+      "high_threshold_action": {
+        "name": "High-temperature action code"
+      },
+      "low_temperature_threshold": {
+        "name": "Low-temperature threshold (raw)"
+      },
+      "high_temperature_threshold": {
+        "name": "High-temperature threshold (raw)"
+      },
+      "purge_low_mode": {
+        "name": "Purge-low mode (raw)"
+      },
+      "ls1_action": {
+        "name": "LS1 action code"
+      },
+      "ls2_action": {
+        "name": "LS2 action code"
+      },
+      "ls3_action": {
+        "name": "LS3 action code"
+      },
+      "analogue_input_1_low_value": {
+        "name": "Analogue input 1 low value (raw)"
+      },
+      "analogue_input_1_high_value": {
+        "name": "Analogue input 1 high value (raw)"
+      },
+      "analogue_input_1_low_action": {
+        "name": "Analogue input 1 low action code"
+      },
+      "analogue_input_1_high_action": {
+        "name": "Analogue input 1 high action code"
+      },
+      "analogue_input_2_low_value": {
+        "name": "Analogue input 2 low value (raw)"
+      },
+      "analogue_input_2_high_value": {
+        "name": "Analogue input 2 high value (raw)"
+      },
+      "analogue_input_2_low_action": {
+        "name": "Analogue input 2 low action code"
+      },
+      "analogue_input_2_high_action": {
+        "name": "Analogue input 2 high action code"
+      },
+      "digital_input_1_action": {
+        "name": "Digital input 1 action code"
+      },
+      "digital_input_2_action": {
+        "name": "Digital input 2 action code"
       }
     },
     "fan": {
@@ -418,6 +487,9 @@
       },
       "overrun": {
         "name": "Overrun"
+      },
+      "low_temperature_protection": {
+        "name": "Low-temperature protection"
       }
     }
   },

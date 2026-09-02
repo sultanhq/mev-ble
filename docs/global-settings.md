@@ -96,6 +96,18 @@ All three identity values must match. Missing identity data, a newer firmware, o
 a different hardware revision exposes no installer controls until separately
 validated. Models 1, 2 and 9 retain read-only decoded airflow diagnostics.
 
+## Read-only Home Assistant entities
+
+Every decoded packet-137 installer value is available as an entity and remains
+disabled by default. Enable only the diagnostic entities useful for the
+installation from the Home Assistant entity registry.
+
+Known percentages, CO₂ thresholds, humidity and timer values carry their
+confirmed units. Unrecovered action enums, temperature units, analogue scaling,
+and `purge_low_mode` are deliberately shown as numeric **code** or **raw**
+values without a unit. These entities are read-only and do not widen the
+packet-136 write capability.
+
 ## Installer-field matrix
 
 “Codec range” is the range the recovered serializer can represent or the

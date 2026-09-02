@@ -26,6 +26,7 @@ def test_installer_boolean_entities_are_disabled_diagnostics() -> None:
         overrun_enabled=True,
         rapid_response_enabled=True,
         ambient_response_enabled=False,
+        low_temperature_enabled=None,
     )
     coordinator = SimpleNamespace(data=SimpleNamespace(global_settings=settings))
     entry = SimpleNamespace(data={"address": "AA:BB"})
@@ -40,7 +41,7 @@ def test_installer_boolean_entities_are_disabled_diagnostics() -> None:
     values = tuple(entity.is_on for entity in entities)
 
     # Assert - values are read-only diagnostics and disabled until user-enabled.
-    assert values == (True, False, True, True, False)
+    assert values == (True, False, True, True, False, None)
     assert all(
         entity.entity_category is EntityCategory.DIAGNOSTIC
         and entity.entity_registry_enabled_default is False
