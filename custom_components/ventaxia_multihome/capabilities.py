@@ -355,6 +355,10 @@ HUMIDITY_RESPONSE_FIELDS: Final = frozenset(
 
 COMFORT_MODE_FIELDS: Final = frozenset({GlobalSettingField.COMFORT_ENABLED})
 
+BOOST_MINIMUM_VALIDATION_FIELDS: Final = frozenset(
+    {GlobalSettingField.BOOST_MINIMUM}
+)
+
 DELAY_OVERRUN_FIELDS: Final = frozenset(
     {
         GlobalSettingField.OVERRUN_ENABLED,
@@ -389,11 +393,13 @@ VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
         model_number=10,
         firmware="2.03.08",
         hardware="01.00",
-        fields=DELAY_OVERRUN_FIELDS,
+        fields=DELAY_OVERRUN_FIELDS | BOOST_MINIMUM_VALIDATION_FIELDS,
         evidence=(
             "official Multihome manual documents LS-input Delay On and Overrun "
             "with 1..60 minute timers; fields 8..10 changed with exact readback; "
-            "field 7 produced a readback mismatch and remains blocked"
+            "field 7 produced a readback mismatch and remains blocked; field 4 "
+            "BoostMin has an observed 0% baseline and is restricted to a "
+            "reversible 0%/1% validation"
         ),
     ),
 )

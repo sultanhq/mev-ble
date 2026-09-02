@@ -32,11 +32,13 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_AIRFLOW_NORMAL,
     CONF_AIRFLOW_PURGE,
     CONF_AMBIENT_RESPONSE,
+    CONF_BOOST_MINIMUM,
     CONF_CALIBRATION_METHOD,
     CONF_CO2_BOOST_THRESHOLD,
     CONF_CO2_PURGE_THRESHOLD,
     CONF_COMFORT_MODE,
     CONF_CONFIRM_AIRFLOW,
+    CONF_CONFIRM_BOOST_MINIMUM,
     CONF_CONFIRM_CALIBRATION,
     CONF_CONFIRM_COMFORT_MODE,
     CONF_CONFIRM_DELAY_OVERRUN,
@@ -99,6 +101,7 @@ def _options_entry(
     *,
     supports_calibration: bool = True,
     supports_airflow: bool = False,
+    supports_boost_minimum: bool = False,
     supports_thresholds: bool = False,
     supports_humidity_response: bool = False,
     supports_comfort_mode: bool = False,
@@ -122,6 +125,7 @@ def _options_entry(
         device=SimpleNamespace(
             supports_internal_co2_calibration=supports_calibration,
             supports_global_airflow_configuration=supports_airflow,
+            supports_boost_minimum_validation=supports_boost_minimum,
             supports_sensor_threshold_configuration=supports_thresholds,
             supports_humidity_response_configuration=supports_humidity_response,
             supports_comfort_mode_configuration=supports_comfort_mode,
@@ -138,6 +142,7 @@ def _options_entry(
         last_update_success=airflow_available and schedules_available,
         async_calibrate_internal_co2=AsyncMock(),
         async_set_airflow_profile=AsyncMock(),
+        async_set_boost_minimum=AsyncMock(),
         async_set_sensor_thresholds=AsyncMock(),
         async_set_humidity_response=AsyncMock(),
         async_set_comfort_mode=AsyncMock(),
@@ -201,6 +206,17 @@ async def _open_humidity_response_options(hass, entry):
     assert initial["step_id"] == "init"
     return await hass.config_entries.options.async_configure(
         initial["flow_id"], {"next_step_id": "humidity_response"}
+    )
+
+
+async def _open_boost_minimum_options(hass, entry):
+    """Open the restricted Boost minimum validation screen."""
+
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    assert initial["type"] is data_entry_flow.FlowResultType.MENU
+    assert initial["step_id"] == "init"
+    return await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "boost_minimum_validation"}
     )
 
 
@@ -720,6 +736,80 @@ async def test_humidity_response_rechecks_full_snapshot_before_write(hass) -> No
     assert result["step_id"] == "humidity_response"
     assert result["errors"] == {"base": "humidity_response_settings_changed"}
     coordinator.async_set_humidity_response.assert_not_awaited()
+
+
+
+@pytest.mark.asyncio
+async def test_boost_minimum_requires_review_and_confirmation(hass) -> None:
+    """The temporary field-4 value is written only after explicit confirmation."""
+
+    # Arrange - open the exact-identity flow with the observed 0% baseline.
+    entry, coordinator = _options_entry(hass, supports_boost_minimum=True)
+    form = await _open_boost_minimum_options(hass, entry)
+
+    # Act - request 1%, decline once, then confirm explicitly.
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"], {CONF_BOOST_MINIMUM: 1}
+    )
+    declined = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_BOOST_MINIMUM: False}
+    )
+    result = await hass.config_entries.options.async_configure(
+        declined["flow_id"], {CONF_CONFIRM_BOOST_MINIMUM: True}
+    )
+
+    # Assert - no write precedes confirmation and the result is explicit.
+    assert form["step_id"] == "boost_minimum_validation"
+    assert confirm["step_id"] == "boost_minimum_confirm"
+    assert declined["errors"] == {
+        "base": "boost_minimum_confirmation_required"
+    }
+    coordinator.async_set_boost_minimum.assert_awaited_once_with(value=1)
+    assert result["step_id"] == "boost_minimum_result"
+
+
+@pytest.mark.asyncio
+async def test_boost_minimum_rechecks_full_snapshot_before_write(hass) -> None:
+    """Any intervening packet-137 change invalidates the field-4 review."""
+
+    # Arrange - review the restricted 0% to 1% change.
+    entry, coordinator = _options_entry(hass, supports_boost_minimum=True)
+    form = await _open_boost_minimum_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"], {CONF_BOOST_MINIMUM: 1}
+    )
+    changed = bytearray(coordinator.data.global_settings.raw_record)
+    changed[5] += 1
+    coordinator.data.global_settings = decode_global_settings(bytes(changed))
+
+    # Act - confirm after an unrelated installer setting changed.
+    result = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_BOOST_MINIMUM: True}
+    )
+
+    # Assert - the complete snapshot guard blocks Bluetooth I/O.
+    assert result["step_id"] == "boost_minimum_validation"
+    assert result["errors"] == {"base": "boost_minimum_settings_changed"}
+    coordinator.async_set_boost_minimum.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_boost_minimum_rejects_unvalidated_percentage(hass) -> None:
+    """The Home Assistant selector cannot submit a general field-4 percentage."""
+
+    # Arrange - open the exact-identity restricted validation screen.
+    entry, coordinator = _options_entry(hass, supports_boost_minimum=True)
+    form = await _open_boost_minimum_options(hass, entry)
+
+    # Act - submit a value outside the deliberate 0%/1% envelope.
+    with pytest.raises(data_entry_flow.InvalidData) as raised:
+        await hass.config_entries.options.async_configure(
+            form["flow_id"], {CONF_BOOST_MINIMUM: 2}
+        )
+
+    # Assert - schema validation rejects it before coordinator or Bluetooth I/O.
+    assert raised.value
+    coordinator.async_set_boost_minimum.assert_not_awaited()
 
 
 @pytest.mark.asyncio

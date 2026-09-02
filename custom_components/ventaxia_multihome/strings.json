@@ -48,7 +48,8 @@
           "comfort_mode": "Configure Comfort mode",
           "silent_hours": "Manage silent hours",
           "calibrate_co2": "Calibrate internal CO₂ sensor",
-          "delay_overrun": "Configure Delay On and Overrun"
+          "delay_overrun": "Configure Delay On and Overrun",
+          "boost_minimum_validation": "Validate Boost minimum"
         }
       },
       "fan_options": {
@@ -218,6 +219,24 @@
       "delay_overrun_result": {
         "title": "Delay On and Overrun confirmed",
         "description": "The installed unit returned **{new_timers}** through exact fresh packet-137 readback. For validation, restore the original four values through the same flow."
+      },
+      "boost_minimum_validation": {
+        "title": "Validate Boost minimum",
+        "description": "Current value: **{current_boost_minimum}**\\n\\nThe recovered app names packet-136 field 4 `BoostMin`, but its runtime meaning and relationship to the commissioned airflow profile are not yet proven. This prerelease test is deliberately restricted to **0% and 1%** on the exact model 10 / firmware 2.03.08 / hardware 01.00 identity. Use 1% only as a temporary readback test, then restore 0%.",
+        "data": {
+          "boost_minimum": "Boost minimum validation value"
+        }
+      },
+      "boost_minimum_confirm": {
+        "title": "Confirm Boost minimum validation",
+        "description": "Device: **{device}**\\n\\nCurrent value: **{current_boost_minimum}**\\n\\nNew temporary value: **{new_boost_minimum}**\\n\\nHome Assistant will send only field 4 and accept success only after an exact fresh packet-137 readback. This confirms storage, not the setting's operating meaning.",
+        "data": {
+          "confirm_boost_minimum": "I recorded the current value and want to perform this restricted field-4 validation"
+        }
+      },
+      "boost_minimum_result": {
+        "title": "Boost minimum validation confirmed",
+        "description": "The installed unit returned **{new_boost_minimum}** through exact fresh packet-137 readback. If this was the temporary 1% test, reopen the same flow and restore **0%**."
       }
     },
     "progress": {
@@ -267,7 +286,12 @@
       "delay_overrun_invalid": "Both enabled values must be on or off, and both timer values must be whole minutes from 1 to 60.",
       "delay_overrun_unchanged": "The selected Delay On and Overrun profile is already active.",
       "delay_overrun_settings_changed": "The unit's settings changed after review. Review all four current values and try again.",
-      "delay_overrun_update_failed": "The complete paired timer profile could not be confirmed. Reopen the flow and inspect all four current values before retrying."
+      "delay_overrun_update_failed": "The complete paired timer profile could not be confirmed. Reopen the flow and inspect all four current values before retrying.",
+      "boost_minimum_invalid": "Boost minimum validation accepts only 0% or 1%.",
+      "boost_minimum_unchanged": "Choose the other validation value so the field actually changes.",
+      "boost_minimum_confirmation_required": "Review the temporary field-4 value and enable the acknowledgement before continuing.",
+      "boost_minimum_settings_changed": "The global settings changed after review. Recheck the current value before continuing.",
+      "boost_minimum_update_failed": "The field-4 update or its exact readback failed. Reopen the flow and inspect the current Boost minimum value."
     },
     "abort": {
       "airflow_not_supported": "Airflow configuration is not validated for this model, firmware, and hardware. No setting was changed.",
@@ -280,7 +304,8 @@
       "silent_hour_empty": "The selected slot is already empty. No schedule was changed.",
       "silent_hours_changed": "The schedule table changed after review. No schedule was changed; reopen the flow and review the current slots.",
       "calibration_not_supported": "Internal CO₂ calibration is not validated for this model. No command was sent.",
-      "delay_overrun_not_supported": "Delay On and Overrun configuration is not enabled for this model, firmware, and hardware. No setting was changed."
+      "delay_overrun_not_supported": "Delay On and Overrun configuration is not enabled for this model, firmware, and hardware. No setting was changed.",
+      "boost_minimum_not_supported": "Boost minimum validation is unavailable for this model, firmware, or hardware."
     }
   },
   "selector": {

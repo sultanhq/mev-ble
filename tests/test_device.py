@@ -1240,6 +1240,110 @@ async def test_humidity_response_updates_each_flag_with_exact_readback() -> None
     assert device.confirmed_global_settings == result
 
 
+
+@pytest.mark.parametrize(
+    ("model", "firmware", "hardware", "supported"),
+    [
+        ("10", "2.03.08", "01.00", True),
+        ("10", "2.03.09", "01.00", False),
+        ("10", "2.03.08", "01.01", False),
+        ("2", "2.03.08", "01.00", False),
+    ],
+)
+def test_boost_minimum_validation_requires_exact_identity(
+    model: str,
+    firmware: str,
+    hardware: str,
+    supported: bool,
+) -> None:
+    """The restricted field-4 validation is available to one exact identity."""
+
+    # Arrange - apply one exact or near-match device identity.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model=model, firmware=firmware, hardware=hardware
+    )
+
+    # Act - evaluate the candidate capability gate.
+    result = device.supports_boost_minimum_validation
+
+    # Assert - model, firmware and hardware must all match.
+    assert result is supported
+
+
+@pytest.mark.asyncio
+async def test_boost_minimum_validation_uses_exact_readback() -> None:
+    """The temporary 1% value is accepted only after a complete fresh read."""
+
+    # Arrange - emulate firmware applying the isolated field-4 write.
+    current = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    sent: list[bytes] = []
+
+    class ApplyingTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            nonlocal current
+            sent.append(packet)
+            wrapped = decode_data_object_array(decode_packet(packet).payload)
+            assert wrapped.object_id == GlobalSettingField.BOOST_MINIMUM
+            current = global_settings_after_update(
+                current,
+                GlobalSettingField.BOOST_MINIMUM,
+                wrapped.payload[0],
+            )
+
+        async def request(self, packet: bytes) -> bytes:
+            return encode_packet(
+                PacketType.GLOBAL_DATA,
+                Operation.RESPONSE,
+                current.raw_record,
+                timestamp=2,
+            )
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._client = DeviceClient([])
+    device._transport = ApplyingTransport()
+    device._authenticated = True
+    device._confirmed_global_settings = current
+    device._global_settings_write_ready = True
+
+    # Act - perform only the restricted 0% to 1% validation change.
+    result = await device.set_boost_minimum(object(), value=1)
+
+    # Assert - exactly field 4 changed and became the confirmed snapshot.
+    assert len(sent) == 1
+    assert result.boost_minimum == 1
+    assert device.confirmed_global_settings == result
+
+
+@pytest.mark.asyncio
+async def test_boost_minimum_validation_rejects_general_percentage() -> None:
+    """The candidate API cannot send an unvalidated general percentage."""
+
+    # Arrange - prepare the exact candidate identity without opening transport.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device.connect = AsyncMock()
+
+    # Act - request a value outside the restricted validation envelope.
+    with pytest.raises(ProtocolError, match="restricted to 0% or 1%") as raised:
+        await device.set_boost_minimum(object(), value=2)
+
+    # Assert - validation rejects the value before any Bluetooth operation.
+    assert raised.value
+    device.connect.assert_not_awaited()
+
+
 @pytest.mark.parametrize(
     ("model", "firmware", "hardware", "supported"),
     [

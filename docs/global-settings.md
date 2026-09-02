@@ -66,6 +66,19 @@ changes before final confirmation.
 Measured **Fan RPM** remains telemetry. It can vary for the same configured
 percentage because duct resistance and motor load differ between installations.
 
+## Restricted Boost minimum validation
+
+The official-client enum names packet-136 field 4 `BoostMin`, and the validated
+unit reports a baseline of 0% alongside its 6/8/37/50% commissioned airflow
+profile. Available primary evidence does not yet define the setting's operating
+meaning or profile dependency.
+
+The v0.6.2 prerelease validation flow is therefore restricted to 0% and 1% on
+model 10 / firmware 2.03.08 / hardware 01.00. It requires full-record review,
+explicit acknowledgement, stale-snapshot rejection, and exact packet-137
+readback. The intended test is 0% → 1% → 0%. This proves only isolated storage
+and restoration; general 0–100% configuration remains unavailable.
+
 ## Model capability matrix
 
 The official app supplies the model names and the four-speed/internal-CO₂

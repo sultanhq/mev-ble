@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.6.2-rc.13] - 2026-09-02
+
+### Added
+
+- Add an exact-identity guarded validation flow for packet-136 field 4 after the
+  validated unit reported a 0% Boost minimum baseline.
+
+### Safety
+
+- Restrict the prerelease flow and device API to the reversible 0%/1% envelope.
+- Require complete current/proposed review, explicit acknowledgement, stale
+  snapshot rejection, and exact fresh packet-137 readback.
+- Keep general 0–100% configuration unavailable because the field's runtime
+  meaning and relationship to the commissioned airflow profile are unproven.
+
 ## [0.6.2-rc.12] - 2026-09-02
 
 ### Added

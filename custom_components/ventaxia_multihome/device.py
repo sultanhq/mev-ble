@@ -21,6 +21,7 @@ from .bluetooth import (
 )
 from .capabilities import (
     AIRFLOW_FIELDS,
+    BOOST_MINIMUM_VALIDATION_FIELDS,
     COMFORT_MODE_FIELDS,
     DELAY_OVERRUN_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
@@ -262,6 +263,12 @@ class MultihomeDevice:
         """Return whether humidity-response writes are physically validated."""
 
         return HUMIDITY_RESPONSE_FIELDS <= self.writable_installer_fields
+
+    @property
+    def supports_boost_minimum_validation(self) -> bool:
+        """Return whether the restricted field-4 validation is enabled."""
+
+        return BOOST_MINIMUM_VALIDATION_FIELDS <= self.configurable_installer_fields
 
     @property
     def supports_comfort_mode_configuration(self) -> bool:
@@ -577,6 +584,36 @@ class MultihomeDevice:
             for field, value in plan:
                 result = await self._set_global_setting_locked(field, value)
             return result
+
+    async def set_boost_minimum(
+        self,
+        ble_device: BLEDevice,
+        *,
+        value: int,
+    ) -> GlobalSettings:
+        """Apply the restricted Boost minimum validation with exact readback."""
+
+        if not self.supports_boost_minimum_validation:
+            raise DeviceError(
+                "Boost minimum validation is not enabled for this model, "
+                "firmware, and hardware"
+            )
+        if isinstance(value, bool) or value not in {0, 1}:
+            raise ProtocolError(
+                "Boost minimum validation is restricted to 0% or 1%"
+            )
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            if (
+                self._confirmed_global_settings is None
+                or not self._global_settings_write_ready
+            ):
+                raise GlobalSettingsUnavailableError(
+                    "global settings must be read successfully before an update"
+                )
+            return await self._set_global_setting_locked(
+                GlobalSettingField.BOOST_MINIMUM, value
+            )
 
     async def set_comfort_mode(
         self,

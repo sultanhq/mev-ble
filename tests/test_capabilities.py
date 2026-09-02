@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from custom_components.ventaxia_multihome.capabilities import (
     AIRFLOW_FIELDS,
+    BOOST_MINIMUM_VALIDATION_FIELDS,
     COMFORT_MODE_FIELDS,
     DELAY_OVERRUN_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
@@ -155,9 +156,9 @@ def test_delay_overrun_fields_are_exact_identity_validation_candidates() -> None
         installer_validation_candidate_fields(*identity) for identity in identities
     ]
 
-    # Assert - only the exact designated identity exposes candidate timers.
+    # Assert - only the exact identity exposes the restricted candidate fields.
     assert resolved == [
-        DELAY_OVERRUN_FIELDS,
+        DELAY_OVERRUN_FIELDS | BOOST_MINIMUM_VALIDATION_FIELDS,
         frozenset(),
         frozenset(),
         frozenset(),

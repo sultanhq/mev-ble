@@ -49,6 +49,8 @@ from .const import (
 from .coordinator import (
     AirflowConfigurationNotSupportedError,
     AirflowConfigurationUnavailableError,
+    BoostMinimumConfigurationNotSupportedError,
+    BoostMinimumConfigurationUnavailableError,
     CalibrationCommandNotSentError,
     CalibrationDeliveryUncertainError,
     CalibrationNotSupportedError,
@@ -104,6 +106,8 @@ CONF_AIRFLOW_NORMAL = "airflow_normal"
 CONF_AIRFLOW_BOOST = "airflow_boost"
 CONF_AIRFLOW_PURGE = "airflow_purge"
 CONF_CONFIRM_AIRFLOW = "confirm_airflow"
+CONF_BOOST_MINIMUM = "boost_minimum"
+CONF_CONFIRM_BOOST_MINIMUM = "confirm_boost_minimum"
 CONF_HUMIDITY_THRESHOLD = "humidity_threshold"
 CONF_CO2_BOOST_THRESHOLD = "co2_boost_threshold"
 CONF_CO2_PURGE_THRESHOLD = "co2_purge_threshold"
@@ -392,6 +396,8 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._calibration_progress_task: asyncio.Task[None] | None = None
         self._airflow_profile: tuple[int, int, int, int] | None = None
         self._airflow_baseline_raw: bytes | None = None
+        self._boost_minimum: int | None = None
+        self._boost_minimum_baseline_raw: bytes | None = None
         self._sensor_thresholds: tuple[int, int, int] | None = None
         self._sensor_thresholds_baseline_raw: bytes | None = None
         self._humidity_response: tuple[bool, bool] | None = None
@@ -421,6 +427,11 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             and coordinator.device.global_settings_write_ready
         ):
             menu_options.append("airflow_profile")
+        if (
+            coordinator.device.supports_boost_minimum_validation
+            and self._current_boost_minimum_settings() is not None
+        ):
+            menu_options.append("boost_minimum_validation")
         if (
             coordinator.device.supports_sensor_threshold_configuration
             and coordinator.data is not None
@@ -651,6 +662,142 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             description_placeholders={
                 "device": self.config_entry.title,
                 "new_profile": self._format_airflow_profile(*self._airflow_profile),
+            },
+        )
+
+    async def async_step_boost_minimum_validation(
+        self,
+        user_input: dict[str, Any] | None = None,
+        *,
+        errors: dict[str, str] | None = None,
+    ) -> ConfigFlowResult:
+        """Collect the deliberately restricted field-4 validation value."""
+
+        coordinator = self.config_entry.runtime_data
+        if not coordinator.device.supports_boost_minimum_validation:
+            return self.async_abort(reason="boost_minimum_not_supported")
+        settings = self._current_boost_minimum_settings()
+        if settings is None:
+            return self.async_abort(reason="global_settings_unavailable")
+
+        if user_input is not None:
+            try:
+                value = self._integer_percentage(user_input[CONF_BOOST_MINIMUM])
+            except (KeyError, TypeError, ValueError):
+                errors = {"base": "boost_minimum_invalid"}
+            else:
+                if value not in {0, 1}:
+                    errors = {"base": "boost_minimum_invalid"}
+                elif value == settings.boost_minimum:
+                    errors = {"base": "boost_minimum_unchanged"}
+                else:
+                    self._boost_minimum = value
+                    self._boost_minimum_baseline_raw = settings.raw_record
+                    return await self.async_step_boost_minimum_confirm()
+
+        return self.async_show_form(
+            step_id="boost_minimum_validation",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_BOOST_MINIMUM,
+                        default=settings.boost_minimum,
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0,
+                            max=1,
+                            step=1,
+                            mode=selector.NumberSelectorMode.BOX,
+                            unit_of_measurement="%",
+                        )
+                    )
+                }
+            ),
+            errors=errors or {},
+            description_placeholders={
+                "current_boost_minimum": f"{settings.boost_minimum}%"
+            },
+        )
+
+    async def async_step_boost_minimum_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Recheck the full record and require confirmation before field 4."""
+
+        assert self._boost_minimum is not None
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input[CONF_CONFIRM_BOOST_MINIMUM]:
+                errors["base"] = "boost_minimum_confirmation_required"
+            else:
+                settings = self._current_boost_minimum_settings()
+                if settings is None:
+                    errors["base"] = "global_settings_unavailable"
+                elif settings.raw_record != self._boost_minimum_baseline_raw:
+                    self._boost_minimum = None
+                    self._boost_minimum_baseline_raw = None
+                    return await self.async_step_boost_minimum_validation(
+                        errors={"base": "boost_minimum_settings_changed"}
+                    )
+                else:
+                    try:
+                        coordinator = self.config_entry.runtime_data
+                        await coordinator.async_set_boost_minimum(
+                            value=self._boost_minimum
+                        )
+                    except BoostMinimumConfigurationNotSupportedError:
+                        return self.async_abort(
+                            reason="boost_minimum_not_supported"
+                        )
+                    except BoostMinimumConfigurationUnavailableError:
+                        errors["base"] = "global_settings_unavailable"
+                    except HomeAssistantError as err:
+                        _LOGGER.warning(
+                            "Unable to update Multihome Boost minimum: %s", err
+                        )
+                        errors["base"] = "boost_minimum_update_failed"
+                    else:
+                        return await self.async_step_boost_minimum_result()
+
+        settings = self._current_boost_minimum_settings()
+        current = (
+            f"{settings.boost_minimum}%"
+            if settings is not None
+            else "Unavailable"
+        )
+        return self.async_show_form(
+            step_id="boost_minimum_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONFIRM_BOOST_MINIMUM, default=False
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "device": self.config_entry.title,
+                "current_boost_minimum": current,
+                "new_boost_minimum": f"{self._boost_minimum}%",
+            },
+        )
+
+    async def async_step_boost_minimum_result(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report the field-4 value confirmed by exact packet-137 readback."""
+
+        assert self._boost_minimum is not None
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        return self.async_show_form(
+            step_id="boost_minimum_result",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "device": self.config_entry.title,
+                "new_boost_minimum": f"{self._boost_minimum}%",
             },
         )
 
@@ -1276,6 +1423,14 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             or settings.rapid_response_enabled is None
             or settings.ambient_response_enabled is None
         ):
+            return None
+        return settings
+
+    def _current_boost_minimum_settings(self) -> GlobalSettings | None:
+        """Return a current field-4 snapshot within the validation envelope."""
+
+        settings = self._current_sensor_threshold_settings()
+        if settings is None or settings.boost_minimum not in {0, 1}:
             return None
         return settings
 
