@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2-rc.15] - 2026-09-02
+
+### Fixed
+
+- Update the installer diagnostics regression to include Boost minimum field 4
+  in the exact identity's validation-candidate list.
+
 ## [0.6.2-rc.14] - 2026-09-02
 
 ### Fixed
