@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3-rc.2] - 2026-09-04
+
+### Fixed
+
+- Update the exact-identity diagnostics expectation for the new field-16
+  validation candidate.
+
 ## [0.6.3-rc.1] - 2026-09-04
 
 ### Added
