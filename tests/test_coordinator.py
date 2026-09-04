@@ -30,6 +30,8 @@ from custom_components.ventaxia_multihome.coordinator import (
     ComfortModeConfigurationUnavailableError,
     HumidityResponseConfigurationNotSupportedError,
     HumidityResponseConfigurationUnavailableError,
+    LowTemperatureProtectionValidationNotSupportedError,
+    LowTemperatureProtectionValidationUnavailableError,
     SensorThresholdConfigurationNotSupportedError,
     SensorThresholdConfigurationUnavailableError,
     SilentHoursConfigurationUnavailableError,
@@ -822,6 +824,113 @@ async def test_temperature_validation_rejects_unsupported_or_stale_state_before_
         )
     coordinator._ble_device.assert_not_called()
     device.set_temperature_threshold_validation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_low_temperature_protection_publishes_confirmed_settings() -> None:
+    """A successful field-16 validation publishes its exact readback."""
+
+    # Arrange - retain telemetry and return a distinct confirmed settings object.
+    current = MultihomeData(
+        zone=object(),
+        system=object(),
+        global_settings=_settings(),
+        last_successful_update=datetime.now(UTC),
+    )
+    confirmed = decode_global_settings(bytes(36))
+    ble_device = object()
+    device = SimpleNamespace(
+        supports_low_temperature_protection_validation=True,
+        global_settings_write_ready=True,
+        set_low_temperature_protection_validation=AsyncMock(
+            return_value=confirmed
+        ),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=current,
+        last_update_success=True,
+        _ble_device=lambda: ble_device,
+        async_set_updated_data=Mock(),
+        async_set_update_error=Mock(),
+    )
+
+    # Act - apply one reviewed field-16 enable.
+    await VentaxiaMultihomeCoordinator.async_set_low_temperature_protection_validation(
+        coordinator, enabled=True
+    )
+
+    # Assert - only the exact confirmed settings snapshot is replaced.
+    device.set_low_temperature_protection_validation.assert_awaited_once_with(
+        ble_device, enabled=True
+    )
+    published = coordinator.async_set_updated_data.call_args.args[0]
+    assert published.global_settings is confirmed
+    assert published.zone is current.zone
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("supported", "data", "last_success", "write_ready", "error"),
+    [
+        (
+            False,
+            object(),
+            True,
+            True,
+            LowTemperatureProtectionValidationNotSupportedError,
+        ),
+        (
+            True,
+            None,
+            True,
+            True,
+            LowTemperatureProtectionValidationUnavailableError,
+        ),
+        (
+            True,
+            object(),
+            False,
+            True,
+            LowTemperatureProtectionValidationUnavailableError,
+        ),
+        (
+            True,
+            object(),
+            True,
+            False,
+            LowTemperatureProtectionValidationUnavailableError,
+        ),
+    ],
+)
+async def test_low_temperature_protection_rejects_stale_state_before_io(
+    supported, data, last_success, write_ready, error
+) -> None:
+    """Field-16 identity and snapshot guards run before Bluetooth lookup."""
+
+    # Arrange - vary each prerequisite for the validation operation.
+    device = SimpleNamespace(
+        supports_low_temperature_protection_validation=supported,
+        global_settings_write_ready=write_ready,
+        set_low_temperature_protection_validation=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=data,
+        last_update_success=last_success,
+        _ble_device=Mock(),
+    )
+
+    # Act / Assert - reject without resolving or using a Bluetooth path.
+    with pytest.raises(error):
+        update = (
+            VentaxiaMultihomeCoordinator
+            .async_set_low_temperature_protection_validation
+        )
+        await update(coordinator, enabled=True)
+    coordinator._ble_device.assert_not_called()
+    device.set_low_temperature_protection_validation.assert_not_awaited()
 
 
 @pytest.mark.asyncio

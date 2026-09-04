@@ -830,7 +830,7 @@ async def test_global_setting_write_rejects_unvalidated_field_before_io() -> Non
     with pytest.raises(DeviceError) as error:
         await device.set_global_setting(
             object(),
-            GlobalSettingField.LOW_TEMPERATURE_ENABLED,
+            GlobalSettingField.LS1_ACTION,
             True,
         )
 
@@ -1449,6 +1449,134 @@ async def test_temperature_validation_rechecks_fresh_record_before_write() -> No
         )
 
     # Assert - the fresh mismatch closes the write gate without transmitting.
+    assert raised.value
+    device._request.assert_awaited_once()
+    device._send.assert_not_awaited()
+    assert device.confirmed_global_settings == confirmed
+    assert device.global_settings_write_ready is False
+
+
+@pytest.mark.parametrize(
+    ("model", "firmware", "hardware", "supported"),
+    [
+        ("10", "2.03.08", "01.00", True),
+        ("10", "2.03.09", "01.00", False),
+        ("10", "2.03.08", "01.01", False),
+        ("2", "2.03.08", "01.00", False),
+    ],
+)
+def test_low_temperature_protection_validation_requires_exact_identity(
+    model: str,
+    firmware: str,
+    hardware: str,
+    supported: bool,
+) -> None:
+    """Field-16 validation is restricted to the installed test identity."""
+
+    # Arrange - apply one exact or near-match device identity.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model=model, firmware=firmware, hardware=hardware
+    )
+
+    # Act - evaluate the dedicated candidate capability gate.
+    result = device.supports_low_temperature_protection_validation
+
+    # Assert - model, firmware, and hardware must all match.
+    assert result is supported
+
+
+@pytest.mark.asyncio
+async def test_low_temperature_protection_validation_uses_exact_readback() -> None:
+    """Field 16 is accepted only after pre-write and post-write full reads."""
+
+    # Arrange - emulate firmware applying one strict boolean update.
+    current = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    sent: list[bytes] = []
+    requested: list[bytes] = []
+
+    class ApplyingTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            nonlocal current
+            sent.append(packet)
+            wrapped = decode_data_object_array(decode_packet(packet).payload)
+            assert wrapped.object_id == GlobalSettingField.LOW_TEMPERATURE_ENABLED
+            current = global_settings_after_update(
+                current,
+                GlobalSettingField.LOW_TEMPERATURE_ENABLED,
+                bool(wrapped.payload[0]),
+            )
+
+        async def request(self, packet: bytes) -> bytes:
+            requested.append(packet)
+            return encode_packet(
+                PacketType.GLOBAL_DATA,
+                Operation.RESPONSE,
+                current.raw_record,
+                timestamp=2,
+            )
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._client = DeviceClient([])
+    device._transport = ApplyingTransport()
+    device._authenticated = True
+    device._confirmed_global_settings = current
+    device._global_settings_write_ready = True
+
+    # Act - enable field 16 without changing the stored temperature profile.
+    result = await device.set_low_temperature_protection_validation(
+        object(), enabled=True
+    )
+
+    # Assert - one field-16 write is surrounded by two complete settings reads.
+    assert len(sent) == 1
+    assert len(requested) == 2
+    assert result.low_temperature_enabled is True
+    assert result.low_threshold_action == 1
+    assert result.high_threshold_action == 4
+    assert result.low_temperature_threshold == 15
+    assert result.high_temperature_threshold == 25
+    assert device.confirmed_global_settings == result
+
+
+@pytest.mark.asyncio
+async def test_low_temperature_protection_rechecks_fresh_record_before_write() -> None:
+    """An intervening full-record change blocks the field-16 update."""
+
+    # Arrange - retain one baseline but return a fresh unrelated change.
+    confirmed = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    changed = bytearray(confirmed.raw_record)
+    changed[5] += 1
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._confirmed_global_settings = confirmed
+    device._global_settings_write_ready = True
+    device.connect = AsyncMock()
+    device._request = AsyncMock(return_value=SimpleNamespace(payload=bytes(changed)))
+    device._send = AsyncMock()
+
+    # Act - request an otherwise valid field-16 enable.
+    with pytest.raises(GlobalSettingUpdateError, match="changed before") as raised:
+        await device.set_low_temperature_protection_validation(
+            object(), enabled=True
+        )
+
+    # Assert - no update is sent and the write gate closes on the stale record.
     assert raised.value
     device._request.assert_awaited_once()
     device._send.assert_not_awaited()

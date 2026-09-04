@@ -397,6 +397,10 @@ TEMPERATURE_VALIDATION_FIELDS: Final = frozenset(
     }
 )
 
+LOW_TEMPERATURE_PROTECTION_VALIDATION_FIELDS: Final = frozenset(
+    {GlobalSettingField.LOW_TEMPERATURE_ENABLED}
+)
+
 VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
     InstallerWriteProfile(
         model_number=10,
@@ -423,7 +427,19 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
     ),
 )
 
-VALIDATION_CANDIDATE_WRITE_PROFILES: Final[tuple[InstallerWriteProfile, ...]] = ()
+VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
+    InstallerWriteProfile(
+        model_number=10,
+        firmware="2.03.08",
+        hardware="01.00",
+        fields=LOW_TEMPERATURE_PROTECTION_VALIDATION_FIELDS,
+        evidence=(
+            "official GlobalDataField enum maps LowTemperatureEnabled to field 16; "
+            "packet-137 byte 11 is a strict boolean; awaiting installed-unit "
+            "enable/readback/disable/restore validation"
+        ),
+    ),
+)
 
 
 def model_capability(model_number: int | None) -> ModelCapability | None:

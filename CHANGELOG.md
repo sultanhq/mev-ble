@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.6.3-rc.1] - 2026-09-04
+
+### Added
+
+- Add an exact-identity prerelease validation flow for Low-temperature
+  protection (packet-136 field 16).
+- Show the current protection state, complete stored temperature profile, and
+  measured temperature before confirmation.
+
+### Safety
+
+- Restrict field 16 to model 10 / firmware 2.03.08 / hardware 01.00 while it
+  awaits installed-unit validation.
+- Require a recognised complete temperature profile, the opposite boolean
+  value, explicit confirmation, a fresh full-record concurrency check, and
+  exact packet-137 readback.
+- Change only field 16. Enabling the flag may trigger the stored temperature
+  behaviour immediately; the result screen directs the tester to observe the
+  fan separately and restore Disabled through the same guarded flow.
+
 ## [0.6.2] - 2026-09-04
 
 ### Added

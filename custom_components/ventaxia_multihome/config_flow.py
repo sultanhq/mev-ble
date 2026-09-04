@@ -61,6 +61,8 @@ from .coordinator import (
     DelayOverrunConfigurationUnavailableError,
     HumidityResponseConfigurationNotSupportedError,
     HumidityResponseConfigurationUnavailableError,
+    LowTemperatureProtectionValidationNotSupportedError,
+    LowTemperatureProtectionValidationUnavailableError,
     SensorThresholdConfigurationNotSupportedError,
     SensorThresholdConfigurationUnavailableError,
     SilentHoursConfigurationUnavailableError,
@@ -94,6 +96,7 @@ from .protocol import (
     decode_silent_hour,
     encode_silent_hour,
     plan_delay_overrun_updates,
+    plan_low_temperature_protection_validation_update,
     plan_temperature_validation_update,
     temperature_threshold_action_name,
     validate_airflow_profile,
@@ -133,6 +136,8 @@ CONF_HIGH_TEMPERATURE_ACTION = "high_temperature_action"
 CONF_LOW_TEMPERATURE_THRESHOLD = "low_temperature_threshold"
 CONF_HIGH_TEMPERATURE_THRESHOLD = "high_temperature_threshold"
 CONF_CONFIRM_TEMPERATURE_VALIDATION = "confirm_temperature_validation"
+CONF_LOW_TEMPERATURE_PROTECTION = "low_temperature_protection"
+CONF_CONFIRM_LOW_TEMPERATURE_PROTECTION = "confirm_low_temperature_protection"
 CONF_SILENT_HOUR_SLOT = "silent_hour_slot"
 CONF_SILENT_HOUR_ACTION = "silent_hour_action"
 CONF_SILENT_HOUR_START = "silent_hour_start"
@@ -419,6 +424,8 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._delay_overrun_baseline_raw: bytes | None = None
         self._temperature_validation: tuple[int, int, int, int] | None = None
         self._temperature_validation_baseline_raw: bytes | None = None
+        self._low_temperature_protection: bool | None = None
+        self._low_temperature_protection_baseline_raw: bytes | None = None
         self._silent_hour_index: int | None = None
         self._silent_hours_baseline: tuple[tuple[int, bytes | None], ...] | None = None
         self._silent_hour_result = ""
@@ -472,6 +479,11 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             and self._current_delay_overrun_settings() is not None
         ):
             menu_options.append("delay_overrun")
+        if (
+            coordinator.device.supports_low_temperature_protection_validation
+            and self._current_low_temperature_protection_settings() is not None
+        ):
+            menu_options.append("low_temperature_protection_validation")
         if (
             coordinator.device.supports_temperature_threshold_validation
             and self._current_temperature_validation_settings() is not None
@@ -1572,6 +1584,176 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             },
         )
 
+    async def async_step_low_temperature_protection_validation(
+        self,
+        user_input: dict[str, Any] | None = None,
+        *,
+        errors: dict[str, str] | None = None,
+    ) -> ConfigFlowResult:
+        """Collect one reviewed field-16 validation change."""
+
+        coordinator = self.config_entry.runtime_data
+        if not coordinator.device.supports_low_temperature_protection_validation:
+            return self.async_abort(
+                reason="low_temperature_protection_validation_not_supported"
+            )
+        settings = self._current_low_temperature_protection_settings()
+        if settings is None:
+            return self.async_abort(
+                reason="low_temperature_protection_validation_unavailable"
+            )
+
+        if user_input is not None:
+            enabled = user_input.get(CONF_LOW_TEMPERATURE_PROTECTION)
+            try:
+                plan_low_temperature_protection_validation_update(
+                    settings, enabled=enabled
+                )
+            except ProtocolError:
+                errors = {"base": "low_temperature_protection_validation_invalid"}
+            else:
+                self._low_temperature_protection = enabled
+                self._low_temperature_protection_baseline_raw = settings.raw_record
+                return await (
+                    self.async_step_low_temperature_protection_validation_confirm()
+                )
+
+        return self.async_show_form(
+            step_id="low_temperature_protection_validation",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_LOW_TEMPERATURE_PROTECTION,
+                        default=settings.low_temperature_enabled,
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors or {},
+            description_placeholders={
+                "current_protection": self._format_enabled(
+                    settings.low_temperature_enabled
+                ),
+                "current_profile": self._format_temperature_profile(
+                    *self._temperature_profile(settings)
+                ),
+                "current_temperature": self._format_current_temperature(),
+            },
+        )
+
+    async def async_step_low_temperature_protection_validation_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Recheck the full record and confirm one field-16 write."""
+
+        assert self._low_temperature_protection is not None
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input[CONF_CONFIRM_LOW_TEMPERATURE_PROTECTION]:
+                errors["base"] = (
+                    "low_temperature_protection_validation_confirmation_required"
+                )
+            else:
+                settings = self._current_low_temperature_protection_settings()
+                if settings is None:
+                    errors["base"] = (
+                        "low_temperature_protection_validation_unavailable"
+                    )
+                elif (
+                    settings.raw_record
+                    != self._low_temperature_protection_baseline_raw
+                ):
+                    self._low_temperature_protection = None
+                    self._low_temperature_protection_baseline_raw = None
+                    return await self.async_step_low_temperature_protection_validation(
+                        errors={
+                            "base": (
+                                "low_temperature_protection_validation_settings_changed"
+                            )
+                        }
+                    )
+                else:
+                    try:
+                        coordinator = self.config_entry.runtime_data
+                        update = (
+                            coordinator.async_set_low_temperature_protection_validation
+                        )
+                        await update(enabled=self._low_temperature_protection)
+                    except LowTemperatureProtectionValidationNotSupportedError:
+                        return self.async_abort(
+                            reason=(
+                                "low_temperature_protection_validation_not_supported"
+                            )
+                        )
+                    except LowTemperatureProtectionValidationUnavailableError:
+                        errors["base"] = (
+                            "low_temperature_protection_validation_unavailable"
+                        )
+                    except HomeAssistantError as err:
+                        _LOGGER.warning(
+                            "Unable to validate Multihome low-temperature "
+                            "protection: %s",
+                            err,
+                        )
+                        errors["base"] = (
+                            "low_temperature_protection_validation_update_failed"
+                        )
+                    else:
+                        return await (
+                            self.async_step_low_temperature_protection_validation_result()
+                        )
+
+        settings = self._current_low_temperature_protection_settings()
+        current = (
+            self._format_enabled(settings.low_temperature_enabled)
+            if settings is not None
+            else "Unavailable"
+        )
+        profile = (
+            self._format_temperature_profile(*self._temperature_profile(settings))
+            if settings is not None
+            else "Unavailable"
+        )
+        return self.async_show_form(
+            step_id="low_temperature_protection_validation_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONFIRM_LOW_TEMPERATURE_PROTECTION,
+                        default=False,
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "device": self.config_entry.title,
+                "current_protection": current,
+                "new_protection": self._format_enabled(
+                    self._low_temperature_protection
+                ),
+                "current_profile": profile,
+            },
+        )
+
+    async def async_step_low_temperature_protection_validation_result(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report field 16 confirmed through exact packet-137 readback."""
+
+        assert self._low_temperature_protection is not None
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        return self.async_show_form(
+            step_id="low_temperature_protection_validation_result",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "new_protection": self._format_enabled(
+                    self._low_temperature_protection
+                )
+            },
+        )
+
     def _current_airflow_settings(self) -> GlobalSettings | None:
         """Return a current writable settings record or no capability."""
 
@@ -1647,6 +1829,20 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
 
         settings = self._current_sensor_threshold_settings()
         if settings is None or settings.low_temperature_enabled is not False:
+            return None
+        try:
+            validate_temperature_threshold_profile(*self._temperature_profile(settings))
+        except ProtocolError:
+            return None
+        return settings
+
+    def _current_low_temperature_protection_settings(
+        self,
+    ) -> GlobalSettings | None:
+        """Return a fully decoded profile for guarded field-16 validation."""
+
+        settings = self._current_sensor_threshold_settings()
+        if settings is None or settings.low_temperature_enabled is None:
             return None
         try:
             validate_temperature_threshold_profile(*self._temperature_profile(settings))

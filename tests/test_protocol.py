@@ -48,6 +48,7 @@ from custom_components.ventaxia_multihome.protocol import (
     plan_comfort_mode_update,
     plan_delay_overrun_updates,
     plan_humidity_response_updates,
+    plan_low_temperature_protection_validation_update,
     plan_sensor_threshold_updates,
     plan_temperature_validation_update,
     reassemble_fragments,
@@ -594,6 +595,49 @@ def test_temperature_validation_plans_exactly_one_disabled_profile_change() -> N
 
     # Assert - only field 19 and its exact integer value are planned.
     assert update == (GlobalSettingField.LOW_TEMPERATURE_THRESHOLD, 14)
+
+
+def test_low_temperature_protection_validation_plans_field_16_boolean() -> None:
+    """The guarded validation planner changes only the recovered field 16."""
+
+    # Arrange - decode the installed-unit baseline with protection disabled.
+    settings = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+
+    # Act - request the opposite strict boolean value.
+    update = plan_low_temperature_protection_validation_update(
+        settings, enabled=True
+    )
+
+    # Assert - no threshold or action field is included in the plan.
+    assert update == (GlobalSettingField.LOW_TEMPERATURE_ENABLED, True)
+
+
+@pytest.mark.parametrize(
+    ("enabled", "message"),
+    [(False, "unchanged"), (1, "boolean")],
+)
+def test_low_temperature_protection_validation_rejects_invalid_request(
+    enabled,
+    message: str,
+) -> None:
+    """Unchanged and non-boolean field-16 requests are rejected."""
+
+    # Arrange - retain a valid complete temperature profile with protection off.
+    settings = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+
+    # Act / Assert - no packet-136 update can be planned from invalid input.
+    with pytest.raises(ProtocolError, match=message):
+        plan_low_temperature_protection_validation_update(
+            settings, enabled=enabled
+        )
 
 
 @pytest.mark.parametrize(

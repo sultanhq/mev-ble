@@ -119,6 +119,14 @@ Changing the action and threshold did not alter fan level, RPM, or state, so
 that test proves storage and restoration rather than runtime temperature
 triggering.
 
+Version 0.6.3 RC1 adds **Configure → Validate Low-temperature protection** on
+the same exact identity. It is deliberately separate from the four temperature
+settings because field 16 has an authoritative protocol ID but was not written
+by the recovered Multihome temperature screen. The validation flow changes only
+the strict boolean flag, shows the complete profile and measured temperature,
+rejects stale records, and requires exact packet-137 readback. After enabling,
+observe the fan state separately and reopen the same flow to restore Disabled.
+
 The same identity can configure **Delay On time**, **Overrun**, and **Overrun
 time**. Fields 8–10 were independently changed, read back exactly, and restored.
 **Delay On** itself remains read-only because field 7 repeatedly failed exact

@@ -136,6 +136,14 @@ class TemperatureValidationUnavailableError(HomeAssistantError):
     """Raised when no current record permits temperature validation."""
 
 
+class LowTemperatureProtectionValidationNotSupportedError(HomeAssistantError):
+    """Raised when guarded field-16 validation is not enabled."""
+
+
+class LowTemperatureProtectionValidationUnavailableError(HomeAssistantError):
+    """Raised when no current record permits field-16 validation."""
+
+
 class SilentHoursNotSupportedError(HomeAssistantError):
     """Raised when schedule management is not validated for the model."""
 
@@ -627,6 +635,49 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             self.async_set_update_error(err)
             raise HomeAssistantError(
                 f"Unable to update Multihome temperature validation field: {err}"
+            ) from err
+        self.async_set_updated_data(replace(self.data, global_settings=settings))
+
+    async def async_set_low_temperature_protection_validation(
+        self,
+        *,
+        enabled: bool,
+    ) -> None:
+        """Apply and publish one confirmed field-16 validation change."""
+
+        if not self.device.supports_low_temperature_protection_validation:
+            raise LowTemperatureProtectionValidationNotSupportedError(
+                "low-temperature protection validation is not enabled for this "
+                "model, firmware, and hardware"
+            )
+        if (
+            self.data is None
+            or not self.last_update_success
+            or not self.device.global_settings_write_ready
+        ):
+            raise LowTemperatureProtectionValidationUnavailableError(
+                "Current global settings are unavailable; wait for a successful poll"
+            )
+        try:
+            settings = (
+                await self.device.set_low_temperature_protection_validation(
+                    self._ble_device(), enabled=enabled
+                )
+            )
+        except GlobalSettingsUnavailableError as err:
+            raise LowTemperatureProtectionValidationUnavailableError(str(err)) from err
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            await self.device.disconnect()
+            self.async_set_update_error(err)
+            raise HomeAssistantError(
+                "Unable to update Multihome low-temperature protection: "
+                f"{err}"
             ) from err
         self.async_set_updated_data(replace(self.data, global_settings=settings))
 

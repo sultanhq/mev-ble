@@ -1369,6 +1369,28 @@ def plan_temperature_validation_update(
     return changed[0]
 
 
+def plan_low_temperature_protection_validation_update(
+    settings: GlobalSettings,
+    *,
+    enabled: bool,
+) -> tuple[GlobalSettingField, bool]:
+    """Plan one guarded field-16 validation write."""
+
+    if settings.low_temperature_enabled is None:
+        raise ProtocolError("low-temperature protection state is unavailable")
+    if not isinstance(enabled, bool):
+        raise ProtocolError("low-temperature protection requires a boolean value")
+    validate_temperature_threshold_profile(
+        settings.low_threshold_action,
+        settings.high_threshold_action,
+        settings.low_temperature_threshold,
+        settings.high_temperature_threshold,
+    )
+    if enabled == settings.low_temperature_enabled:
+        raise ProtocolError("low-temperature protection value is unchanged")
+    return GlobalSettingField.LOW_TEMPERATURE_ENABLED, enabled
+
+
 def plan_humidity_response_updates(
     settings: GlobalSettings,
     *,

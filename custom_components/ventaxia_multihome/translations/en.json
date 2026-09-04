@@ -50,6 +50,7 @@
           "calibrate_co2": "Calibrate internal CO₂ sensor",
           "delay_overrun": "Configure Delay On and Overrun",
           "boost_minimum_validation": "Validate Boost minimum",
+          "low_temperature_protection_validation": "Validate Low-temperature protection",
           "temperature_validation": "Configure temperature settings"
         }
       },
@@ -259,6 +260,24 @@
       "temperature_validation_result": {
         "title": "Temperature settings confirmed",
         "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. This confirms the stored profile, not that a temperature condition has triggered a fan-speed change."
+      },
+      "low_temperature_protection_validation": {
+        "title": "Validate Low-temperature protection",
+        "description": "Current protection: **{current_protection}**\n\nCurrent profile: **{current_profile}**\n\nCurrent measured temperature: **{current_temperature}**\n\nThis prerelease flow writes only packet-136 field 16 on the exact model 10 / firmware 2.03.08 / hardware 01.00 identity. Enabling protection may make the unit respond immediately to the stored temperature profile. Record the original value and restore it after testing.",
+        "data": {
+          "low_temperature_protection": "Low-temperature protection"
+        }
+      },
+      "low_temperature_protection_validation_confirm": {
+        "title": "Confirm Low-temperature protection validation",
+        "description": "Device: **{device}**\n\nCurrent protection: **{current_protection}**\n\nNew protection: **{new_protection}**\n\nStored profile: **{current_profile}**\n\nHome Assistant will send only field 16 after a fresh full-record check and will accept success only when exact packet-137 readback confirms the complete record.",
+        "data": {
+          "confirm_low_temperature_protection": "I recorded the current value and profile and want to perform this field-16 validation"
+        }
+      },
+      "low_temperature_protection_validation_result": {
+        "title": "Low-temperature protection validation confirmed",
+        "description": "The installed unit returned Low-temperature protection **{new_protection}** through exact fresh packet-137 readback. If you enabled it for testing, observe the fan state separately, then reopen this flow and restore **Disabled**."
       }
     },
     "progress": {
@@ -319,7 +338,12 @@
       "temperature_validation_confirmation_required": "Review the complete profile and enable the acknowledgement before continuing.",
       "temperature_validation_settings_changed": "The global settings changed after review. Recheck all four current temperature values before continuing.",
       "temperature_validation_unavailable": "Temperature validation requires a fresh settings record, recognised values, and Low-temperature protection already Off. No setting was changed.",
-      "temperature_validation_update_failed": "The one-field temperature update or its exact readback failed. Reopen the flow and inspect all four current values."
+      "temperature_validation_update_failed": "The one-field temperature update or its exact readback failed. Reopen the flow and inspect all four current values.",
+      "low_temperature_protection_validation_invalid": "Choose the opposite Low-temperature protection state while the complete stored temperature profile is valid.",
+      "low_temperature_protection_validation_confirmation_required": "Record the current protection value and temperature profile, then enable the acknowledgement before continuing.",
+      "low_temperature_protection_validation_settings_changed": "The global settings changed after review. Recheck the current protection value and complete temperature profile before continuing.",
+      "low_temperature_protection_validation_unavailable": "Low-temperature protection validation requires a fresh settings record and a recognised complete temperature profile. No setting was changed.",
+      "low_temperature_protection_validation_update_failed": "The field-16 update or its exact readback failed. Reopen the flow and inspect the current protection value and complete temperature profile."
     },
     "abort": {
       "airflow_not_supported": "Airflow configuration is not validated for this model, firmware, and hardware. No setting was changed.",
@@ -335,7 +359,9 @@
       "delay_overrun_not_supported": "Delay On and Overrun configuration is not enabled for this model, firmware, and hardware. No setting was changed.",
       "boost_minimum_not_supported": "Boost minimum validation is unavailable for this model, firmware, or hardware.",
       "temperature_validation_not_supported": "Temperature validation is unavailable for this model, firmware, or hardware. No setting was changed.",
-      "temperature_validation_unavailable": "Temperature validation requires recognised current values and Low-temperature protection already Off. No setting was changed."
+      "temperature_validation_unavailable": "Temperature validation requires recognised current values and Low-temperature protection already Off. No setting was changed.",
+      "low_temperature_protection_validation_not_supported": "Low-temperature protection validation is unavailable for this model, firmware, or hardware. No setting was changed.",
+      "low_temperature_protection_validation_unavailable": "Low-temperature protection validation requires a fresh settings record and a recognised complete temperature profile. No setting was changed."
     }
   },
   "selector": {

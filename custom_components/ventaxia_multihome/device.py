@@ -25,6 +25,7 @@ from .capabilities import (
     COMFORT_MODE_FIELDS,
     DELAY_OVERRUN_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
+    LOW_TEMPERATURE_PROTECTION_VALIDATION_FIELDS,
     SENSOR_THRESHOLD_FIELDS,
     TEMPERATURE_VALIDATION_FIELDS,
     installer_configurable_fields,
@@ -75,6 +76,7 @@ from .protocol import (
     plan_comfort_mode_update,
     plan_delay_overrun_updates,
     plan_humidity_response_updates,
+    plan_low_temperature_protection_validation_update,
     plan_sensor_threshold_updates,
     plan_temperature_validation_update,
     preserve_unknown_silent_hour_slot,
@@ -289,6 +291,15 @@ class MultihomeDevice:
         """Return whether the storage-validated temperature fields are writable."""
 
         return TEMPERATURE_VALIDATION_FIELDS <= self.writable_installer_fields
+
+    @property
+    def supports_low_temperature_protection_validation(self) -> bool:
+        """Return whether guarded field-16 validation is enabled."""
+
+        return (
+            LOW_TEMPERATURE_PROTECTION_VALIDATION_FIELDS
+            <= self.validation_candidate_installer_fields
+        )
 
     @property
     def supports_silent_hours_management(self) -> bool:
@@ -745,6 +756,54 @@ class MultihomeDevice:
                 high_action=high_action,
                 low_threshold=low_threshold,
                 high_threshold=high_threshold,
+            )
+            return await self._set_global_setting_locked(field, value)
+
+    async def set_low_temperature_protection_validation(
+        self,
+        ble_device: BLEDevice,
+        *,
+        enabled: bool,
+    ) -> GlobalSettings:
+        """Apply one guarded field-16 validation write."""
+
+        if not self.supports_low_temperature_protection_validation:
+            raise DeviceError(
+                "low-temperature protection validation is not enabled for this "
+                "model, firmware, and hardware"
+            )
+        confirmed = self._confirmed_global_settings
+        if confirmed is None or not self._global_settings_write_ready:
+            raise GlobalSettingsUnavailableError(
+                "global settings must be read successfully before an update"
+            )
+        plan_low_temperature_protection_validation_update(
+            confirmed, enabled=enabled
+        )
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            confirmed = self._confirmed_global_settings
+            if confirmed is None or not self._global_settings_write_ready:
+                raise GlobalSettingsUnavailableError(
+                    "global settings must be read successfully before an update"
+                )
+            fresh = decode_global_settings(
+                (
+                    await self._request(
+                        PacketType.GLOBAL_DATA,
+                        Operation.DATA_REQUEST,
+                    )
+                ).payload
+            )
+            if fresh.raw_record != confirmed.raw_record:
+                self._global_settings_write_ready = False
+                raise GlobalSettingUpdateError(
+                    "global settings changed before the low-temperature protection "
+                    "validation write; no update was sent and the last confirmed "
+                    "snapshot was retained"
+                )
+            field, value = plan_low_temperature_protection_validation_update(
+                fresh, enabled=enabled
             )
             return await self._set_global_setting_locked(field, value)
 

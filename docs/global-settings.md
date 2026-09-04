@@ -145,7 +145,7 @@ are proven.
 | 11–13 | `ls1_action` … `ls3_action` | 19–21 | UInt8 action code | 0–255 | Installed wiring and action enum | Wired input | Static; read-only |
 | 14 | `rapid_response_enabled` | 9 | strict UInt8 boolean | 0/1 | Humidity-response semantics | Sensor control | Physical; exact validated identity only |
 | 15 | `ambient_response_enabled` | 10 | strict UInt8 boolean | 0/1 | Humidity-response semantics | Sensor control | Physical; exact validated identity only |
-| 16 | `low_temperature_enabled` | 11 | strict UInt8 boolean | 0/1 | Paired thresholds and actions; no recovered app write | Sensor control | Static; read-only |
+| 16 | `low_temperature_enabled` | 11 | strict UInt8 boolean | 0/1 | Paired thresholds and actions; official field ID, but no recovered Multihome screen write | Sensor control | Guarded v0.6.3 prerelease candidate on exact identity; awaiting enable/readback/disable/restore test |
 | 17–18 | `low_threshold_action`, `high_threshold_action` | 12–13 | UInt8 action code | App choices: 1 Low, 3 Boost, 4 Purge | Paired with the corresponding threshold; other codes preserved as unknown | Sensor control | Physical storage/readback; exact validated identity only while ID 16 is off |
 | 19 | `low_temperature_threshold` | 14 | UInt8, °C | 0–30, step 1 | Integration conservatively requires `low < high` | Sensor control | Physical storage/readback; exact validated identity only while ID 16 is off |
 | 20 | `high_temperature_threshold` | 15 | UInt8, °C | 15–40, step 1 | Integration conservatively requires `low < high` | Sensor control | Physical storage/readback; exact validated identity only while ID 16 is off |
@@ -174,12 +174,22 @@ The newer 7.2.2 app still confirms the packet-136 field IDs and record layout,
 but its visible 0–40 temperature slider is for a different IAQ-manager device
 family and is not used as Multihome evidence.
 
-RC18 keeps field 16 permanently read-only and enables guarded fields 17–20 only
-on model 10 / firmware 2.03.08 / hardware 01.00. The device must already report
+Version 0.6.2 keeps field 16 read-only and enables guarded fields 17–20 only on
+model 10 / firmware 2.03.08 / hardware 01.00. The device must already report
 field 16 off, both action codes must be recovered app choices, the integration
 requires `low < high`, and exactly one field may change per submission. A fresh
 full-record concurrency check happens before the write and the changed field
 must be returned exactly in a fresh packet-137 record afterward.
+
+Version 0.6.3 RC1 adds a separate guarded validation route for field 16 on that
+same exact identity. The official `GlobalDataField` enum identifies
+`LowTemperatureEnabled` as field 16 and packet-137 byte 11 is a strict boolean.
+Because the recovered Multihome temperature screen does not write this flag,
+it remains a prerelease candidate until the installed unit has completed an
+enable/readback/disable/restore cycle. The flow validates the complete stored
+temperature profile, changes only field 16, rereads the complete record before
+the write, requires exact readback afterward, and warns that enabling may cause
+an immediate response to the stored thresholds and actions.
 
 The physically observed starting profile for this identity is field 16 off,
 low action 1 (`low`), high action 4 (`purge`), low threshold 15 °C and high
