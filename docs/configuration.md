@@ -107,15 +107,27 @@ byte 6. The flag's wider operating behaviour is not inferred from its name. It
 was disabled, confirmed through exact fresh readback, and restored enabled on
 the validated unit.
 
-Version 0.6.2 RC17 adds **Configure → Validate temperature settings** for the
-same exact identity. It is deliberately narrower than a normal settings form:
+Version 0.6.2 RC18 adds **Configure → Configure temperature settings** for the
+same exact identity. The guarded settings form deliberately remains narrow:
 Low-temperature protection (field 16) must already be Off and is never written,
 only the recovered Low/Boost/Purge actions are accepted, Low must remain below
 High, and exactly one of fields 17–20 may change in each submission. The flow
 shows the current measured temperature and complete current/proposed profile,
-rejects a stale 36-byte snapshot, and requires exact packet-137 readback. Restore
-the original value immediately before testing another field. This proves only
-reversible storage, not runtime temperature behaviour.
+rejects a stale 36-byte snapshot, and requires exact packet-137 readback. All
+four fields were changed independently and restored on the validated unit.
+Changing the action and threshold did not alter fan level, RPM, or state, so
+that test proves storage and restoration rather than runtime temperature
+triggering.
+
+The same identity can configure **Delay On time**, **Overrun**, and **Overrun
+time**. Fields 8–10 were independently changed, read back exactly, and restored.
+**Delay On** itself remains read-only because field 7 repeatedly failed exact
+readback. These settings affect mains-voltage switched-live inputs; their
+runtime electrical timing was not tested because no such input was connected.
+
+**Boost minimum** remains a read-only diagnostic. Although 0% → 1% → 0% was
+stored and restored successfully, its operating meaning, dependencies, and a
+safe general range are not established.
 
 The application setup code, BLE address and config-entry unique ID are redacted
 from downloaded diagnostics. Internal routing addresses used to explain CO₂

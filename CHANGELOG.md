@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.6.2-rc.18] - 2026-09-04
+
+### Changed
+
+- Promote packet-136 fields 8–10 and 17–20 to guarded exact-identity writes
+  after each field was changed, read back exactly, and restored on the
+  validated unit.
+- Present the temperature flow as normal guarded configuration while retaining
+  its one-field-at-a-time safety checks.
+- Remove the Boost minimum validation candidate from the Configure menu; field
+  4 remains available as a read-only diagnostic.
+
+### Safety
+
+- Keep Delay enabled field 7 blocked after its repeated physical readback
+  mismatch, and keep Low-temperature protection field 16 permanently read-only.
+- Record temperature writes as storage validation only. Changing an action and
+  threshold did not change fan level, RPM, or state, so runtime temperature
+  triggering remains unproven.
+- Keep Boost minimum read-only because its 0%/1% storage test did not establish
+  its operating meaning, dependencies, or safe general range.
+
 ## [0.6.2-rc.17] - 2026-09-04
 
 ### Added

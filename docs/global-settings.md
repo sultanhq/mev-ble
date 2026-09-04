@@ -66,18 +66,17 @@ changes before final confirmation.
 Measured **Fan RPM** remains telemetry. It can vary for the same configured
 percentage because duct resistance and motor load differ between installations.
 
-## Restricted Boost minimum validation
+## Boost minimum remains read-only
 
 The official-client enum names packet-136 field 4 `BoostMin`, and the validated
 unit reports a baseline of 0% alongside its 6/8/37/50% commissioned airflow
 profile. Available primary evidence does not yet define the setting's operating
 meaning or profile dependency.
 
-The v0.6.2 prerelease validation flow is therefore restricted to 0% and 1% on
-model 10 / firmware 2.03.08 / hardware 01.00. It requires full-record review,
-explicit acknowledgement, stale-snapshot rejection, and exact packet-137
-readback. The intended test is 0% → 1% → 0%. This proves only isolated storage
-and restoration; general 0–100% configuration remains unavailable.
+The exact validation unit successfully stored and restored 0% → 1% → 0% with
+exact packet-137 readback. That proves only isolated storage. Because it did not
+establish the setting's operating meaning, dependencies, or safe general range,
+the validation flow has been removed and field 4 remains read-only.
 
 ## Model capability matrix
 
@@ -140,16 +139,16 @@ are proven.
 | 5 | `humidity_threshold` | 5 | UInt8, %RH | 0–100 | Humidity demand threshold | Sensor control | Physical; exact validated identity only |
 | 6 | `comfort_enabled` | 6 | strict UInt8 boolean | 0/1 | Model-specific interaction | Comfort | Physical; exact validated identity only |
 | 7 | `delay_enabled` | 7 | strict UInt8 boolean | 0/1 | Paired with ID 10; LS inputs only | Wired input | Physical readback mismatch; blocked/read-only |
-| 8 | `overrun_enabled` | 8 | strict UInt8 boolean | 0/1 | Paired with ID 9; LS inputs only | Wired input | Physical change/readback passed; validation candidate |
-| 9 | `overrun_timeout_minutes` | 17 | UInt8, minutes | 1–60 | Paired with ID 8 | Wired input | Physical change/readback passed; validation candidate |
-| 10 | `delay_timeout_minutes` | 18 | UInt8, minutes | 1–60 | Paired with blocked ID 7 | Wired input | Physical change/readback passed; validation candidate |
+| 8 | `overrun_enabled` | 8 | strict UInt8 boolean | 0/1 | Paired with ID 9; LS inputs only | Wired input | Physical; exact validated identity only |
+| 9 | `overrun_timeout_minutes` | 17 | UInt8, minutes | 1–60 | Paired with ID 8 | Wired input | Physical; exact validated identity only |
+| 10 | `delay_timeout_minutes` | 18 | UInt8, minutes | 1–60 | Paired with blocked ID 7 | Wired input | Physical; exact validated identity only |
 | 11–13 | `ls1_action` … `ls3_action` | 19–21 | UInt8 action code | 0–255 | Installed wiring and action enum | Wired input | Static; read-only |
 | 14 | `rapid_response_enabled` | 9 | strict UInt8 boolean | 0/1 | Humidity-response semantics | Sensor control | Physical; exact validated identity only |
 | 15 | `ambient_response_enabled` | 10 | strict UInt8 boolean | 0/1 | Humidity-response semantics | Sensor control | Physical; exact validated identity only |
 | 16 | `low_temperature_enabled` | 11 | strict UInt8 boolean | 0/1 | Paired thresholds and actions; no recovered app write | Sensor control | Static; read-only |
-| 17–18 | `low_threshold_action`, `high_threshold_action` | 12–13 | UInt8 action code | App choices: 1 Low, 3 Boost, 4 Purge | Paired with the corresponding threshold; other codes preserved as unknown | Sensor control | Exact-identity, one-field validation candidate while ID 16 is off |
-| 19 | `low_temperature_threshold` | 14 | UInt8, °C | 0–30, step 1 | Integration conservatively requires `low < high` | Sensor control | Exact-identity, one-field validation candidate while ID 16 is off |
-| 20 | `high_temperature_threshold` | 15 | UInt8, °C | 15–40, step 1 | Integration conservatively requires `low < high` | Sensor control | Exact-identity, one-field validation candidate while ID 16 is off |
+| 17–18 | `low_threshold_action`, `high_threshold_action` | 12–13 | UInt8 action code | App choices: 1 Low, 3 Boost, 4 Purge | Paired with the corresponding threshold; other codes preserved as unknown | Sensor control | Physical storage/readback; exact validated identity only while ID 16 is off |
+| 19 | `low_temperature_threshold` | 14 | UInt8, °C | 0–30, step 1 | Integration conservatively requires `low < high` | Sensor control | Physical storage/readback; exact validated identity only while ID 16 is off |
+| 20 | `high_temperature_threshold` | 15 | UInt8, °C | 15–40, step 1 | Integration conservatively requires `low < high` | Sensor control | Physical storage/readback; exact validated identity only while ID 16 is off |
 | 21–22 | `co2_boost_threshold`, `co2_purge_threshold` | 22, 24 | UInt16LE value ÷ 10, ppm | 0–2000, step 10 | CO₂ model; `boost < purge` | Sensor control | Physical; exact validated identity only |
 | 23–24 | analogue input 1 low/high actions | 28–29 | UInt8 action code | 0–255 | Installed wiring and action enum | Wired input | Static; read-only |
 | 25–26 | analogue input 1 low/high values | 26–27 | UInt8, scaling unknown | 0–100 | Scaling and paired actions | Wired input | Static; read-only |
@@ -175,19 +174,25 @@ The newer 7.2.2 app still confirms the packet-136 field IDs and record layout,
 but its visible 0–40 temperature slider is for a different IAQ-manager device
 family and is not used as Multihome evidence.
 
-RC17 therefore keeps field 16 permanently read-only and exposes fields 17–20
-only as a controlled validation flow on model 10 / firmware 2.03.08 / hardware
-01.00. The device must already report field 16 off, both action codes must be
-recovered app choices, the integration requires `low < high`, and exactly one
-field may change per submission. A fresh full-record concurrency check happens
-before the write and the changed field must be returned exactly in a fresh
-packet-137 record afterward. Each temporary value must be restored through the
-same flow. This is evidence gathering for the prerelease, not stable write
-support.
+RC18 keeps field 16 permanently read-only and enables guarded fields 17–20 only
+on model 10 / firmware 2.03.08 / hardware 01.00. The device must already report
+field 16 off, both action codes must be recovered app choices, the integration
+requires `low < high`, and exactly one field may change per submission. A fresh
+full-record concurrency check happens before the write and the changed field
+must be returned exactly in a fresh packet-137 record afterward.
 
 The physically observed starting profile for this identity is field 16 off,
 low action 1 (`low`), high action 4 (`purge`), low threshold 15 °C and high
 threshold 25 °C.
+
+Physical testing changed and restored every field independently: low threshold
+15 → 14 → 15 °C, high threshold 25 → 24 → 25 °C, low action Low → Boost → Low,
+and high action Purge → Boost → Purge. Every change and restoration was returned
+exactly by packet 137. During the high-action test the threshold was staged at
+35 °C while the measured temperature was about 27 °C. Lowering and restoring
+the threshold/action did not change fan level 2, roughly 625 RPM, or the
+reported default state. The evidence therefore validates storage and
+restoration only; runtime temperature-trigger behaviour remains unproven.
 
 ## Physical validation evidence
 
@@ -218,10 +223,11 @@ packet-137 read, and restored to their original values through the guarded flow.
 Comfort mode was then disabled on the same unit, returned exactly by a fresh
 packet-137 read, and restored enabled through the guarded flow.
 
-Delay On and Overrun are the current prerelease validation group. The official
-Multihome manual documents their LS-input-only behaviour and 1–60 minute ranges.
+The official Multihome manual documents Delay On and Overrun as LS-input-only
+features with 1–60 minute ranges.
 On the exact validation unit, fields 8–10 changed with exact readback, while
 field 7 (Delay On enabled) produced a readback mismatch. Field 7 is therefore
-blocked and read-only; the guarded candidate flow cannot send it. The remaining
-three fields stay outside the stable profile until restored baselines are
-explicitly confirmed.
+blocked and read-only; the guarded flow cannot send it. Fields 8–10 were also
+restored and are writable only on the exact validated identity. Their runtime
+electrical timing remains unverified because no switched-live input was
+connected during testing.

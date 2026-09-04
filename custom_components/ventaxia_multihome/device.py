@@ -280,15 +280,15 @@ class MultihomeDevice:
 
     @property
     def supports_delay_overrun_configuration(self) -> bool:
-        """Return whether paired LS timers are exact-identity candidates."""
+        """Return whether the physically validated LS timers are writable."""
 
-        return DELAY_OVERRUN_FIELDS <= self.configurable_installer_fields
+        return DELAY_OVERRUN_FIELDS <= self.writable_installer_fields
 
     @property
     def supports_temperature_threshold_validation(self) -> bool:
-        """Return whether temperature fields are exact-identity candidates."""
+        """Return whether the storage-validated temperature fields are writable."""
 
-        return TEMPERATURE_VALIDATION_FIELDS <= self.configurable_installer_fields
+        return TEMPERATURE_VALIDATION_FIELDS <= self.writable_installer_fields
 
     @property
     def supports_silent_hours_management(self) -> bool:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from custom_components.ventaxia_multihome.capabilities import (
     AIRFLOW_FIELDS,
-    BOOST_MINIMUM_VALIDATION_FIELDS,
     COMFORT_MODE_FIELDS,
     DELAY_OVERRUN_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
@@ -160,13 +159,15 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     # Act - resolve each identity through the production capability selector.
     resolved = [installer_writable_fields(*identity) for identity in identities]
 
-    # Assert - only the exact identity exposes all nine validated fields.
+    # Assert - only the exact identity exposes every physically validated field.
     assert resolved == [
         (
             AIRFLOW_FIELDS
             | SENSOR_THRESHOLD_FIELDS
             | HUMIDITY_RESPONSE_FIELDS
             | COMFORT_MODE_FIELDS
+            | DELAY_OVERRUN_FIELDS
+            | TEMPERATURE_VALIDATION_FIELDS
         ),
         frozenset(),
         frozenset(),
@@ -175,8 +176,8 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     ]
 
 
-def test_delay_overrun_fields_are_exact_identity_validation_candidates() -> None:
-    """The paired LS timers remain separate from stable writable fields."""
+def test_no_installer_fields_remain_validation_candidates() -> None:
+    """Unresolved fields remain read-only instead of prerelease writable."""
 
     # Arrange - include the intended unit plus firmware, hardware, and model misses.
     identities = [
@@ -186,18 +187,14 @@ def test_delay_overrun_fields_are_exact_identity_validation_candidates() -> None
         (2, "2.03.08", "01.00"),
     ]
 
-    # Act - resolve the deliberately separate validation-candidate matrix.
+    # Act - resolve the validation-candidate matrix for exact and near identities.
     resolved = [
         installer_validation_candidate_fields(*identity) for identity in identities
     ]
 
-    # Assert - only the exact identity exposes the restricted candidate fields.
+    # Assert - Boost minimum and all other unresolved fields are read-only.
     assert resolved == [
-        (
-            DELAY_OVERRUN_FIELDS
-            | BOOST_MINIMUM_VALIDATION_FIELDS
-            | TEMPERATURE_VALIDATION_FIELDS
-        ),
+        frozenset(),
         frozenset(),
         frozenset(),
         frozenset(),

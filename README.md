@@ -87,16 +87,18 @@ Detailed instructions:
   value; unknown units, scaling, and action meanings remain explicit raw codes
 - Guarded four-level airflow commissioning for a validated device identity,
   with exact readback and explicit review
-- Restricted prerelease Boost minimum validation at 0%/1%; general field-4
-  configuration remains unavailable until its operating meaning is proven
+- Read-only Boost minimum diagnostics; its reversible 0%/1% storage test did
+  not establish a safe general configuration range or operating meaning
 - Guarded CO₂/humidity threshold configuration on the exact physically validated
   model/firmware/hardware identity
 - Guarded Rapid/Ambient humidity-response configuration on the exact physically
   validated model/firmware/hardware identity
 - Guarded Comfort-mode configuration on the exact physically validated
   model/firmware/hardware identity
-- One-field-at-a-time prerelease validation for temperature actions and
-  thresholds while Low-temperature protection remains Off
+- Guarded one-field-at-a-time temperature action and threshold configuration
+  on the exact validated identity while Low-temperature protection remains Off
+- Guarded Delay time, Overrun, and Overrun time configuration on the exact
+  validated identity; the failed Delay enabled field remains read-only
 - Redacted Home Assistant diagnostics
 
 The physically inspected MEV remote exposes speed levels 1–4 and timers for 30,

@@ -50,7 +50,7 @@
           "calibrate_co2": "Calibrate internal CO₂ sensor",
           "delay_overrun": "Configure Delay On and Overrun",
           "boost_minimum_validation": "Validate Boost minimum",
-          "temperature_validation": "Validate temperature settings"
+          "temperature_validation": "Configure temperature settings"
         }
       },
       "fan_options": {
@@ -203,7 +203,7 @@
       },
       "delay_overrun": {
         "title": "Configure Delay On and Overrun",
-        "description": "Current timers: **{current_timers}**\n\nDelay On itself is read-only because field 7 failed exact physical readback on this firmware. Its paired time remains available for validation. Overrun and its paired time remain guarded validation candidates.\n\nThese installer settings apply only to mains-voltage switched-live (LS) inputs. The official Multihome range is 1–60 minutes. Record the current values and restore any tested values afterward.",
+        "description": "Current timers: **{current_timers}**\n\nDelay On itself is read-only because field 7 repeatedly failed exact physical readback on this firmware. Home Assistant can configure Delay time, Overrun, and Overrun time on the exact validated identity.\n\nThese installer settings apply only to mains-voltage switched-live (LS) inputs. The official Multihome range is 1–60 minutes. Runtime electrical-input timing has not been tested because no switched-live input was connected.",
         "data": {
           "delay_timeout": "Delay On time",
           "overrun_enabled": "Overrun",
@@ -219,7 +219,7 @@
       },
       "delay_overrun_result": {
         "title": "Delay On and Overrun confirmed",
-        "description": "The installed unit returned **{new_timers}** through exact fresh packet-137 readback. For validation, restore the original four values through the same flow."
+        "description": "The installed unit returned **{new_timers}** through exact fresh packet-137 readback. Delay On remains unchanged and read-only."
       },
       "boost_minimum_validation": {
         "title": "Validate Boost minimum",
@@ -240,8 +240,8 @@
         "description": "The installed unit returned **{new_boost_minimum}** through exact fresh packet-137 readback. If this was the temporary 1% test, reopen the same flow and restore **0%**."
       },
       "temperature_validation": {
-        "title": "Validate temperature settings",
-        "description": "Current profile: **{current_profile}**\n\nCurrent measured temperature: **{current_temperature}**\n\nThis prerelease flow is available only while Low-temperature protection (field 16) is already Off. It never writes field 16. Change exactly one action or threshold, confirm its exact packet-137 readback, then restore the original value before testing another field. This validates storage only; it does not prove runtime temperature behaviour.",
+        "title": "Configure temperature settings",
+        "description": "Current profile: **{current_profile}**\n\nCurrent measured temperature: **{current_temperature}**\n\nThis flow is available only while Low-temperature protection (field 16) is already Off, and it never writes field 16. Change exactly one action or threshold per submission. Home Assistant confirms the complete fresh packet-137 record before reporting success. These settings were storage-tested and restored on the exact validated identity, but changing them did not demonstrate a runtime fan-speed response.",
         "data": {
           "low_temperature_action": "Low-temperature action",
           "high_temperature_action": "High-temperature action",
@@ -250,15 +250,15 @@
         }
       },
       "temperature_validation_confirm": {
-        "title": "Confirm one temperature validation change",
-        "description": "Device: **{device}**\n\nCurrent profile: **{current_profile}**\n\nProposed profile: **{new_profile}**\n\nHome Assistant will send exactly one packet-136 field update and accept success only after the complete fresh packet-137 record matches. Field 16 remains Off and is never written. Restore the original value through the same flow immediately after confirming the temporary value.",
+        "title": "Confirm one temperature setting change",
+        "description": "Device: **{device}**\n\nCurrent profile: **{current_profile}**\n\nProposed profile: **{new_profile}**\n\nHome Assistant will send exactly one packet-136 field update and accept success only after the complete fresh packet-137 record matches. Field 16 remains Off and is never written. This changes an installer setting; it does not directly command the fan.",
         "data": {
-          "confirm_temperature_validation": "I recorded the original profile and want to validate this one temporary field change"
+          "confirm_temperature_validation": "I reviewed the current and proposed profiles and want to apply this setting change"
         }
       },
       "temperature_validation_result": {
-        "title": "Temperature validation change confirmed",
-        "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. Reopen this flow now and restore the original value before testing another field."
+        "title": "Temperature settings confirmed",
+        "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. This confirms the stored profile, not that a temperature condition has triggered a fan-speed change."
       }
     },
     "progress": {

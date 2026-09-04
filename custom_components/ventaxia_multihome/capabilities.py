@@ -407,38 +407,23 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
             | SENSOR_THRESHOLD_FIELDS
             | HUMIDITY_RESPONSE_FIELDS
             | COMFORT_MODE_FIELDS
+            | DELAY_OVERRUN_FIELDS
+            | TEMPERATURE_VALIDATION_FIELDS
         ),
         evidence=(
             "fragmented packet-136 writes with exact packet-137 readback; "
             "airflow 6/8/37/50 -> 7/9/38/51 -> 6/8/37/50; "
             "thresholds 81/1500/1750 -> 82/1550/1800 -> 81/1500/1750; "
             "rapid and ambient response independently changed and restored; "
-            "comfort mode disabled and restored enabled"
+            "comfort mode disabled and restored enabled; fields 8..10 changed "
+            "and restored with exact readback while field 7 remained blocked; "
+            "temperature fields 17..20 changed independently and restored to "
+            "Low/Purge/15 C/25 C with exact readback while field 16 remained Off"
         ),
     ),
 )
 
-VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
-    InstallerWriteProfile(
-        model_number=10,
-        firmware="2.03.08",
-        hardware="01.00",
-        fields=(
-            DELAY_OVERRUN_FIELDS
-            | BOOST_MINIMUM_VALIDATION_FIELDS
-            | TEMPERATURE_VALIDATION_FIELDS
-        ),
-        evidence=(
-            "official Multihome manual documents LS-input Delay On and Overrun "
-            "with 1..60 minute timers; fields 8..10 changed with exact readback; "
-            "field 7 produced a readback mismatch and remains blocked; field 4 "
-            "BoostMin has an observed 0% baseline and is restricted to a "
-            "reversible 0%/1% validation; verified app evidence identifies "
-            "temperature fields 17..20, which are restricted to one-field "
-            "change/readback/restore validation while field 16 remains read-only"
-        ),
-    ),
-)
+VALIDATION_CANDIDATE_WRITE_PROFILES: Final[tuple[InstallerWriteProfile, ...]] = ()
 
 
 def model_capability(model_number: int | None) -> ModelCapability | None:
