@@ -8,7 +8,7 @@ from custom_components.ventaxia_multihome.capabilities import (
     DELAY_OVERRUN_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
     INSTALLER_FIELD_DEFINITIONS,
-    LOW_TEMPERATURE_PROTECTION_VALIDATION_FIELDS,
+    LOW_TEMPERATURE_PROTECTION_FIELDS,
     MODEL_CAPABILITIES,
     SENSOR_THRESHOLD_FIELDS,
     TEMPERATURE_VALIDATION_FIELDS,
@@ -169,6 +169,7 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
             | COMFORT_MODE_FIELDS
             | DELAY_OVERRUN_FIELDS
             | TEMPERATURE_VALIDATION_FIELDS
+            | LOW_TEMPERATURE_PROTECTION_FIELDS
         ),
         frozenset(),
         frozenset(),
@@ -177,8 +178,8 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     ]
 
 
-def test_only_field_16_is_a_validation_candidate_for_the_exact_identity() -> None:
-    """The new guarded candidate is restricted to one field and identity."""
+def test_no_installer_fields_remain_validation_candidates() -> None:
+    """Physically resolved installer fields leave the candidate matrix empty."""
 
     # Arrange - include the intended unit plus firmware, hardware, and model misses.
     identities = [
@@ -188,14 +189,14 @@ def test_only_field_16_is_a_validation_candidate_for_the_exact_identity() -> Non
         (2, "2.03.08", "01.00"),
     ]
 
-    # Act - resolve the validation-candidate matrix for exact and near identities.
+    # Act - resolve the candidate matrix for the exact and near identities.
     resolved = [
         installer_validation_candidate_fields(*identity) for identity in identities
     ]
 
-    # Assert - only field 16 is temporarily configurable on the exact unit.
+    # Assert - field 16 is now in the physically validated write matrix.
     assert resolved == [
-        LOW_TEMPERATURE_PROTECTION_VALIDATION_FIELDS,
+        frozenset(),
         frozenset(),
         frozenset(),
         frozenset(),

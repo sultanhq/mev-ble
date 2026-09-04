@@ -397,7 +397,7 @@ TEMPERATURE_VALIDATION_FIELDS: Final = frozenset(
     }
 )
 
-LOW_TEMPERATURE_PROTECTION_VALIDATION_FIELDS: Final = frozenset(
+LOW_TEMPERATURE_PROTECTION_FIELDS: Final = frozenset(
     {GlobalSettingField.LOW_TEMPERATURE_ENABLED}
 )
 
@@ -413,6 +413,7 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
             | COMFORT_MODE_FIELDS
             | DELAY_OVERRUN_FIELDS
             | TEMPERATURE_VALIDATION_FIELDS
+            | LOW_TEMPERATURE_PROTECTION_FIELDS
         ),
         evidence=(
             "fragmented packet-136 writes with exact packet-137 readback; "
@@ -422,24 +423,14 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
             "comfort mode disabled and restored enabled; fields 8..10 changed "
             "and restored with exact readback while field 7 remained blocked; "
             "temperature fields 17..20 changed independently and restored to "
-            "Low/Purge/15 C/25 C with exact readback while field 16 remained Off"
+            "Low/Purge/15 C/25 C with exact readback while field 16 remained Off; "
+            "field 16 changed Off -> On -> Off with exact full-record readback and "
+            "unchanged temperature-profile neighbours"
         ),
     ),
 )
 
-VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
-    InstallerWriteProfile(
-        model_number=10,
-        firmware="2.03.08",
-        hardware="01.00",
-        fields=LOW_TEMPERATURE_PROTECTION_VALIDATION_FIELDS,
-        evidence=(
-            "official GlobalDataField enum maps LowTemperatureEnabled to field 16; "
-            "packet-137 byte 11 is a strict boolean; awaiting installed-unit "
-            "enable/readback/disable/restore validation"
-        ),
-    ),
-)
+VALIDATION_CANDIDATE_WRITE_PROFILES: Final = ()
 
 
 def model_capability(model_number: int | None) -> ModelCapability | None:

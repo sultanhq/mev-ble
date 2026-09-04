@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.3-rc.3] - 2026-09-04
+
+### Changed
+
+- Promote Low-temperature protection field 16 from a prerelease candidate to
+  the exact-identity validated write matrix after the installed unit completed
+  Disabled → Enabled → Disabled with exact full-record readback.
+- Record that the neighbouring temperature action and threshold bytes remained
+  unchanged; runtime fan response remains separately unproven.
+
 ## [0.6.3-rc.2] - 2026-09-04
 
 ### Fixed

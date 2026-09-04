@@ -145,7 +145,7 @@ are proven.
 | 11–13 | `ls1_action` … `ls3_action` | 19–21 | UInt8 action code | 0–255 | Installed wiring and action enum | Wired input | Static; read-only |
 | 14 | `rapid_response_enabled` | 9 | strict UInt8 boolean | 0/1 | Humidity-response semantics | Sensor control | Physical; exact validated identity only |
 | 15 | `ambient_response_enabled` | 10 | strict UInt8 boolean | 0/1 | Humidity-response semantics | Sensor control | Physical; exact validated identity only |
-| 16 | `low_temperature_enabled` | 11 | strict UInt8 boolean | 0/1 | Paired thresholds and actions; official field ID, but no recovered Multihome screen write | Sensor control | Guarded v0.6.3 prerelease candidate on exact identity; awaiting enable/readback/disable/restore test |
+| 16 | `low_temperature_enabled` | 11 | strict UInt8 boolean | 0/1 | Paired thresholds and actions; changing it may activate the stored profile | Sensor control | Physical Disabled → Enabled → Disabled with exact full-record readback; exact validated identity only |
 | 17–18 | `low_threshold_action`, `high_threshold_action` | 12–13 | UInt8 action code | App choices: 1 Low, 3 Boost, 4 Purge | Paired with the corresponding threshold; other codes preserved as unknown | Sensor control | Physical storage/readback; exact validated identity only while ID 16 is off |
 | 19 | `low_temperature_threshold` | 14 | UInt8, °C | 0–30, step 1 | Integration conservatively requires `low < high` | Sensor control | Physical storage/readback; exact validated identity only while ID 16 is off |
 | 20 | `high_temperature_threshold` | 15 | UInt8, °C | 15–40, step 1 | Integration conservatively requires `low < high` | Sensor control | Physical storage/readback; exact validated identity only while ID 16 is off |
@@ -173,6 +173,12 @@ defects, and performs no recovered comparison between the low and high values.
 The newer 7.2.2 app still confirms the packet-136 field IDs and record layout,
 but its visible 0–40 temperature slider is for a different IAQ-manager device
 family and is not used as Multihome evidence.
+
+The guarded v0.6.3 flow subsequently changed field 16 from Disabled to Enabled
+and back to Disabled on the installed model 10 / firmware 2.03.08 / hardware
+01.00 unit. Exact packet-137 readback confirmed both changes and restoration
+with fields 17–20 unchanged. No runtime fan-speed response is inferred from
+that storage validation.
 
 Version 0.6.2 keeps field 16 read-only and enables guarded fields 17–20 only on
 model 10 / firmware 2.03.08 / hardware 01.00. The device must already report

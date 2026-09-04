@@ -25,7 +25,7 @@ from .capabilities import (
     COMFORT_MODE_FIELDS,
     DELAY_OVERRUN_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
-    LOW_TEMPERATURE_PROTECTION_VALIDATION_FIELDS,
+    LOW_TEMPERATURE_PROTECTION_FIELDS,
     SENSOR_THRESHOLD_FIELDS,
     TEMPERATURE_VALIDATION_FIELDS,
     installer_configurable_fields,
@@ -294,12 +294,9 @@ class MultihomeDevice:
 
     @property
     def supports_low_temperature_protection_validation(self) -> bool:
-        """Return whether guarded field-16 validation is enabled."""
+        """Return whether guarded field-16 configuration is validated."""
 
-        return (
-            LOW_TEMPERATURE_PROTECTION_VALIDATION_FIELDS
-            <= self.validation_candidate_installer_fields
-        )
+        return LOW_TEMPERATURE_PROTECTION_FIELDS <= self.writable_installer_fields
 
     @property
     def supports_silent_hours_management(self) -> bool:

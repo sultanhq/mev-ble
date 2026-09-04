@@ -97,8 +97,8 @@ Detailed instructions:
   model/firmware/hardware identity
 - Guarded one-field-at-a-time temperature action and threshold configuration
   on the exact validated identity while Low-temperature protection remains Off
-- Guarded prerelease enable/disable validation for Low-temperature protection
-  field 16 on the exact test identity, with full-profile review and readback
+- Guarded Low-temperature protection configuration on the exact physically
+  validated identity, with full-profile review and exact readback
 - Guarded Delay time, Overrun, and Overrun time configuration on the exact
   validated identity; the failed Delay enabled field remains read-only
 - Redacted Home Assistant diagnostics

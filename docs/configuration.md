@@ -119,13 +119,15 @@ Changing the action and threshold did not alter fan level, RPM, or state, so
 that test proves storage and restoration rather than runtime temperature
 triggering.
 
-Version 0.6.3 RC1 adds **Configure → Validate Low-temperature protection** on
-the same exact identity. It is deliberately separate from the four temperature
-settings because field 16 has an authoritative protocol ID but was not written
-by the recovered Multihome temperature screen. The validation flow changes only
-the strict boolean flag, shows the complete profile and measured temperature,
-rejects stale records, and requires exact packet-137 readback. After enabling,
-observe the fan state separately and reopen the same flow to restore Disabled.
+Version 0.6.3 adds **Configure → Configure Low-temperature protection** on the
+same exact identity. It is deliberately separate from the four temperature
+settings because changing the flag may immediately activate the stored profile.
+The guarded flow changes only the strict boolean flag, shows the complete
+profile and measured temperature, rejects stale records, and requires exact
+packet-137 readback. Field 16 was changed Disabled → Enabled → Disabled on the
+installed unit; both directions returned the exact expected full record with
+all temperature-profile neighbours unchanged. This proves safe storage and
+restoration, not a runtime fan-speed response.
 
 The same identity can configure **Delay On time**, **Overrun**, and **Overrun
 time**. Fields 8–10 were independently changed, read back exactly, and restored.
