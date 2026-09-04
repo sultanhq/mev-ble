@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2-rc.19] - 2026-09-04
+
+### Fixed
+
+- Correct the exact-identity expectations for the already-supported sensor
+  thresholds and the now-read-only Boost minimum capability.
+
 ## [0.6.2-rc.18] - 2026-09-04
 
 ### Changed

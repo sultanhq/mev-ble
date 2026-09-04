@@ -1120,7 +1120,7 @@ async def test_airflow_profile_rejects_unsupported_model_before_write() -> None:
 @pytest.mark.parametrize(
     ("model", "firmware", "hardware", "supported"),
     [
-        ("10", "2.03.08", "01.00", False),
+        ("10", "2.03.08", "01.00", True),
         ("10", "2.03.09", "01.00", False),
         ("10", "2.03.08", "01.01", False),
         ("2", "2.03.08", "01.00", False),
@@ -1242,7 +1242,7 @@ async def test_humidity_response_updates_each_flag_with_exact_readback() -> None
 @pytest.mark.parametrize(
     ("model", "firmware", "hardware", "supported"),
     [
-        ("10", "2.03.08", "01.00", True),
+        ("10", "2.03.08", "01.00", False),
         ("10", "2.03.09", "01.00", False),
         ("10", "2.03.08", "01.01", False),
         ("2", "2.03.08", "01.00", False),
