@@ -1287,6 +1287,88 @@ def plan_sensor_threshold_updates(
     )
 
 
+def validate_temperature_threshold_profile(
+    low_action: int,
+    high_action: int,
+    low_threshold: int,
+    high_threshold: int,
+) -> None:
+    """Validate the recovered Multihome temperature choices conservatively."""
+
+    known_actions = {int(action) for action in TEMPERATURE_THRESHOLD_ACTION_NAMES}
+    for name, value in {
+        "low temperature action": low_action,
+        "high temperature action": high_action,
+    }.items():
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ProtocolError(f"{name} requires an integer action code")
+        if value not in known_actions:
+            raise ProtocolError(f"{name} is not a recovered app choice")
+    for field, value in {
+        GlobalSettingField.LOW_TEMPERATURE_THRESHOLD: low_threshold,
+        GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD: high_threshold,
+    }.items():
+        spec = GLOBAL_SETTING_FIELD_SPECS[field]
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ProtocolError(f"{spec.attribute} requires an integer")
+        if not spec.minimum <= value <= spec.maximum:
+            raise ProtocolError(
+                f"{spec.attribute} must be {spec.minimum}..{spec.maximum}"
+            )
+    if low_threshold >= high_threshold:
+        raise ProtocolError("temperature thresholds must satisfy Low < High")
+
+
+def plan_temperature_validation_update(
+    settings: GlobalSettings,
+    *,
+    low_action: int,
+    high_action: int,
+    low_threshold: int,
+    high_threshold: int,
+) -> tuple[GlobalSettingField, int]:
+    """Plan exactly one reversible temperature-field validation write."""
+
+    if settings.low_temperature_enabled is not False:
+        raise ProtocolError(
+            "temperature validation requires low-temperature protection disabled"
+        )
+    validate_temperature_threshold_profile(
+        settings.low_threshold_action,
+        settings.high_threshold_action,
+        settings.low_temperature_threshold,
+        settings.high_temperature_threshold,
+    )
+    validate_temperature_threshold_profile(
+        low_action,
+        high_action,
+        low_threshold,
+        high_threshold,
+    )
+    current = {
+        GlobalSettingField.LOW_THRESHOLD_ACTION: settings.low_threshold_action,
+        GlobalSettingField.HIGH_THRESHOLD_ACTION: settings.high_threshold_action,
+        GlobalSettingField.LOW_TEMPERATURE_THRESHOLD: (
+            settings.low_temperature_threshold
+        ),
+        GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD: (
+            settings.high_temperature_threshold
+        ),
+    }
+    desired = {
+        GlobalSettingField.LOW_THRESHOLD_ACTION: low_action,
+        GlobalSettingField.HIGH_THRESHOLD_ACTION: high_action,
+        GlobalSettingField.LOW_TEMPERATURE_THRESHOLD: low_threshold,
+        GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD: high_threshold,
+    }
+    changed = tuple(
+        (field, value) for field, value in desired.items() if current[field] != value
+    )
+    if len(changed) != 1:
+        raise ProtocolError("temperature validation requires exactly one changed field")
+    return changed[0]
+
+
 def plan_humidity_response_updates(
     settings: GlobalSettings,
     *,

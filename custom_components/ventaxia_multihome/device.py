@@ -26,6 +26,7 @@ from .capabilities import (
     DELAY_OVERRUN_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
     SENSOR_THRESHOLD_FIELDS,
+    TEMPERATURE_VALIDATION_FIELDS,
     installer_configurable_fields,
     installer_validation_candidate_fields,
     installer_writable_fields,
@@ -75,6 +76,7 @@ from .protocol import (
     plan_delay_overrun_updates,
     plan_humidity_response_updates,
     plan_sensor_threshold_updates,
+    plan_temperature_validation_update,
     preserve_unknown_silent_hour_slot,
 )
 
@@ -281,6 +283,12 @@ class MultihomeDevice:
         """Return whether paired LS timers are exact-identity candidates."""
 
         return DELAY_OVERRUN_FIELDS <= self.configurable_installer_fields
+
+    @property
+    def supports_temperature_threshold_validation(self) -> bool:
+        """Return whether temperature fields are exact-identity candidates."""
+
+        return TEMPERATURE_VALIDATION_FIELDS <= self.configurable_installer_fields
 
     @property
     def supports_silent_hours_management(self) -> bool:
@@ -514,8 +522,7 @@ class MultihomeDevice:
             or field not in self.configurable_installer_fields
         ):
             raise DeviceError(
-                "global setting is not validated for this model, firmware, and "
-                "hardware"
+                "global setting is not validated for this model, firmware, and hardware"
             )
         async with self._operation_lock:
             await self.connect(ble_device)
@@ -599,9 +606,7 @@ class MultihomeDevice:
                 "firmware, and hardware"
             )
         if isinstance(value, bool) or value not in {0, 1}:
-            raise ProtocolError(
-                "Boost minimum validation is restricted to 0% or 1%"
-            )
+            raise ProtocolError("Boost minimum validation is restricted to 0% or 1%")
         async with self._operation_lock:
             await self.connect(ble_device)
             if (
@@ -683,6 +688,65 @@ class MultihomeDevice:
             for field, value in plan:
                 result = await self._set_global_setting_locked(field, value)
             return result
+
+    async def set_temperature_threshold_validation(
+        self,
+        ble_device: BLEDevice,
+        *,
+        low_action: int,
+        high_action: int,
+        low_threshold: int,
+        high_threshold: int,
+    ) -> GlobalSettings:
+        """Apply one guarded temperature-field validation write."""
+
+        if not self.supports_temperature_threshold_validation:
+            raise DeviceError(
+                "temperature-threshold validation is not enabled for this model, "
+                "firmware, and hardware"
+            )
+        confirmed = self._confirmed_global_settings
+        if confirmed is None or not self._global_settings_write_ready:
+            raise GlobalSettingsUnavailableError(
+                "global settings must be read successfully before an update"
+            )
+        plan_temperature_validation_update(
+            confirmed,
+            low_action=low_action,
+            high_action=high_action,
+            low_threshold=low_threshold,
+            high_threshold=high_threshold,
+        )
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            confirmed = self._confirmed_global_settings
+            if confirmed is None or not self._global_settings_write_ready:
+                raise GlobalSettingsUnavailableError(
+                    "global settings must be read successfully before an update"
+                )
+            fresh = decode_global_settings(
+                (
+                    await self._request(
+                        PacketType.GLOBAL_DATA,
+                        Operation.DATA_REQUEST,
+                    )
+                ).payload
+            )
+            if fresh.raw_record != confirmed.raw_record:
+                self._global_settings_write_ready = False
+                raise GlobalSettingUpdateError(
+                    "global settings changed before the temperature validation "
+                    "write; no update was sent and the last confirmed snapshot "
+                    "was retained"
+                )
+            field, value = plan_temperature_validation_update(
+                fresh,
+                low_action=low_action,
+                high_action=high_action,
+                low_threshold=low_threshold,
+                high_threshold=high_threshold,
+            )
+            return await self._set_global_setting_locked(field, value)
 
     async def set_airflow_profile(
         self,

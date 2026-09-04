@@ -49,6 +49,7 @@ from custom_components.ventaxia_multihome.protocol import (
     plan_delay_overrun_updates,
     plan_humidity_response_updates,
     plan_sensor_threshold_updates,
+    plan_temperature_validation_update,
     reassemble_fragments,
     temperature_threshold_action_name,
     validate_airflow_profile,
@@ -572,6 +573,63 @@ def test_temperature_action_names_preserve_unknown_codes() -> None:
     )
 
 
+def test_temperature_validation_plans_exactly_one_disabled_profile_change() -> None:
+    """The prerelease planner isolates one app-written temperature field."""
+
+    # Arrange - use the exact RC16 hardware baseline with protection disabled.
+    settings = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+
+    # Act - lower only the low threshold by one degree, away from the baseline.
+    update = plan_temperature_validation_update(
+        settings,
+        low_action=1,
+        high_action=4,
+        low_threshold=14,
+        high_threshold=25,
+    )
+
+    # Assert - only field 19 and its exact integer value are planned.
+    assert update == (GlobalSettingField.LOW_TEMPERATURE_THRESHOLD, 14)
+
+
+@pytest.mark.parametrize(
+    ("low_enabled", "profile", "message"),
+    [
+        (False, (3, 4, 14, 25), "exactly one changed field"),
+        (False, (2, 4, 15, 25), "not a recovered app choice"),
+        (False, (1, 4, 25, 25), "Low < High"),
+        (True, (1, 4, 14, 25), "requires low-temperature protection disabled"),
+    ],
+)
+def test_temperature_validation_rejects_unsafe_or_ambiguous_profiles(
+    low_enabled: bool,
+    profile: tuple[int, int, int, int],
+    message: str,
+) -> None:
+    """Unrecognised, active, or multi-field profiles fail before encoding."""
+
+    # Arrange - change the protection byte without altering the baseline fields.
+    record = bytearray.fromhex(
+        "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+    )
+    record[11] = int(low_enabled)
+    settings = decode_global_settings(bytes(record))
+
+    # Act / Assert - no validation packet can be planned for this profile.
+    with pytest.raises(ProtocolError, match=message):
+        plan_temperature_validation_update(
+            settings,
+            low_action=profile[0],
+            high_action=profile[1],
+            low_threshold=profile[2],
+            high_threshold=profile[3],
+        )
+
+
 @pytest.mark.parametrize(
     ("current", "desired"),
     [
@@ -1042,9 +1100,7 @@ def test_silent_hour_rejects_invalid_mutations(start: int, end: int, mask: int) 
     assert raised.value
 
 
-@pytest.mark.parametrize(
-    "payload", [b"", bytes(3), bytes(5), bytes(9), bytes(12)]
-)
+@pytest.mark.parametrize("payload", [b"", bytes(3), bytes(5), bytes(9), bytes(12)])
 def test_silent_hour_rejects_malformed_table_items(payload: bytes) -> None:
     """Selected-slot forms require context and unknown sizes remain rejected."""
 
@@ -1056,6 +1112,7 @@ def test_silent_hour_rejects_malformed_table_items(payload: bytes) -> None:
 
     # Assert - ambiguous or unsupported response forms are rejected.
     assert raised.value
+
 
 def test_delay_overrun_plan_preserves_valid_paired_intermediates() -> None:
     """Paired timers use safe ordering when one pair enables and one disables."""

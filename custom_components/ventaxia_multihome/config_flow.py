@@ -65,6 +65,8 @@ from .coordinator import (
     SensorThresholdConfigurationUnavailableError,
     SilentHoursConfigurationUnavailableError,
     SilentHoursNotSupportedError,
+    TemperatureValidationNotSupportedError,
+    TemperatureValidationUnavailableError,
 )
 from .device import (
     DeviceError,
@@ -88,11 +90,15 @@ from .protocol import (
     ProtocolError,
     SilentHour,
     SilentHourSlot,
+    TemperatureThresholdAction,
     decode_silent_hour,
     encode_silent_hour,
     plan_delay_overrun_updates,
+    plan_temperature_validation_update,
+    temperature_threshold_action_name,
     validate_airflow_profile,
     validate_sensor_thresholds,
+    validate_temperature_threshold_profile,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -122,6 +128,11 @@ CONF_DELAY_TIMEOUT = "delay_timeout"
 CONF_OVERRUN_ENABLED = "overrun_enabled"
 CONF_OVERRUN_TIMEOUT = "overrun_timeout"
 CONF_CONFIRM_DELAY_OVERRUN = "confirm_delay_overrun"
+CONF_LOW_TEMPERATURE_ACTION = "low_temperature_action"
+CONF_HIGH_TEMPERATURE_ACTION = "high_temperature_action"
+CONF_LOW_TEMPERATURE_THRESHOLD = "low_temperature_threshold"
+CONF_HIGH_TEMPERATURE_THRESHOLD = "high_temperature_threshold"
+CONF_CONFIRM_TEMPERATURE_VALIDATION = "confirm_temperature_validation"
 CONF_SILENT_HOUR_SLOT = "silent_hour_slot"
 CONF_SILENT_HOUR_ACTION = "silent_hour_action"
 CONF_SILENT_HOUR_START = "silent_hour_start"
@@ -406,10 +417,10 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._comfort_mode_baseline_raw: bytes | None = None
         self._delay_overrun: tuple[bool, int, bool, int] | None = None
         self._delay_overrun_baseline_raw: bytes | None = None
+        self._temperature_validation: tuple[int, int, int, int] | None = None
+        self._temperature_validation_baseline_raw: bytes | None = None
         self._silent_hour_index: int | None = None
-        self._silent_hours_baseline: tuple[tuple[int, bytes | None], ...] | None = (
-            None
-        )
+        self._silent_hours_baseline: tuple[tuple[int, bytes | None], ...] | None = None
         self._silent_hour_result = ""
         self._silent_hour_operation_active = False
 
@@ -461,6 +472,11 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             and self._current_delay_overrun_settings() is not None
         ):
             menu_options.append("delay_overrun")
+        if (
+            coordinator.device.supports_temperature_threshold_validation
+            and self._current_temperature_validation_settings() is not None
+        ):
+            menu_options.append("temperature_validation")
         if self.config_entry.runtime_data.device.supports_internal_co2_calibration:
             menu_options.append("calibrate_co2")
         if (
@@ -746,9 +762,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                             value=self._boost_minimum
                         )
                     except BoostMinimumConfigurationNotSupportedError:
-                        return self.async_abort(
-                            reason="boost_minimum_not_supported"
-                        )
+                        return self.async_abort(reason="boost_minimum_not_supported")
                     except BoostMinimumConfigurationUnavailableError:
                         errors["base"] = "global_settings_unavailable"
                     except HomeAssistantError as err:
@@ -761,9 +775,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
 
         settings = self._current_boost_minimum_settings()
         current = (
-            f"{settings.boost_minimum}%"
-            if settings is not None
-            else "Unavailable"
+            f"{settings.boost_minimum}%" if settings is not None else "Unavailable"
         )
         return self.async_show_form(
             step_id="boost_minimum_confirm",
@@ -1147,9 +1159,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             ),
             errors=errors or {},
             description_placeholders={
-                "current_comfort_mode": self._format_enabled(
-                    settings.comfort_enabled
-                )
+                "current_comfort_mode": self._format_enabled(settings.comfort_enabled)
             },
         )
 
@@ -1232,7 +1242,6 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                 "new_comfort_mode": self._format_enabled(self._comfort_mode),
             },
         )
-
 
     async def async_step_delay_overrun(
         self,
@@ -1390,6 +1399,179 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             },
         )
 
+    async def async_step_temperature_validation(
+        self,
+        user_input: dict[str, Any] | None = None,
+        *,
+        errors: dict[str, str] | None = None,
+    ) -> ConfigFlowResult:
+        """Collect exactly one temperature-field validation change."""
+
+        coordinator = self.config_entry.runtime_data
+        if not coordinator.device.supports_temperature_threshold_validation:
+            return self.async_abort(reason="temperature_validation_not_supported")
+        settings = self._current_temperature_validation_settings()
+        if settings is None:
+            return self.async_abort(reason="temperature_validation_unavailable")
+
+        if user_input is not None:
+            try:
+                profile = (
+                    int(user_input[CONF_LOW_TEMPERATURE_ACTION]),
+                    int(user_input[CONF_HIGH_TEMPERATURE_ACTION]),
+                    self._integer_setting(user_input[CONF_LOW_TEMPERATURE_THRESHOLD]),
+                    self._integer_setting(user_input[CONF_HIGH_TEMPERATURE_THRESHOLD]),
+                )
+                validate_temperature_threshold_profile(*profile)
+            except (KeyError, ProtocolError, TypeError, ValueError):
+                errors = {"base": "temperature_validation_invalid"}
+            else:
+                current = self._temperature_profile(settings)
+                if profile == current:
+                    errors = {"base": "temperature_validation_unchanged"}
+                else:
+                    try:
+                        plan_temperature_validation_update(
+                            settings,
+                            low_action=profile[0],
+                            high_action=profile[1],
+                            low_threshold=profile[2],
+                            high_threshold=profile[3],
+                        )
+                    except ProtocolError:
+                        errors = {"base": "temperature_validation_invalid"}
+                    else:
+                        self._temperature_validation = profile
+                        self._temperature_validation_baseline_raw = settings.raw_record
+                        return await self.async_step_temperature_validation_confirm()
+
+        return self.async_show_form(
+            step_id="temperature_validation",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_LOW_TEMPERATURE_ACTION,
+                        default=str(settings.low_threshold_action),
+                    ): self._temperature_action_selector(),
+                    vol.Required(
+                        CONF_HIGH_TEMPERATURE_ACTION,
+                        default=str(settings.high_threshold_action),
+                    ): self._temperature_action_selector(),
+                    vol.Required(
+                        CONF_LOW_TEMPERATURE_THRESHOLD,
+                        default=settings.low_temperature_threshold,
+                    ): self._temperature_threshold_selector(
+                        GlobalSettingField.LOW_TEMPERATURE_THRESHOLD
+                    ),
+                    vol.Required(
+                        CONF_HIGH_TEMPERATURE_THRESHOLD,
+                        default=settings.high_temperature_threshold,
+                    ): self._temperature_threshold_selector(
+                        GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD
+                    ),
+                }
+            ),
+            errors=errors or {},
+            description_placeholders={
+                "current_profile": self._format_temperature_profile(
+                    *self._temperature_profile(settings)
+                ),
+                "current_temperature": self._format_current_temperature(),
+            },
+        )
+
+    async def async_step_temperature_validation_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Recheck the full record before one temperature validation write."""
+
+        assert self._temperature_validation is not None
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input[CONF_CONFIRM_TEMPERATURE_VALIDATION]:
+                errors["base"] = "temperature_validation_confirmation_required"
+            else:
+                settings = self._current_temperature_validation_settings()
+                if settings is None:
+                    errors["base"] = "temperature_validation_unavailable"
+                elif settings.raw_record != self._temperature_validation_baseline_raw:
+                    self._temperature_validation = None
+                    self._temperature_validation_baseline_raw = None
+                    return await self.async_step_temperature_validation(
+                        errors={"base": "temperature_validation_settings_changed"}
+                    )
+                else:
+                    low_action, high_action, low_threshold, high_threshold = (
+                        self._temperature_validation
+                    )
+                    try:
+                        coordinator = self.config_entry.runtime_data
+                        await coordinator.async_set_temperature_threshold_validation(
+                            low_action=low_action,
+                            high_action=high_action,
+                            low_threshold=low_threshold,
+                            high_threshold=high_threshold,
+                        )
+                    except TemperatureValidationNotSupportedError:
+                        return self.async_abort(
+                            reason="temperature_validation_not_supported"
+                        )
+                    except TemperatureValidationUnavailableError:
+                        errors["base"] = "temperature_validation_unavailable"
+                    except HomeAssistantError as err:
+                        _LOGGER.warning(
+                            "Unable to update Multihome temperature validation: %s",
+                            err,
+                        )
+                        errors["base"] = "temperature_validation_update_failed"
+                    else:
+                        return await self.async_step_temperature_validation_result()
+
+        settings = self._current_temperature_validation_settings()
+        current = (
+            self._format_temperature_profile(*self._temperature_profile(settings))
+            if settings is not None
+            else "Unavailable"
+        )
+        return self.async_show_form(
+            step_id="temperature_validation_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONFIRM_TEMPERATURE_VALIDATION, default=False
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "device": self.config_entry.title,
+                "current_profile": current,
+                "new_profile": self._format_temperature_profile(
+                    *self._temperature_validation
+                ),
+            },
+        )
+
+    async def async_step_temperature_validation_result(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report one temperature field confirmed through exact readback."""
+
+        assert self._temperature_validation is not None
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        return self.async_show_form(
+            step_id="temperature_validation_result",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "new_profile": self._format_temperature_profile(
+                    *self._temperature_validation
+                )
+            },
+        )
+
     def _current_airflow_settings(self) -> GlobalSettings | None:
         """Return a current writable settings record or no capability."""
 
@@ -1459,6 +1641,85 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         ):
             return None
         return settings
+
+    def _current_temperature_validation_settings(self) -> GlobalSettings | None:
+        """Return a disabled, fully decoded temperature validation snapshot."""
+
+        settings = self._current_sensor_threshold_settings()
+        if settings is None or settings.low_temperature_enabled is not False:
+            return None
+        try:
+            validate_temperature_threshold_profile(*self._temperature_profile(settings))
+        except ProtocolError:
+            return None
+        return settings
+
+    @staticmethod
+    def _temperature_profile(settings: GlobalSettings) -> tuple[int, int, int, int]:
+        """Return the four app-written temperature fields in UI order."""
+
+        return (
+            settings.low_threshold_action,
+            settings.high_threshold_action,
+            settings.low_temperature_threshold,
+            settings.high_temperature_threshold,
+        )
+
+    @staticmethod
+    def _temperature_action_selector() -> selector.SelectSelector:
+        """Return the three action choices recovered from the Multihome app."""
+
+        return selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[
+                    {
+                        "value": str(int(action)),
+                        "label": temperature_threshold_action_name(int(action)).title(),
+                    }
+                    for action in TemperatureThresholdAction
+                ]
+            )
+        )
+
+    @staticmethod
+    def _temperature_threshold_selector(
+        field: GlobalSettingField,
+    ) -> selector.NumberSelector:
+        """Return the recovered Celsius range for one temperature threshold."""
+
+        spec = GLOBAL_SETTING_FIELD_SPECS[field]
+        return selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=spec.minimum,
+                max=spec.maximum,
+                step=1,
+                mode=selector.NumberSelectorMode.BOX,
+                unit_of_measurement="°C",
+            )
+        )
+
+    def _format_current_temperature(self) -> str:
+        """Return the current zone temperature for the validation warning."""
+
+        data = self.config_entry.runtime_data.data
+        zone = getattr(data, "zone", None)
+        value = getattr(zone, "temperature", None)
+        return f"{value:.1f} °C" if isinstance(value, int | float) else "Unavailable"
+
+    @staticmethod
+    def _format_temperature_profile(
+        low_action: int,
+        high_action: int,
+        low_threshold: int,
+        high_threshold: int,
+    ) -> str:
+        """Return an unambiguous temperature validation profile."""
+
+        return (
+            f"Low action {temperature_threshold_action_name(low_action).title()} · "
+            f"High action {temperature_threshold_action_name(high_action).title()} · "
+            f"Low {low_threshold} °C · High {high_threshold} °C"
+        )
 
     @staticmethod
     def _format_enabled(enabled: bool) -> str:
@@ -1542,9 +1803,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         )
 
     @staticmethod
-    def _format_sensor_thresholds(
-        humidity: int, co2_boost: int, co2_purge: int
-    ) -> str:
+    def _format_sensor_thresholds(humidity: int, co2_boost: int, co2_purge: int) -> str:
         """Return an unambiguous review string for all three thresholds."""
 
         return (

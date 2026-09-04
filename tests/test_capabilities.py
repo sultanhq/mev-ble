@@ -11,6 +11,7 @@ from custom_components.ventaxia_multihome.capabilities import (
     INSTALLER_FIELD_DEFINITIONS,
     MODEL_CAPABILITIES,
     SENSOR_THRESHOLD_FIELDS,
+    TEMPERATURE_VALIDATION_FIELDS,
     VALIDATED_INSTALLER_WRITE_PROFILES,
     VALIDATION_CANDIDATE_WRITE_PROFILES,
     CapabilityEvidence,
@@ -192,7 +193,11 @@ def test_delay_overrun_fields_are_exact_identity_validation_candidates() -> None
 
     # Assert - only the exact identity exposes the restricted candidate fields.
     assert resolved == [
-        DELAY_OVERRUN_FIELDS | BOOST_MINIMUM_VALIDATION_FIELDS,
+        (
+            DELAY_OVERRUN_FIELDS
+            | BOOST_MINIMUM_VALIDATION_FIELDS
+            | TEMPERATURE_VALIDATION_FIELDS
+        ),
         frozenset(),
         frozenset(),
         frozenset(),

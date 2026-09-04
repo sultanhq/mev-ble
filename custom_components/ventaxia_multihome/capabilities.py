@@ -378,15 +378,22 @@ HUMIDITY_RESPONSE_FIELDS: Final = frozenset(
 
 COMFORT_MODE_FIELDS: Final = frozenset({GlobalSettingField.COMFORT_ENABLED})
 
-BOOST_MINIMUM_VALIDATION_FIELDS: Final = frozenset(
-    {GlobalSettingField.BOOST_MINIMUM}
-)
+BOOST_MINIMUM_VALIDATION_FIELDS: Final = frozenset({GlobalSettingField.BOOST_MINIMUM})
 
 DELAY_OVERRUN_FIELDS: Final = frozenset(
     {
         GlobalSettingField.OVERRUN_ENABLED,
         GlobalSettingField.OVERRUN_TIMEOUT_MINUTES,
         GlobalSettingField.DELAY_TIMEOUT_MINUTES,
+    }
+)
+
+TEMPERATURE_VALIDATION_FIELDS: Final = frozenset(
+    {
+        GlobalSettingField.LOW_THRESHOLD_ACTION,
+        GlobalSettingField.HIGH_THRESHOLD_ACTION,
+        GlobalSettingField.LOW_TEMPERATURE_THRESHOLD,
+        GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD,
     }
 )
 
@@ -416,13 +423,19 @@ VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
         model_number=10,
         firmware="2.03.08",
         hardware="01.00",
-        fields=DELAY_OVERRUN_FIELDS | BOOST_MINIMUM_VALIDATION_FIELDS,
+        fields=(
+            DELAY_OVERRUN_FIELDS
+            | BOOST_MINIMUM_VALIDATION_FIELDS
+            | TEMPERATURE_VALIDATION_FIELDS
+        ),
         evidence=(
             "official Multihome manual documents LS-input Delay On and Overrun "
             "with 1..60 minute timers; fields 8..10 changed with exact readback; "
             "field 7 produced a readback mismatch and remains blocked; field 4 "
             "BoostMin has an observed 0% baseline and is restricted to a "
-            "reversible 0%/1% validation"
+            "reversible 0%/1% validation; verified app evidence identifies "
+            "temperature fields 17..20, which are restricted to one-field "
+            "change/readback/restore validation while field 16 remains read-only"
         ),
     ),
 )

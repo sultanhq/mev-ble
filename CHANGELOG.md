@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.2-rc.17] - 2026-09-04
+
+### Added
+
+- Add an exact-identity prerelease validation flow for Multihome temperature
+  action and threshold fields 17–20.
+- Show the complete current/proposed temperature profile and the current zone
+  temperature before confirmation.
+
+### Safety
+
+- Keep field 16 (Low-temperature protection) read-only and require its current
+  value to be Off before the validation flow is available.
+- Permit exactly one field change per submission, accept only recovered Low,
+  Boost, or Purge action codes, require `Low < High`, reject stale full-record
+  reviews, and require exact packet-137 readback.
+- Treat the flow as reversible storage validation rather than proof of runtime
+  temperature behaviour.
+
 ## [0.6.2-rc.16] - 2026-09-02
 
 ### Added

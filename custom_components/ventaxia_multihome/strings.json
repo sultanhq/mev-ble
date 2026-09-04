@@ -49,7 +49,8 @@
           "silent_hours": "Manage silent hours",
           "calibrate_co2": "Calibrate internal CO₂ sensor",
           "delay_overrun": "Configure Delay On and Overrun",
-          "boost_minimum_validation": "Validate Boost minimum"
+          "boost_minimum_validation": "Validate Boost minimum",
+          "temperature_validation": "Validate temperature settings"
         }
       },
       "fan_options": {
@@ -237,6 +238,27 @@
       "boost_minimum_result": {
         "title": "Boost minimum validation confirmed",
         "description": "The installed unit returned **{new_boost_minimum}** through exact fresh packet-137 readback. If this was the temporary 1% test, reopen the same flow and restore **0%**."
+      },
+      "temperature_validation": {
+        "title": "Validate temperature settings",
+        "description": "Current profile: **{current_profile}**\n\nCurrent measured temperature: **{current_temperature}**\n\nThis prerelease flow is available only while Low-temperature protection (field 16) is already Off. It never writes field 16. Change exactly one action or threshold, confirm its exact packet-137 readback, then restore the original value before testing another field. This validates storage only; it does not prove runtime temperature behaviour.",
+        "data": {
+          "low_temperature_action": "Low-temperature action",
+          "high_temperature_action": "High-temperature action",
+          "low_temperature_threshold": "Low-temperature threshold",
+          "high_temperature_threshold": "High-temperature threshold"
+        }
+      },
+      "temperature_validation_confirm": {
+        "title": "Confirm one temperature validation change",
+        "description": "Device: **{device}**\n\nCurrent profile: **{current_profile}**\n\nProposed profile: **{new_profile}**\n\nHome Assistant will send exactly one packet-136 field update and accept success only after the complete fresh packet-137 record matches. Field 16 remains Off and is never written. Restore the original value through the same flow immediately after confirming the temporary value.",
+        "data": {
+          "confirm_temperature_validation": "I recorded the original profile and want to validate this one temporary field change"
+        }
+      },
+      "temperature_validation_result": {
+        "title": "Temperature validation change confirmed",
+        "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. Reopen this flow now and restore the original value before testing another field."
       }
     },
     "progress": {
@@ -291,7 +313,13 @@
       "boost_minimum_unchanged": "Choose the other validation value so the field actually changes.",
       "boost_minimum_confirmation_required": "Review the temporary field-4 value and enable the acknowledgement before continuing.",
       "boost_minimum_settings_changed": "The global settings changed after review. Recheck the current value before continuing.",
-      "boost_minimum_update_failed": "The field-4 update or its exact readback failed. Reopen the flow and inspect the current Boost minimum value."
+      "boost_minimum_update_failed": "The field-4 update or its exact readback failed. Reopen the flow and inspect the current Boost minimum value.",
+      "temperature_validation_invalid": "Use only Low, Boost or Purge actions, keep the thresholds within their shown ranges with Low below High, and change exactly one field.",
+      "temperature_validation_unchanged": "Change exactly one temperature action or threshold from its current value.",
+      "temperature_validation_confirmation_required": "Review the complete profile and enable the acknowledgement before continuing.",
+      "temperature_validation_settings_changed": "The global settings changed after review. Recheck all four current temperature values before continuing.",
+      "temperature_validation_unavailable": "Temperature validation requires a fresh settings record, recognised values, and Low-temperature protection already Off. No setting was changed.",
+      "temperature_validation_update_failed": "The one-field temperature update or its exact readback failed. Reopen the flow and inspect all four current values."
     },
     "abort": {
       "airflow_not_supported": "Airflow configuration is not validated for this model, firmware, and hardware. No setting was changed.",
@@ -305,7 +333,9 @@
       "silent_hours_changed": "The schedule table changed after review. No schedule was changed; reopen the flow and review the current slots.",
       "calibration_not_supported": "Internal CO₂ calibration is not validated for this model. No command was sent.",
       "delay_overrun_not_supported": "Delay On and Overrun configuration is not enabled for this model, firmware, and hardware. No setting was changed.",
-      "boost_minimum_not_supported": "Boost minimum validation is unavailable for this model, firmware, or hardware."
+      "boost_minimum_not_supported": "Boost minimum validation is unavailable for this model, firmware, or hardware.",
+      "temperature_validation_not_supported": "Temperature validation is unavailable for this model, firmware, or hardware. No setting was changed.",
+      "temperature_validation_unavailable": "Temperature validation requires recognised current values and Low-temperature protection already Off. No setting was changed."
     }
   },
   "selector": {

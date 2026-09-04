@@ -95,6 +95,8 @@ Detailed instructions:
   validated model/firmware/hardware identity
 - Guarded Comfort-mode configuration on the exact physically validated
   model/firmware/hardware identity
+- One-field-at-a-time prerelease validation for temperature actions and
+  thresholds while Low-temperature protection remains Off
 - Redacted Home Assistant diagnostics
 
 The physically inspected MEV remote exposes speed levels 1–4 and timers for 30,

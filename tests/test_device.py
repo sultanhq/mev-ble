@@ -1221,9 +1221,7 @@ async def test_humidity_response_updates_each_flag_with_exact_readback() -> None
     device._global_settings_write_ready = True
 
     # Act - reverse both recovered response flags.
-    result = await device.set_humidity_response(
-        object(), rapid=True, ambient=False
-    )
+    result = await device.set_humidity_response(object(), rapid=True, ambient=False)
 
     # Assert - both writes were read back exactly and published as confirmed.
     fields = tuple(
@@ -1239,7 +1237,6 @@ async def test_humidity_response_updates_each_flag_with_exact_readback() -> None
     assert result.rapid_response_enabled is True
     assert result.ambient_response_enabled is False
     assert device.confirmed_global_settings == result
-
 
 
 @pytest.mark.parametrize(
@@ -1343,6 +1340,173 @@ async def test_boost_minimum_validation_rejects_general_percentage() -> None:
     # Assert - validation rejects the value before any Bluetooth operation.
     assert raised.value
     device.connect.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    ("model", "firmware", "hardware", "supported"),
+    [
+        ("10", "2.03.08", "01.00", True),
+        ("10", "2.03.09", "01.00", False),
+        ("10", "2.03.08", "01.01", False),
+        ("2", "2.03.08", "01.00", False),
+    ],
+)
+def test_temperature_validation_requires_exact_identity(
+    model: str,
+    firmware: str,
+    hardware: str,
+    supported: bool,
+) -> None:
+    """Temperature validation is restricted to the designated hardware."""
+
+    # Arrange - apply one exact or near-match device identity.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model=model, firmware=firmware, hardware=hardware
+    )
+
+    # Act - evaluate the prerelease temperature capability gate.
+    result = device.supports_temperature_threshold_validation
+
+    # Assert - model, firmware, and hardware must all match.
+    assert result is supported
+
+
+@pytest.mark.asyncio
+async def test_temperature_validation_writes_one_field_with_exact_readback() -> None:
+    """One temporary threshold is accepted only after complete fresh readback."""
+
+    # Arrange - emulate firmware applying the isolated low-threshold write.
+    current = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    sent: list[bytes] = []
+    requested: list[bytes] = []
+
+    class ApplyingTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            nonlocal current
+            sent.append(packet)
+            wrapped = decode_data_object_array(decode_packet(packet).payload)
+            assert wrapped.object_id == GlobalSettingField.LOW_TEMPERATURE_THRESHOLD
+            current = global_settings_after_update(
+                current,
+                GlobalSettingField.LOW_TEMPERATURE_THRESHOLD,
+                wrapped.payload[0],
+            )
+
+        async def request(self, packet: bytes) -> bytes:
+            requested.append(packet)
+            return encode_packet(
+                PacketType.GLOBAL_DATA,
+                Operation.RESPONSE,
+                current.raw_record,
+                timestamp=2,
+            )
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._client = DeviceClient([])
+    device._transport = ApplyingTransport()
+    device._authenticated = True
+    device._confirmed_global_settings = current
+    device._global_settings_write_ready = True
+
+    # Act - change only the low threshold from 15 °C to 14 °C.
+    result = await device.set_temperature_threshold_validation(
+        object(),
+        low_action=1,
+        high_action=4,
+        low_threshold=14,
+        high_threshold=25,
+    )
+
+    # Assert - pre-write and post-write reads surround exactly one field-19 write.
+    assert len(sent) == 1
+    assert len(requested) == 2
+    assert result.low_temperature_threshold == 14
+    assert result.high_temperature_threshold == 25
+    assert device.confirmed_global_settings == result
+
+
+@pytest.mark.asyncio
+async def test_temperature_validation_rejects_multiple_changes_before_ble() -> None:
+    """A validation attempt cannot combine an action and threshold change."""
+
+    # Arrange - prepare the exact identity and confirmed disabled baseline.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._confirmed_global_settings = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    device._global_settings_write_ready = True
+    device.connect = AsyncMock()
+    device._send = AsyncMock()
+
+    # Act - request both a low-action and low-threshold change.
+    with pytest.raises(ProtocolError, match="exactly one changed field") as raised:
+        await device.set_temperature_threshold_validation(
+            object(),
+            low_action=3,
+            high_action=4,
+            low_threshold=14,
+            high_threshold=25,
+        )
+
+    # Assert - profile validation fails before a packet is sent.
+    assert raised.value
+    device.connect.assert_not_awaited()
+    device._send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_temperature_validation_rechecks_fresh_record_before_write() -> None:
+    """A device-side settings change aborts before the update packet is sent."""
+
+    # Arrange - retain one baseline but return a fresh record changed elsewhere.
+    confirmed = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    changed = bytearray(confirmed.raw_record)
+    changed[5] += 1
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._confirmed_global_settings = confirmed
+    device._global_settings_write_ready = True
+    device.connect = AsyncMock()
+    device._request = AsyncMock(return_value=SimpleNamespace(payload=bytes(changed)))
+    device._send = AsyncMock()
+
+    # Act - request one otherwise valid low-threshold change.
+    with pytest.raises(GlobalSettingUpdateError, match="changed before") as raised:
+        await device.set_temperature_threshold_validation(
+            object(),
+            low_action=1,
+            high_action=4,
+            low_threshold=14,
+            high_threshold=25,
+        )
+
+    # Assert - the fresh mismatch closes the write gate without transmitting.
+    assert raised.value
+    device._request.assert_awaited_once()
+    device._send.assert_not_awaited()
+    assert device.confirmed_global_settings == confirmed
+    assert device.global_settings_write_ready is False
 
 
 @pytest.mark.parametrize(
@@ -1983,6 +2147,7 @@ async def test_active_poll_finishes_before_control_and_its_readback() -> None:
     assert poll_data.zone.fan_rpm == 1200
     assert control_data.system.fan_speed == 3
 
+
 @pytest.mark.asyncio
 async def test_delay_enabled_is_blocked_after_physical_readback_mismatch() -> None:
     """Field 7 cannot reach Bluetooth through the guarded timer method."""
@@ -2033,9 +2198,7 @@ async def test_global_setting_mismatch_reports_exact_record_differences() -> Non
     device._confirmed_global_settings = current
     device._global_settings_write_ready = True
     device._send = AsyncMock()
-    device._request = AsyncMock(
-        return_value=SimpleNamespace(payload=bytes(unexpected))
-    )
+    device._request = AsyncMock(return_value=SimpleNamespace(payload=bytes(unexpected)))
 
     # Act - apply the isolated write whose fresh record contains a coupled change.
     with pytest.raises(GlobalSettingUpdateError) as raised:

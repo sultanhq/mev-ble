@@ -107,6 +107,16 @@ byte 6. The flag's wider operating behaviour is not inferred from its name. It
 was disabled, confirmed through exact fresh readback, and restored enabled on
 the validated unit.
 
+Version 0.6.2 RC17 adds **Configure → Validate temperature settings** for the
+same exact identity. It is deliberately narrower than a normal settings form:
+Low-temperature protection (field 16) must already be Off and is never written,
+only the recovered Low/Boost/Purge actions are accepted, Low must remain below
+High, and exactly one of fields 17–20 may change in each submission. The flow
+shows the current measured temperature and complete current/proposed profile,
+rejects a stale 36-byte snapshot, and requires exact packet-137 readback. Restore
+the original value immediately before testing another field. This proves only
+reversible storage, not runtime temperature behaviour.
+
 The application setup code, BLE address and config-entry unique ID are redacted
 from downloaded diagnostics. Internal routing addresses used to explain CO₂
 calibration target selection remain present; they are protocol row numbers, not

@@ -34,6 +34,8 @@ from custom_components.ventaxia_multihome.coordinator import (
     SensorThresholdConfigurationUnavailableError,
     SilentHoursConfigurationUnavailableError,
     SilentHoursNotSupportedError,
+    TemperatureValidationNotSupportedError,
+    TemperatureValidationUnavailableError,
     VentaxiaMultihomeCoordinator,
 )
 from custom_components.ventaxia_multihome.device import (
@@ -679,9 +681,7 @@ async def test_comfort_mode_publishes_only_confirmed_settings() -> None:
     )
 
     # Act - apply one reviewed Comfort value.
-    await VentaxiaMultihomeCoordinator.async_set_comfort_mode(
-        coordinator, enabled=True
-    )
+    await VentaxiaMultihomeCoordinator.async_set_comfort_mode(coordinator, enabled=True)
 
     # Assert - only the exact confirmed settings snapshot is replaced.
     device.set_comfort_mode.assert_awaited_once_with(ble_device, enabled=True)
@@ -734,6 +734,97 @@ async def test_comfort_mode_rejects_unsupported_or_stale_state_before_io(
 
 
 @pytest.mark.asyncio
+async def test_temperature_validation_publishes_only_confirmed_settings() -> None:
+    """A successful temperature operation publishes its exact readback."""
+
+    # Arrange - retain telemetry and return a distinct confirmed settings object.
+    current = MultihomeData(
+        zone=object(),
+        system=object(),
+        global_settings=_settings(),
+        last_successful_update=datetime.now(UTC),
+    )
+    confirmed = decode_global_settings(bytes(36))
+    ble_device = object()
+    device = SimpleNamespace(
+        supports_temperature_threshold_validation=True,
+        global_settings_write_ready=True,
+        set_temperature_threshold_validation=AsyncMock(return_value=confirmed),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=current,
+        last_update_success=True,
+        _ble_device=lambda: ble_device,
+        async_set_updated_data=Mock(),
+        async_set_update_error=Mock(),
+    )
+
+    # Act - apply one reviewed low-threshold validation change.
+    await VentaxiaMultihomeCoordinator.async_set_temperature_threshold_validation(
+        coordinator,
+        low_action=1,
+        high_action=4,
+        low_threshold=14,
+        high_threshold=25,
+    )
+
+    # Assert - only the exact confirmed settings snapshot is replaced.
+    device.set_temperature_threshold_validation.assert_awaited_once_with(
+        ble_device,
+        low_action=1,
+        high_action=4,
+        low_threshold=14,
+        high_threshold=25,
+    )
+    published = coordinator.async_set_updated_data.call_args.args[0]
+    assert published.global_settings is confirmed
+    assert published.zone is current.zone
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("supported", "data", "last_success", "write_ready", "error"),
+    [
+        (False, object(), True, True, TemperatureValidationNotSupportedError),
+        (True, None, True, True, TemperatureValidationUnavailableError),
+        (True, object(), False, True, TemperatureValidationUnavailableError),
+        (True, object(), True, False, TemperatureValidationUnavailableError),
+    ],
+)
+async def test_temperature_validation_rejects_unsupported_or_stale_state_before_io(
+    supported, data, last_success, write_ready, error
+) -> None:
+    """Temperature identity and snapshot guards run before Bluetooth lookup."""
+
+    # Arrange - vary each prerequisite for the one-field validation operation.
+    device = SimpleNamespace(
+        supports_temperature_threshold_validation=supported,
+        global_settings_write_ready=write_ready,
+        set_temperature_threshold_validation=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=data,
+        last_update_success=last_success,
+        _ble_device=Mock(),
+    )
+
+    # Act / Assert - reject without resolving or using a Bluetooth path.
+    with pytest.raises(error):
+        await VentaxiaMultihomeCoordinator.async_set_temperature_threshold_validation(
+            coordinator,
+            low_action=1,
+            high_action=4,
+            low_threshold=14,
+            high_threshold=25,
+        )
+    coordinator._ble_device.assert_not_called()
+    device.set_temperature_threshold_validation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_silent_hour_publishes_only_confirmed_full_table() -> None:
     """A successful schedule update replaces only the schedule snapshot."""
 
@@ -767,9 +858,7 @@ async def test_silent_hour_publishes_only_confirmed_full_table() -> None:
     )
 
     # Act - apply one reviewed overnight schedule.
-    await VentaxiaMultihomeCoordinator._async_mutate_silent_hour(
-        coordinator, 0, record
-    )
+    await VentaxiaMultihomeCoordinator._async_mutate_silent_hour(coordinator, 0, record)
 
     # Assert - only exact device readback is published with other state retained.
     device.set_silent_hour.assert_awaited_once_with(ble_device, 0, record)
@@ -810,9 +899,7 @@ async def test_silent_hour_delete_uses_same_guarded_publish_path() -> None:
     )
 
     # Act - delete slot five.
-    await VentaxiaMultihomeCoordinator._async_mutate_silent_hour(
-        coordinator, 5, None
-    )
+    await VentaxiaMultihomeCoordinator._async_mutate_silent_hour(coordinator, 5, None)
 
     # Assert - deletion and publication occur exactly once.
     device.delete_silent_hour.assert_awaited_once()

@@ -45,9 +45,14 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_CONFIRM_HUMIDITY_RESPONSE,
     CONF_CONFIRM_SENSOR_THRESHOLDS,
     CONF_CONFIRM_SILENT_HOUR_DELETE,
+    CONF_CONFIRM_TEMPERATURE_VALIDATION,
     CONF_DELAY_ENABLED,
     CONF_DELAY_TIMEOUT,
+    CONF_HIGH_TEMPERATURE_ACTION,
+    CONF_HIGH_TEMPERATURE_THRESHOLD,
     CONF_HUMIDITY_THRESHOLD,
+    CONF_LOW_TEMPERATURE_ACTION,
+    CONF_LOW_TEMPERATURE_THRESHOLD,
     CONF_OVERRUN_ENABLED,
     CONF_OVERRUN_TIMEOUT,
     CONF_RAPID_RESPONSE,
@@ -106,6 +111,7 @@ def _options_entry(
     supports_humidity_response: bool = False,
     supports_comfort_mode: bool = False,
     supports_delay_overrun: bool = False,
+    supports_temperature_validation: bool = False,
     airflow_available: bool = True,
     supports_schedules: bool = False,
     schedules_available: bool = True,
@@ -130,12 +136,17 @@ def _options_entry(
             supports_humidity_response_configuration=supports_humidity_response,
             supports_comfort_mode_configuration=supports_comfort_mode,
             supports_delay_overrun_configuration=supports_delay_overrun,
+            supports_temperature_threshold_validation=(supports_temperature_validation),
             global_settings_write_ready=airflow_available,
             supports_silent_hours_management=supports_schedules,
             silent_hours_write_ready=schedules_available,
         ),
         data=(
-            SimpleNamespace(global_settings=settings, silent_hours=silent_hours)
+            SimpleNamespace(
+                global_settings=settings,
+                silent_hours=silent_hours,
+                zone=SimpleNamespace(temperature=20.5),
+            )
             if airflow_available and schedules_available
             else None
         ),
@@ -147,6 +158,7 @@ def _options_entry(
         async_set_humidity_response=AsyncMock(),
         async_set_comfort_mode=AsyncMock(),
         async_set_delay_overrun=AsyncMock(),
+        async_set_temperature_threshold_validation=AsyncMock(),
         async_set_silent_hour=AsyncMock(),
         async_delete_silent_hour=AsyncMock(),
     )
@@ -239,6 +251,17 @@ async def _open_delay_overrun_options(hass, entry):
     assert initial["step_id"] == "init"
     return await hass.config_entries.options.async_configure(
         initial["flow_id"], {"next_step_id": "delay_overrun"}
+    )
+
+
+async def _open_temperature_validation_options(hass, entry):
+    """Open the one-field temperature validation screen."""
+
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    assert initial["type"] is data_entry_flow.FlowResultType.MENU
+    assert initial["step_id"] == "init"
+    return await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "temperature_validation"}
     )
 
 
@@ -595,9 +618,7 @@ async def test_sensor_thresholds_require_review_and_confirmation(hass) -> None:
 
     # Assert - only positive confirmation calls the coordinator and shows success.
     assert confirm["step_id"] == "sensor_thresholds_confirm"
-    assert declined["errors"] == {
-        "base": "sensor_thresholds_confirmation_required"
-    }
+    assert declined["errors"] == {"base": "sensor_thresholds_confirmation_required"}
     coordinator.async_set_sensor_thresholds.assert_awaited_once_with(
         humidity=80, co2_boost=1490, co2_purge=1740
     )
@@ -681,9 +702,7 @@ async def test_humidity_response_requires_review_and_confirmation(hass) -> None:
     """Candidate response flags are written only after reviewed confirmation."""
 
     # Arrange - open the exact-identity candidate flow at Rapid off/Ambient on.
-    entry, coordinator = _options_entry(
-        hass, supports_humidity_response=True
-    )
+    entry, coordinator = _options_entry(hass, supports_humidity_response=True)
     form = await _open_humidity_response_options(hass, entry)
 
     # Act - request both reversed flags, decline once, then confirm explicitly.
@@ -701,9 +720,7 @@ async def test_humidity_response_requires_review_and_confirmation(hass) -> None:
     # Assert - no write precedes confirmation and the readback result is shown.
     assert form["step_id"] == "humidity_response"
     assert confirm["step_id"] == "humidity_response_confirm"
-    assert declined["errors"] == {
-        "base": "humidity_response_confirmation_required"
-    }
+    assert declined["errors"] == {"base": "humidity_response_confirmation_required"}
     coordinator.async_set_humidity_response.assert_awaited_once_with(
         rapid=True, ambient=False
     )
@@ -715,9 +732,7 @@ async def test_humidity_response_rechecks_full_snapshot_before_write(hass) -> No
     """Any intervening packet-137 change invalidates the reviewed profile."""
 
     # Arrange - open and review a changed response profile.
-    entry, coordinator = _options_entry(
-        hass, supports_humidity_response=True
-    )
+    entry, coordinator = _options_entry(hass, supports_humidity_response=True)
     form = await _open_humidity_response_options(hass, entry)
     confirm = await hass.config_entries.options.async_configure(
         form["flow_id"],
@@ -736,7 +751,6 @@ async def test_humidity_response_rechecks_full_snapshot_before_write(hass) -> No
     assert result["step_id"] == "humidity_response"
     assert result["errors"] == {"base": "humidity_response_settings_changed"}
     coordinator.async_set_humidity_response.assert_not_awaited()
-
 
 
 @pytest.mark.asyncio
@@ -761,9 +775,7 @@ async def test_boost_minimum_requires_review_and_confirmation(hass) -> None:
     # Assert - no write precedes confirmation and the result is explicit.
     assert form["step_id"] == "boost_minimum_validation"
     assert confirm["step_id"] == "boost_minimum_confirm"
-    assert declined["errors"] == {
-        "base": "boost_minimum_confirmation_required"
-    }
+    assert declined["errors"] == {"base": "boost_minimum_confirmation_required"}
     coordinator.async_set_boost_minimum.assert_awaited_once_with(value=1)
     assert result["step_id"] == "boost_minimum_result"
 
@@ -810,6 +822,122 @@ async def test_boost_minimum_rejects_unvalidated_percentage(hass) -> None:
     # Assert - schema validation rejects it before coordinator or Bluetooth I/O.
     assert raised.value
     coordinator.async_set_boost_minimum.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_temperature_validation_requires_review_and_one_change(hass) -> None:
+    """One temperature field is written only after explicit confirmation."""
+
+    # Arrange - open the exact-identity flow with the RC16 hardware baseline.
+    entry, coordinator = _options_entry(hass, supports_temperature_validation=True)
+    form = await _open_temperature_validation_options(hass, entry)
+    profile = {
+        CONF_LOW_TEMPERATURE_ACTION: "1",
+        CONF_HIGH_TEMPERATURE_ACTION: "4",
+        CONF_LOW_TEMPERATURE_THRESHOLD: 14,
+        CONF_HIGH_TEMPERATURE_THRESHOLD: 25,
+    }
+
+    # Act - request one threshold change, decline, then explicitly confirm.
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"], profile
+    )
+    declined = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_TEMPERATURE_VALIDATION: False}
+    )
+    result = await hass.config_entries.options.async_configure(
+        declined["flow_id"], {CONF_CONFIRM_TEMPERATURE_VALIDATION: True}
+    )
+
+    # Assert - the complete profile is reviewed but only one write is requested.
+    assert form["step_id"] == "temperature_validation"
+    assert form["description_placeholders"]["current_temperature"] == "20.5 °C"
+    assert confirm["step_id"] == "temperature_validation_confirm"
+    assert declined["errors"] == {
+        "base": "temperature_validation_confirmation_required"
+    }
+    coordinator.async_set_temperature_threshold_validation.assert_awaited_once_with(
+        low_action=1,
+        high_action=4,
+        low_threshold=14,
+        high_threshold=25,
+    )
+    assert result["step_id"] == "temperature_validation_result"
+
+
+@pytest.mark.asyncio
+async def test_temperature_validation_rejects_multiple_changes(hass) -> None:
+    """The validation flow cannot submit two temperature fields at once."""
+
+    # Arrange - open the exact-identity one-field validation screen.
+    entry, coordinator = _options_entry(hass, supports_temperature_validation=True)
+    form = await _open_temperature_validation_options(hass, entry)
+
+    # Act - change both the low action and low threshold in one submission.
+    result = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {
+            CONF_LOW_TEMPERATURE_ACTION: "3",
+            CONF_HIGH_TEMPERATURE_ACTION: "4",
+            CONF_LOW_TEMPERATURE_THRESHOLD: 14,
+            CONF_HIGH_TEMPERATURE_THRESHOLD: 25,
+        },
+    )
+
+    # Assert - the form stays open and no coordinator write is requested.
+    assert result["step_id"] == "temperature_validation"
+    assert result["errors"] == {"base": "temperature_validation_invalid"}
+    coordinator.async_set_temperature_threshold_validation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_temperature_validation_rechecks_full_snapshot(hass) -> None:
+    """Any intervening packet-137 change invalidates the reviewed field."""
+
+    # Arrange - review one low-threshold change from the RC16 baseline.
+    entry, coordinator = _options_entry(hass, supports_temperature_validation=True)
+    form = await _open_temperature_validation_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {
+            CONF_LOW_TEMPERATURE_ACTION: "1",
+            CONF_HIGH_TEMPERATURE_ACTION: "4",
+            CONF_LOW_TEMPERATURE_THRESHOLD: 14,
+            CONF_HIGH_TEMPERATURE_THRESHOLD: 25,
+        },
+    )
+    changed = bytearray(coordinator.data.global_settings.raw_record)
+    changed[5] += 1
+    coordinator.data.global_settings = decode_global_settings(bytes(changed))
+
+    # Act - confirm after an unrelated installer setting changed.
+    result = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_TEMPERATURE_VALIDATION: True}
+    )
+
+    # Assert - the stale review is discarded before coordinator or Bluetooth I/O.
+    assert result["step_id"] == "temperature_validation"
+    assert result["errors"] == {"base": "temperature_validation_settings_changed"}
+    coordinator.async_set_temperature_threshold_validation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_temperature_validation_requires_protection_off(hass) -> None:
+    """An active or unknown field 16 prevents the validation menu entry."""
+
+    # Arrange - expose the exact candidate identity but mark field 16 enabled.
+    entry, coordinator = _options_entry(hass, supports_temperature_validation=True)
+    changed = bytearray(coordinator.data.global_settings.raw_record)
+    changed[11] = 1
+    coordinator.data.global_settings = decode_global_settings(bytes(changed))
+
+    # Act - open the options menu without selecting any action.
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+
+    # Assert - no temperature write route is offered while protection is active.
+    assert result["type"] is data_entry_flow.FlowResultType.MENU
+    assert "temperature_validation" not in result["menu_options"]
+    coordinator.async_set_temperature_threshold_validation.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1651,8 +1779,7 @@ async def test_silent_hours_delete_rejects_semantic_table_change(hass) -> None:
         },
     )
     slots[2] = decode_silent_hour_slot(
-        bytes.fromhex("02000000")
-        + encode_silent_hour(22 * 3600, 7 * 3600, 0x1F)
+        bytes.fromhex("02000000") + encode_silent_hour(22 * 3600, 7 * 3600, 0x1F)
     )
     coordinator.data.silent_hours = tuple(slots)
 
@@ -1665,6 +1792,7 @@ async def test_silent_hours_delete_rejects_semantic_table_change(hass) -> None:
     assert rejected["type"] is data_entry_flow.FlowResultType.ABORT
     assert rejected["reason"] == "silent_hours_changed"
     coordinator.async_delete_silent_hour.assert_not_awaited()
+
 
 @pytest.mark.asyncio
 async def test_delay_overrun_requires_review_and_confirmation(hass) -> None:

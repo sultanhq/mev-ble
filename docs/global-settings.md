@@ -147,9 +147,9 @@ are proven.
 | 14 | `rapid_response_enabled` | 9 | strict UInt8 boolean | 0/1 | Humidity-response semantics | Sensor control | Physical; exact validated identity only |
 | 15 | `ambient_response_enabled` | 10 | strict UInt8 boolean | 0/1 | Humidity-response semantics | Sensor control | Physical; exact validated identity only |
 | 16 | `low_temperature_enabled` | 11 | strict UInt8 boolean | 0/1 | Paired thresholds and actions; no recovered app write | Sensor control | Static; read-only |
-| 17–18 | `low_threshold_action`, `high_threshold_action` | 12–13 | UInt8 action code | App choices: 1 Low, 3 Boost, 4 Purge | Paired with the corresponding threshold; other codes preserved as unknown | Sensor control | Static; read-only |
-| 19 | `low_temperature_threshold` | 14 | UInt8, °C | 0–30, step 1 | No cross-threshold ordering check recovered | Sensor control | Static; read-only |
-| 20 | `high_temperature_threshold` | 15 | UInt8, °C | 15–40, step 1 | No cross-threshold ordering check recovered | Sensor control | Static; read-only |
+| 17–18 | `low_threshold_action`, `high_threshold_action` | 12–13 | UInt8 action code | App choices: 1 Low, 3 Boost, 4 Purge | Paired with the corresponding threshold; other codes preserved as unknown | Sensor control | Exact-identity, one-field validation candidate while ID 16 is off |
+| 19 | `low_temperature_threshold` | 14 | UInt8, °C | 0–30, step 1 | Integration conservatively requires `low < high` | Sensor control | Exact-identity, one-field validation candidate while ID 16 is off |
+| 20 | `high_temperature_threshold` | 15 | UInt8, °C | 15–40, step 1 | Integration conservatively requires `low < high` | Sensor control | Exact-identity, one-field validation candidate while ID 16 is off |
 | 21–22 | `co2_boost_threshold`, `co2_purge_threshold` | 22, 24 | UInt16LE value ÷ 10, ppm | 0–2000, step 10 | CO₂ model; `boost < purge` | Sensor control | Physical; exact validated identity only |
 | 23–24 | analogue input 1 low/high actions | 28–29 | UInt8 action code | 0–255 | Installed wiring and action enum | Wired input | Static; read-only |
 | 25–26 | analogue input 1 low/high values | 26–27 | UInt8, scaling unknown | 0–100 | Scaling and paired actions | Wired input | Static; read-only |
@@ -173,9 +173,21 @@ The same screen does not write field 16, contains visible initialization/display
 defects, and performs no recovered comparison between the low and high values.
 The newer 7.2.2 app still confirms the packet-136 field IDs and record layout,
 but its visible 0–40 temperature slider is for a different IAQ-manager device
-family and is not used as Multihome evidence. For those reasons, all five
-Multihome temperature fields remain read-only pending current-value inspection
-and controlled hardware validation on an exact supported identity.
+family and is not used as Multihome evidence.
+
+RC17 therefore keeps field 16 permanently read-only and exposes fields 17–20
+only as a controlled validation flow on model 10 / firmware 2.03.08 / hardware
+01.00. The device must already report field 16 off, both action codes must be
+recovered app choices, the integration requires `low < high`, and exactly one
+field may change per submission. A fresh full-record concurrency check happens
+before the write and the changed field must be returned exactly in a fresh
+packet-137 record afterward. Each temporary value must be restored through the
+same flow. This is evidence gathering for the prerelease, not stable write
+support.
+
+The physically observed starting profile for this identity is field 16 off,
+low action 1 (`low`), high action 4 (`purge`), low threshold 15 °C and high
+threshold 25 °C.
 
 ## Physical validation evidence
 

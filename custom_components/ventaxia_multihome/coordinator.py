@@ -128,6 +128,14 @@ class DelayOverrunConfigurationUnavailableError(HomeAssistantError):
     """Raised when no current record permits a delay/overrun update."""
 
 
+class TemperatureValidationNotSupportedError(HomeAssistantError):
+    """Raised when guarded temperature validation is not enabled."""
+
+
+class TemperatureValidationUnavailableError(HomeAssistantError):
+    """Raised when no current record permits temperature validation."""
+
+
 class SilentHoursNotSupportedError(HomeAssistantError):
     """Raised when schedule management is not validated for the model."""
 
@@ -572,6 +580,53 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             self.async_set_update_error(err)
             raise HomeAssistantError(
                 f"Unable to update Multihome delay/overrun timers: {err}"
+            ) from err
+        self.async_set_updated_data(replace(self.data, global_settings=settings))
+
+    async def async_set_temperature_threshold_validation(
+        self,
+        *,
+        low_action: int,
+        high_action: int,
+        low_threshold: int,
+        high_threshold: int,
+    ) -> None:
+        """Apply and publish one confirmed temperature validation change."""
+
+        if not self.device.supports_temperature_threshold_validation:
+            raise TemperatureValidationNotSupportedError(
+                "temperature-threshold validation is not enabled for this model, "
+                "firmware, and hardware"
+            )
+        if (
+            self.data is None
+            or not self.last_update_success
+            or not self.device.global_settings_write_ready
+        ):
+            raise TemperatureValidationUnavailableError(
+                "Current global settings are unavailable; wait for a successful poll"
+            )
+        try:
+            settings = await self.device.set_temperature_threshold_validation(
+                self._ble_device(),
+                low_action=low_action,
+                high_action=high_action,
+                low_threshold=low_threshold,
+                high_threshold=high_threshold,
+            )
+        except GlobalSettingsUnavailableError as err:
+            raise TemperatureValidationUnavailableError(str(err)) from err
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            await self.device.disconnect()
+            self.async_set_update_error(err)
+            raise HomeAssistantError(
+                f"Unable to update Multihome temperature validation field: {err}"
             ) from err
         self.async_set_updated_data(replace(self.data, global_settings=settings))
 
