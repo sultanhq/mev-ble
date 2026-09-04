@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.6.2] - 2026-09-04
+
+### Added
+
+- Add disabled-by-default diagnostic entities for every decoded installer
+  setting, retaining unknown values and raw codes without guessed meanings.
+- Add guarded exact-identity configuration for CO₂/humidity thresholds,
+  Rapid/Ambient humidity response, Comfort mode, Delay time, Overrun, Overrun
+  time, and temperature actions/thresholds.
+
+### Safety
+
+- Require current/proposed review, confirmation, stale-snapshot rejection, and
+  exact packet-137 readback for enabled writes.
+- Keep Boost minimum field 4, Delay enabled field 7, Low-temperature protection
+  field 16, unresolved input actions/analogue scaling, and the unaddressable
+  purge-low byte read-only or blocked.
+- Document temperature and switched-live timer evidence as storage validation;
+  their runtime triggering was not demonstrated during physical testing.
+
 ## [0.6.2-rc.19] - 2026-09-04
 
 ### Fixed
