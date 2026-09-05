@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3-rc.5] - 2026-09-05
+
+### Fixed
+
+- Render paragraph breaks correctly in the Boost minimum review and confirmation
+  screens instead of displaying literal `\\n` characters.
+
 ## [0.6.3-rc.4] - 2026-09-05
 
 ### Added

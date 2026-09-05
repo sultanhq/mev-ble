@@ -1493,6 +1493,28 @@ def test_calibration_progress_copy_is_safe_when_client_stays_at_100() -> None:
     assert "sampling period has elapsed" in source_action
 
 
+def test_boost_minimum_copy_uses_renderable_paragraph_breaks() -> None:
+    """Boost minimum descriptions use newlines rather than literal escape text."""
+
+    # Arrange - load the source and shipped English option-flow translations.
+    integration_dir = Path("custom_components/ventaxia_multihome")
+    source = json.loads((integration_dir / "strings.json").read_text())
+    english = json.loads((integration_dir / "translations/en.json").read_text())
+
+    # Act - read both Boost minimum descriptions from both translation files.
+    step_ids = ("boost_minimum", "boost_minimum_confirm")
+    descriptions = [
+        content["options"]["step"][step_id]["description"]
+        for content in (source, english)
+        for step_id in step_ids
+    ]
+
+    # Assert - Home Assistant receives real paragraph breaks in matching copy.
+    assert source["options"]["step"] == english["options"]["step"]
+    assert all("\n\n" in description for description in descriptions)
+    assert all("\\n" not in description for description in descriptions)
+
+
 @pytest.mark.asyncio
 async def test_reference_calibration_rejects_own_co2_entity(hass) -> None:
     """The integration's measured CO2 cannot calibrate itself."""

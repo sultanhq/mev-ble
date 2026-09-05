@@ -224,14 +224,14 @@
       },
       "boost_minimum": {
         "title": "Configure Boost minimum",
-        "description": "Current value: **{current_boost_minimum}**\\n\\nThe recovered app names packet-136 field 4 `BoostMin`. Storage writes are validated on the exact model 10 / firmware 2.03.08 / hardware 01.00 identity, but its runtime effect and relationship to the commissioned airflow profile are not characterised. Use the recovered **0–100%** wire range cautiously and record the original value before changing it.",
+        "description": "Current value: **{current_boost_minimum}**\n\nThe recovered app names packet-136 field 4 `BoostMin`. Storage writes are validated on the exact model 10 / firmware 2.03.08 / hardware 01.00 identity, but its runtime effect and relationship to the commissioned airflow profile are not characterised. Use the recovered **0–100%** wire range cautiously and record the original value before changing it.",
         "data": {
           "boost_minimum": "Boost minimum"
         }
       },
       "boost_minimum_confirm": {
         "title": "Confirm Boost minimum",
-        "description": "Device: **{device}**\\n\\nCurrent value: **{current_boost_minimum}**\\n\\nNew value: **{new_boost_minimum}**\\n\\nHome Assistant will send only field 4 and accept success only after an exact fresh packet-137 readback. This confirms storage, not the setting's runtime effect.",
+        "description": "Device: **{device}**\n\nCurrent value: **{current_boost_minimum}**\n\nNew value: **{new_boost_minimum}**\n\nHome Assistant will send only field 4 and accept success only after an exact fresh packet-137 readback. This confirms storage, not the setting's runtime effect.",
         "data": {
           "confirm_boost_minimum": "I recorded the current value and understand that the runtime effect is not characterised"
         }
