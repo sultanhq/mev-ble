@@ -1395,6 +1395,37 @@ async def test_boost_minimum_mismatch_retains_last_confirmed_snapshot() -> None:
     assert device.global_settings_write_ready is False
 
 
+@pytest.mark.asyncio
+async def test_boost_minimum_rejects_fresh_stale_baseline_before_write() -> None:
+    """The action path cannot write from an out-of-date settings snapshot."""
+
+    # Arrange - retain one confirmed record while a neighbouring field changes.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    confirmed = decode_global_settings(decode_packet(_responses()[2]).payload)
+    changed = bytearray(confirmed.raw_record)
+    changed[5] += 1
+    device._confirmed_global_settings = confirmed
+    device._global_settings_write_ready = True
+    device.connect = AsyncMock()
+    device._request = AsyncMock(
+        return_value=SimpleNamespace(payload=bytes(changed))
+    )
+    device._send = AsyncMock()
+
+    # Act - request field 4 after the complete device record changed.
+    with pytest.raises(GlobalSettingUpdateError, match="changed before") as raised:
+        await device.set_boost_minimum(object(), value=1)
+
+    # Assert - the fresh baseline check blocks packet-136 I/O and further writes.
+    assert "no update was sent" in str(raised.value)
+    device._send.assert_not_awaited()
+    assert device.last_global_setting_write_attempt is None
+    assert device.global_settings_write_ready is False
+
+
 @pytest.mark.parametrize(
     ("model", "firmware", "hardware", "supported"),
     [

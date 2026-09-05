@@ -590,6 +590,20 @@
           "description": "Override duration in seconds."
         }
       }
+    },
+    "set_boost_minimum": {
+      "name": "Set Boost minimum",
+      "description": "Set the guarded Boost minimum installer field with exact readback.",
+      "fields": {
+        "value": {
+          "name": "Value",
+          "description": "Boost minimum wire value as a whole percentage."
+        },
+        "confirm": {
+          "name": "Confirm",
+          "description": "Confirm that the current value was recorded and the runtime effect is not characterised."
+        }
+      }
     }
   }
 }

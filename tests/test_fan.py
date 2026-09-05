@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 import pytest
 from homeassistant.components.fan import FanEntityFeature
 from homeassistant.const import CONF_ADDRESS
+from homeassistant.exceptions import HomeAssistantError
 
 from custom_components.ventaxia_multihome.fan import MultihomeFan
 from custom_components.ventaxia_multihome.protocol import AirflowPreset
@@ -27,6 +28,7 @@ def _fan(
             zone=SimpleNamespace(fan_rpm=fan_rpm, fan_level=2),
         ),
         async_set_override=AsyncMock(),
+        async_set_boost_minimum=AsyncMock(),
     )
     entry = SimpleNamespace(data={CONF_ADDRESS: "AA:BB:CC:DD:EE:FF"})
     return MultihomeFan(coordinator, entry), coordinator
@@ -78,3 +80,32 @@ async def test_all_home_assistant_presets_use_documented_overrides(
     coordinator.async_set_override.assert_awaited_once_with(
         AirflowPreset[preset.upper()]
     )
+
+
+@pytest.mark.asyncio
+async def test_boost_minimum_entity_action_delegates_confirmed_value() -> None:
+    """The MCP-scriptable action uses the existing guarded coordinator path."""
+
+    # Arrange - create the fan entity with a recording installer coordinator.
+    entity, coordinator = _fan()
+
+    # Act - invoke the entity action with explicit acknowledgement.
+    await entity.async_set_boost_minimum(value=1, confirm=True)
+
+    # Assert - only the reviewed integer reaches the guarded setter.
+    coordinator.async_set_boost_minimum.assert_awaited_once_with(value=1)
+
+
+@pytest.mark.asyncio
+async def test_boost_minimum_entity_action_requires_confirmation() -> None:
+    """Direct method calls cannot bypass the action schema's acknowledgement."""
+
+    # Arrange - create the fan entity without approving its installer effect.
+    entity, coordinator = _fan()
+
+    # Act - call the method defensively with confirmation disabled.
+    with pytest.raises(HomeAssistantError, match="explicit confirmation"):
+        await entity.async_set_boost_minimum(value=1, confirm=False)
+
+    # Assert - no coordinator or BLE operation is reached.
+    coordinator.async_set_boost_minimum.assert_not_awaited()

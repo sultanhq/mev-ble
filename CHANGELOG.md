@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.6.3-rc.8] - 2026-09-05
+
+### Added
+
+- Add the guarded `ventaxia_multihome.set_boost_minimum` entity action so
+  Home Assistant scripts can expose an explicitly approved field-4 operation
+  to Assist/MCP clients that cannot enter integration configuration flows.
+
+### Safety
+
+- Require `confirm: true`, the exact validated device identity, a fresh
+  unchanged complete packet-137 baseline, and exact post-write readback.
+- Keep the diagnostic Boost minimum sensor read-only; scripts opt into a
+  specific requested value instead of making the installer field generally
+  writable to voice or MCP clients.
+
 ## [0.6.3-rc.7] - 2026-09-05
 
 ### Added

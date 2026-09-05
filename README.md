@@ -145,6 +145,23 @@ Cancel an override by pressing the integration's **Cancel override** button.
 The recovered BLE app protocol includes cancellation even though the tested RF
 remote has no Cancel button. It is intentionally separate from fan power.
 
+Installer configuration flows are not entities and therefore cannot be opened
+by Home Assistant Assist/MCP clients. The exact-identity Boost minimum control
+also has a guarded entity action for use by an explicitly exposed script:
+
+```yaml
+action: ventaxia_multihome.set_boost_minimum
+target:
+  entity_id: fan.vent_axia_multihome_ventilation
+data:
+  value: 1
+  confirm: true
+```
+
+The action rejects unsupported identities and stale settings, then requires an
+exact fresh packet-137 readback. Boost minimum's runtime meaning remains
+uncharacterised; the read-only diagnostic sensor is intentionally unchanged.
+
 ## Supported devices and limitations
 
 Discovery accepts the case-insensitive BLE local names `MEV` and `Multihome`.

@@ -649,13 +649,29 @@ class MultihomeDevice:
             )
         async with self._operation_lock:
             await self.connect(ble_device)
-            if (
-                self._confirmed_global_settings is None
-                or not self._global_settings_write_ready
-            ):
+            confirmed = self._confirmed_global_settings
+            if confirmed is None or not self._global_settings_write_ready:
                 raise GlobalSettingsUnavailableError(
                     "global settings must be read successfully before an update"
                 )
+            fresh = decode_global_settings(
+                (
+                    await self._request(
+                        PacketType.GLOBAL_DATA,
+                        Operation.DATA_REQUEST,
+                    )
+                ).payload
+            )
+            if fresh.raw_record != confirmed.raw_record:
+                self._global_settings_write_ready = False
+                raise GlobalSettingUpdateError(
+                    "global settings changed before the Boost minimum write; "
+                    f"confirmed={confirmed.raw_record.hex()}; "
+                    f"received={fresh.raw_record.hex()}; no update was sent and "
+                    "the last confirmed snapshot was retained"
+                )
+            if fresh.boost_minimum == value:
+                return fresh
             return await self._set_global_setting_locked(
                 GlobalSettingField.BOOST_MINIMUM, value
             )

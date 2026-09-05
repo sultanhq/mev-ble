@@ -28,3 +28,33 @@ set_timed_override:
           step: 1
           unit_of_measurement: s
           mode: box
+
+set_boost_minimum:
+  name: Set Boost minimum
+  description: >-
+    Set the guarded Boost minimum installer field and require exact fresh
+    packet-137 readback. Its runtime effect is not characterised.
+  target:
+    entity:
+      integration: ventaxia_multihome
+      domain: fan
+  fields:
+    value:
+      name: Value
+      description: Boost minimum wire value as a whole percentage.
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+          mode: box
+    confirm:
+      name: Confirm
+      description: >-
+        Confirm that the current value was recorded and the runtime effect is
+        not characterised.
+      required: true
+      selector:
+        boolean:
