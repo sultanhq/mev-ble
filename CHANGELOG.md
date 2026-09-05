@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.3-rc.7] - 2026-09-05
+
+### Added
+
+- Retain structured evidence for the latest installer-field write in downloaded
+  diagnostics, including outcome, field, requested value, destination, payload,
+  expected/received records, byte differences, and the underlying error type.
+
+### Fixed
+
+- Keep the last confirmed telemetry available when a guarded Delay On write
+  fails; the failed write still disables further installer writes until a fresh
+  successful poll, but no longer marks every device entity unavailable.
+
 ## [0.6.3-rc.6] - 2026-09-05
 
 ### Added

@@ -2489,7 +2489,54 @@ async def test_delay_enabled_mismatch_captures_official_routing_evidence() -> No
     assert "7:01->00" in message
     assert f"expected={current.raw_record[:7].hex()}01" in message
     assert f"received={current.raw_record.hex()}" in message
+    attempt = device.last_global_setting_write_attempt
+    assert attempt is not None
+    assert attempt.outcome == "mismatch"
+    assert attempt.field_id == 7
+    assert attempt.requested_value == 1
+    assert attempt.target == 1
+    assert attempt.payload == payload.hex()
+    assert attempt.expected_record == (
+        f"{current.raw_record[:7].hex()}01{current.raw_record[8:].hex()}"
+    )
+    assert attempt.received_record == current.raw_record.hex()
+    assert attempt.differing_bytes == ("7:01->00",)
+    assert attempt.error_type is None
     assert not device.global_settings_write_ready
+
+
+@pytest.mark.asyncio
+async def test_global_setting_unconfirmed_retains_underlying_error() -> None:
+    """A missing readback remains diagnosable after the BLE session is reset."""
+
+    # Arrange - let the write send, then time out requesting the fresh record.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    current = decode_global_settings(
+        bytes.fromhex(
+            "06082532005100000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    device._confirmed_global_settings = current
+    device._global_settings_write_ready = True
+    device._send = AsyncMock()
+    device._request = AsyncMock(side_effect=TimeoutError("packet 137 timed out"))
+
+    # Act - lose the readback after attempting the candidate field-7 write.
+    with pytest.raises(GlobalSettingUpdateError):
+        await device._set_global_setting_locked(
+            GlobalSettingField.DELAY_ENABLED, True
+        )
+
+    # Assert - diagnostics can distinguish no readback from an exact mismatch.
+    attempt = device.last_global_setting_write_attempt
+    assert attempt is not None
+    assert attempt.outcome == "unconfirmed"
+    assert attempt.field_id == 7
+    assert attempt.target == 1
+    assert attempt.received_record is None
+    assert attempt.differing_bytes == ()
+    assert attempt.error_type == "TimeoutError"
+    assert attempt.error_message == "packet 137 timed out"
 
 
 @pytest.mark.asyncio

@@ -28,6 +28,8 @@ from custom_components.ventaxia_multihome.coordinator import (
     CalibrationRateLimitedError,
     ComfortModeConfigurationNotSupportedError,
     ComfortModeConfigurationUnavailableError,
+    DelayOverrunConfigurationNotSupportedError,
+    DelayOverrunConfigurationUnavailableError,
     HumidityResponseConfigurationNotSupportedError,
     HumidityResponseConfigurationUnavailableError,
     LowTemperatureProtectionValidationNotSupportedError,
@@ -733,6 +735,84 @@ async def test_comfort_mode_rejects_unsupported_or_stale_state_before_io(
         )
     coordinator._ble_device.assert_not_called()
     device.set_comfort_mode.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delay_failure_preserves_confirmed_entity_availability() -> None:
+    """A failed candidate write does not masquerade as a failed telemetry poll."""
+
+    # Arrange - fail field-7 confirmation while retaining the last good snapshot.
+    error = TransactionTimeoutError("packet 137 timed out")
+    confirmed_data = object()
+    device = SimpleNamespace(
+        supports_delay_overrun_configuration=True,
+        global_settings_write_ready=True,
+        set_delay_overrun=AsyncMock(side_effect=error),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=confirmed_data,
+        last_update_success=True,
+        _ble_device=lambda: object(),
+        async_set_updated_data=Mock(),
+        async_set_update_error=Mock(),
+    )
+
+    # Act - attempt the isolated candidate write and lose its readback.
+    with pytest.raises(HomeAssistantError, match="packet 137 timed out"):
+        await VentaxiaMultihomeCoordinator.async_set_delay_overrun(
+            coordinator,
+            delay_enabled=True,
+            delay_minutes=10,
+            overrun_enabled=True,
+            overrun_minutes=10,
+        )
+
+    # Assert - reset BLE, but keep unrelated entities on their confirmed snapshot.
+    assert coordinator.data is confirmed_data
+    device.disconnect.assert_awaited_once()
+    coordinator.async_set_update_error.assert_not_called()
+    coordinator.async_set_updated_data.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("supported", "data", "last_success", "write_ready", "error"),
+    [
+        (False, object(), True, True, DelayOverrunConfigurationNotSupportedError),
+        (True, None, True, True, DelayOverrunConfigurationUnavailableError),
+        (True, object(), False, True, DelayOverrunConfigurationUnavailableError),
+        (True, object(), True, False, DelayOverrunConfigurationUnavailableError),
+    ],
+)
+@pytest.mark.asyncio
+async def test_delay_rejects_unsupported_or_stale_state_before_io(
+    supported, data, last_success, write_ready, error
+) -> None:
+    """Delay identity and snapshot guards run before Bluetooth lookup."""
+
+    device = SimpleNamespace(
+        supports_delay_overrun_configuration=supported,
+        global_settings_write_ready=write_ready,
+        set_delay_overrun=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=data,
+        last_update_success=last_success,
+        _ble_device=Mock(),
+    )
+
+    with pytest.raises(error):
+        await VentaxiaMultihomeCoordinator.async_set_delay_overrun(
+            coordinator,
+            delay_enabled=True,
+            delay_minutes=10,
+            overrun_enabled=True,
+            overrun_minutes=10,
+        )
+    coordinator._ble_device.assert_not_called()
+    device.set_delay_overrun.assert_not_awaited()
 
 
 @pytest.mark.asyncio

@@ -125,6 +125,22 @@ class GlobalSettingUpdateError(DeviceError):
     """Raised when a settings write cannot be confirmed by exact readback."""
 
 
+@dataclass(frozen=True, slots=True)
+class GlobalSettingWriteAttempt:
+    """Retain exact non-secret evidence from the latest installer write."""
+
+    outcome: str
+    field_id: int
+    requested_value: int
+    target: int
+    payload: str
+    expected_record: str
+    received_record: str | None = None
+    differing_bytes: tuple[str, ...] = ()
+    error_type: str | None = None
+    error_message: str | None = None
+
+
 class SilentHoursUnavailableError(DeviceError):
     """Raised when no complete schedule table is available for a safe write."""
 
@@ -190,6 +206,7 @@ class MultihomeDevice:
         self.last_calibration_device_table_version: int | None = None
         self._confirmed_global_settings: GlobalSettings | None = None
         self._global_settings_write_ready = False
+        self.last_global_setting_write_attempt: GlobalSettingWriteAttempt | None = None
         self._confirmed_silent_hours: tuple[SilentHourSlot, ...] | None = None
         self._silent_hours_write_ready = False
         self.device_info = MultihomeDeviceInfo()
@@ -885,6 +902,15 @@ class MultihomeDevice:
         payload = encode_global_setting_update(field, value)
         target = global_setting_update_target(field, value)
         normalized_value = int(value)
+        evidence = GlobalSettingWriteAttempt(
+            outcome="pending",
+            field_id=int(field),
+            requested_value=normalized_value,
+            target=target,
+            payload=payload.hex(),
+            expected_record=expected.raw_record.hex(),
+        )
+        self.last_global_setting_write_attempt = evidence
         _LOGGER.debug(
             "Global setting write field=%d requested=%d target=%d payload=%s "
             "expected=%s",
@@ -908,6 +934,12 @@ class MultihomeDevice:
             received = decode_global_settings(response.payload)
         except Exception as err:
             self._global_settings_write_ready = False
+            self.last_global_setting_write_attempt = replace(
+                evidence,
+                outcome="unconfirmed",
+                error_type=type(err).__name__,
+                error_message=str(err),
+            )
             raise GlobalSettingUpdateError(
                 "global setting update was not confirmed for "
                 f"field {int(field)}; requested={normalized_value}; "
@@ -923,12 +955,19 @@ class MultihomeDevice:
         )
         if received.raw_record != expected.raw_record:
             self._global_settings_write_ready = False
-            differences = ", ".join(
+            differing_bytes = tuple(
                 f"{offset}:{wanted:02x}->{actual:02x}"
                 for offset, (wanted, actual) in enumerate(
                     zip(expected.raw_record, received.raw_record, strict=True)
                 )
                 if wanted != actual
+            )
+            differences = ", ".join(differing_bytes)
+            self.last_global_setting_write_attempt = replace(
+                evidence,
+                outcome="mismatch",
+                received_record=received.raw_record.hex(),
+                differing_bytes=differing_bytes,
             )
             raise GlobalSettingUpdateError(
                 "global setting readback did not match the requested update "
@@ -939,6 +978,11 @@ class MultihomeDevice:
                 f"received={received.raw_record.hex()}; "
                 "the last confirmed snapshot was retained"
             )
+        self.last_global_setting_write_attempt = replace(
+            evidence,
+            outcome="confirmed",
+            received_record=received.raw_record.hex(),
+        )
         self._confirmed_global_settings = received
         self._global_settings_write_ready = True
         return received

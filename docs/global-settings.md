@@ -14,7 +14,8 @@ The official app changes one setting at a time with packet type 136 and a
 - the object ID is one of the documented field IDs 0–32;
 - most values are one byte;
 - CO₂ threshold fields 21 and 22 contain `ppm / 10` as UInt16LE;
-- the packet target is zero.
+- the packet target is zero for validated fields; guarded field 7 uses the
+  requested boolean as its candidate destination based on the recovered client.
 
 Field IDs and record offsets are not interchangeable after field ID 8. The
 integration therefore uses an explicit mapping and preserves all bytes outside
@@ -252,9 +253,13 @@ On the exact validation unit, fields 8–10 changed with exact readback, while
 field 7 (Delay On enabled) produced a readback mismatch when the packet
 destination remained zero. The recovered official-client
 `setSystemStatusField(field, value)` path also copies the requested value into
-the packet destination. RC6 therefore exposes field 7 only as an
+the packet destination. RC6 therefore exposed field 7 only as an
 exact-identity, isolated validation candidate using destination 1 for Yes and 0
-for No. It captures the complete expected and received records on failure and
-must be changed and restored before promotion. Fields 8–10 remain physically
-validated. Runtime electrical timing remains unverified because no
-switched-live input was connected during testing.
+for No. The first physical destination-1 attempt did not confirm the update; a
+later recovered packet-137 record retained the original disabled value and all
+paired timer values. RC7 retains the complete structured write attempt in
+downloaded diagnostics, including the underlying transport error or an exact
+returned-record difference, and keeps unrelated telemetry available after a
+failed candidate write. Field 7 remains a validation candidate. Fields 8–10
+remain physically validated. Runtime electrical timing remains unverified
+because no switched-live input was connected during testing.

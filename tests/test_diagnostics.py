@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from custom_components.ventaxia_multihome.device import GlobalSettingWriteAttempt
 from custom_components.ventaxia_multihome.diagnostics import (
     _installer_capability_diagnostics,
     async_get_config_entry_diagnostics,
@@ -91,12 +92,23 @@ async def test_diagnostics_include_control_validation_state() -> None:
         last_calibration_outcome="not_sent",
         last_calibration_error="no internal target",
         device=SimpleNamespace(
+            address="AA:BB:CC:DD:EE:FF",
             transport_name="fragmented",
             global_settings_write_ready=True,
             silent_hours_write_ready=True,
             last_calibration_device_table_version=6,
             last_calibration_target_scan=[(1, 10, 4)],
             last_calibration_target=None,
+            last_global_setting_write_attempt=GlobalSettingWriteAttempt(
+                outcome="unconfirmed",
+                field_id=7,
+                requested_value=1,
+                target=1,
+                payload="0701",
+                expected_record="00" * 36,
+                error_type="BleakError",
+                error_message="AA:BB:CC:DD:EE:FF disconnected",
+            ),
             device_info=SimpleNamespace(
                 model="11",
                 firmware="1.2.3",
@@ -124,6 +136,18 @@ async def test_diagnostics_include_control_validation_state() -> None:
     assert result["device"]["selected_transport"] == "fragmented"
     assert result["last_successful_update"] == updated.isoformat()
     assert result["last_update_success"] is True
+    assert result["last_global_setting_write"] == {
+        "outcome": "unconfirmed",
+        "field_id": 7,
+        "requested_value": 1,
+        "target": 1,
+        "payload": "0701",
+        "expected_record": "00" * 36,
+        "received_record": None,
+        "differing_bytes": (),
+        "error_type": "BleakError",
+        "error_message": "**REDACTED** disconnected",
+    }
     assert result["calibration"] == {
         "last_outcome": "not_sent",
         "last_error": "no internal target",

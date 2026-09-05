@@ -158,6 +158,21 @@ async def async_get_config_entry_diagnostics(
     coordinator = entry.runtime_data
     info = coordinator.device.device_info
     data = coordinator.data
+    last_global_write = getattr(
+        coordinator.device, "last_global_setting_write_attempt", None
+    )
+    last_global_write_diagnostics = (
+        asdict(last_global_write) if last_global_write is not None else None
+    )
+    if (
+        last_global_write_diagnostics is not None
+        and last_global_write_diagnostics["error_message"]
+    ):
+        last_global_write_diagnostics["error_message"] = (
+            last_global_write_diagnostics["error_message"].replace(
+                coordinator.device.address, "**REDACTED**"
+            )
+        )
     return {
         "config_entry": async_redact_data(entry.as_dict(), TO_REDACT),
         "device": {
@@ -172,6 +187,7 @@ async def async_get_config_entry_diagnostics(
             data.last_successful_update.isoformat() if data else None
         ),
         "last_update_success": coordinator.last_update_success,
+        "last_global_setting_write": last_global_write_diagnostics,
         "calibration": {
             "last_outcome": coordinator.last_calibration_outcome,
             "last_error": coordinator.last_calibration_error,

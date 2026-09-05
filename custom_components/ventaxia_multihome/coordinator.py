@@ -585,7 +585,9 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             TimeoutError,
         ) as err:
             await self.device.disconnect()
-            self.async_set_update_error(err)
+            # A rejected installer write invalidates further writes until the next
+            # poll, but it is not a failed telemetry poll. Keep the last confirmed
+            # entity snapshot available while diagnostics retain the write evidence.
             raise HomeAssistantError(
                 f"Unable to update Multihome delay/overrun timers: {err}"
             ) from err
