@@ -204,8 +204,9 @@
       },
       "delay_overrun": {
         "title": "Configure Delay On and Overrun",
-        "description": "Current timers: **{current_timers}**\n\nDelay On itself is read-only because field 7 repeatedly failed exact physical readback on this firmware. Home Assistant can configure Delay time, Overrun, and Overrun time on the exact validated identity.\n\nThese installer settings apply only to mains-voltage switched-live (LS) inputs. The official Multihome range is 1–60 minutes. Runtime electrical-input timing has not been tested because no switched-live input was connected.",
+        "description": "Current timers: **{current_timers}**\n\nDelay On is a guarded prerelease validation control. The two earlier writes used packet destination 0; the recovered official-client path copies the requested boolean into the destination as well as field 7. Change Delay On by itself, keep its timer within 1–60 minutes, and leave LS inputs inactive during this storage test.\n\nDelay time, Overrun, and Overrun time remain physically validated installer controls. Runtime electrical-input timing has not been tested because no switched-live input was connected.",
         "data": {
+          "delay_enabled": "Delay On",
           "delay_timeout": "Delay On time",
           "overrun_enabled": "Overrun",
           "overrun_timeout": "Overrun time"
@@ -213,14 +214,14 @@
       },
       "delay_overrun_confirm": {
         "title": "Confirm Delay On and Overrun",
-        "description": "Device: **{device}**\n\nCurrent timers: **{current_timers}**\n\nNew timers: **{new_timers}**\n\nHome Assistant will not change Delay On. It will update only a changed Delay time, Overrun flag, or Overrun time, requiring exact fresh packet-137 readback after every field. When disabling Overrun it clears the flag before changing its timer; when enabling it writes the valid timer first.",
+        "description": "Device: **{device}**\n\nCurrent timers: **{current_timers}**\n\nNew timers: **{new_timers}**\n\nFor a Delay On change, Home Assistant sends only field 7 and copies its 0/1 value into the packet destination, matching the recovered official-client path. It requires a fresh unchanged 36-byte baseline and exact packet-137 readback. Restore the original Delay On state through this same flow after the first successful change.",
         "data": {
           "confirm_delay_overrun": "I recorded the current values and want to apply this paired timer profile"
         }
       },
       "delay_overrun_result": {
         "title": "Delay On and Overrun confirmed",
-        "description": "The installed unit returned **{new_timers}** through exact fresh packet-137 readback. Delay On remains unchanged and read-only."
+        "description": "The installed unit returned **{new_timers}** through exact fresh packet-137 readback. If Delay On changed, restore its original state now through the same guarded flow; runtime LS-input timing remains a separate test."
       },
       "boost_minimum": {
         "title": "Configure Boost minimum",
@@ -325,6 +326,7 @@
       "self_reference": "The MEV cannot use its own CO₂ entity as a calibration reference.",
       "delay_overrun_confirmation_required": "Confirm the reviewed Delay On and Overrun profile before changing installer settings.",
       "delay_overrun_invalid": "Both enabled values must be on or off, and both timer values must be whole minutes from 1 to 60.",
+      "delay_overrun_candidate_isolated": "Change Delay On by itself during field-7 validation. Leave Delay On time, Overrun, and Overrun time at their current values.",
       "delay_overrun_unchanged": "The selected Delay On and Overrun profile is already active.",
       "delay_overrun_settings_changed": "The unit's settings changed after review. Review all four current values and try again.",
       "delay_overrun_update_failed": "The complete paired timer profile could not be confirmed. Reopen the flow and inspect all four current values before retrying.",

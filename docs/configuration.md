@@ -131,9 +131,14 @@ restoration, not a runtime fan-speed response.
 
 The same identity can configure **Delay On time**, **Overrun**, and **Overrun
 time**. Fields 8–10 were independently changed, read back exactly, and restored.
-**Delay On** itself remains read-only because field 7 repeatedly failed exact
-readback. These settings affect mains-voltage switched-live inputs; their
-runtime electrical timing was not tested because no such input was connected.
+Version 0.6.3 RC6 restores **Delay On** field 7 as a guarded validation
+candidate. The earlier attempts sent destination 0; the recovered official
+client copies the requested boolean into the packet destination as well as the
+field-7 payload. While this is awaiting physical validation, Delay On must be
+changed by itself with a valid 1–60 minute timer and inactive LS inputs. The
+flow rereads all 36 bytes before sending, requires exact packet-137 readback,
+and directs the tester to restore the original state. Runtime electrical timing
+remains a separate test.
 
 Version 0.6.3 RC4 adds **Configure → Configure Boost minimum** on the same exact
 identity. It accepts the recovered one-byte 0–100% wire range, displays current

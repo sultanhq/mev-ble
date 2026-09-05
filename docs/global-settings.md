@@ -249,8 +249,12 @@ packet-137 read, and restored enabled through the guarded flow.
 The official Multihome manual documents Delay On and Overrun as LS-input-only
 features with 1–60 minute ranges.
 On the exact validation unit, fields 8–10 changed with exact readback, while
-field 7 (Delay On enabled) produced a readback mismatch. Field 7 is therefore
-blocked and read-only; the guarded flow cannot send it. Fields 8–10 were also
-restored and are writable only on the exact validated identity. Their runtime
-electrical timing remains unverified because no switched-live input was
-connected during testing.
+field 7 (Delay On enabled) produced a readback mismatch when the packet
+destination remained zero. The recovered official-client
+`setSystemStatusField(field, value)` path also copies the requested value into
+the packet destination. RC6 therefore exposes field 7 only as an
+exact-identity, isolated validation candidate using destination 1 for Yes and 0
+for No. It captures the complete expected and received records on failure and
+must be changed and restored before promotion. Fields 8–10 remain physically
+validated. Runtime electrical timing remains unverified because no
+switched-live input was connected during testing.

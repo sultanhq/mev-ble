@@ -1932,19 +1932,20 @@ async def test_silent_hours_delete_rejects_semantic_table_change(hass) -> None:
 
 @pytest.mark.asyncio
 async def test_delay_overrun_requires_review_and_confirmation(hass) -> None:
-    """Paired LS timers are written only after explicit review and confirmation."""
+    """Field 7 is written alone only after explicit review and confirmation."""
 
     # Arrange - open the exact-identity candidate with Delay off and Overrun on.
     entry, coordinator = _options_entry(hass, supports_delay_overrun=True)
     form = await _open_delay_overrun_options(hass, entry)
 
-    # Act - request safe paired changes, decline once, then confirm.
+    # Act - request only Delay On, decline once, then confirm explicitly.
     confirm = await hass.config_entries.options.async_configure(
         form["flow_id"],
         {
-            CONF_DELAY_TIMEOUT: 11,
-            CONF_OVERRUN_ENABLED: False,
-            CONF_OVERRUN_TIMEOUT: 12,
+            CONF_DELAY_ENABLED: True,
+            CONF_DELAY_TIMEOUT: 10,
+            CONF_OVERRUN_ENABLED: True,
+            CONF_OVERRUN_TIMEOUT: 10,
         },
     )
     declined = await hass.config_entries.options.async_configure(
@@ -1959,10 +1960,10 @@ async def test_delay_overrun_requires_review_and_confirmation(hass) -> None:
     assert confirm["step_id"] == "delay_overrun_confirm"
     assert declined["errors"] == {"base": "delay_overrun_confirmation_required"}
     coordinator.async_set_delay_overrun.assert_awaited_once_with(
-        delay_enabled=False,
-        delay_minutes=11,
-        overrun_enabled=False,
-        overrun_minutes=12,
+        delay_enabled=True,
+        delay_minutes=10,
+        overrun_enabled=True,
+        overrun_minutes=10,
     )
     assert result["step_id"] == "delay_overrun_result"
 
@@ -1977,7 +1978,8 @@ async def test_delay_overrun_rechecks_full_snapshot_before_write(hass) -> None:
     confirm = await hass.config_entries.options.async_configure(
         form["flow_id"],
         {
-            CONF_DELAY_TIMEOUT: 11,
+            CONF_DELAY_ENABLED: True,
+            CONF_DELAY_TIMEOUT: 10,
             CONF_OVERRUN_ENABLED: True,
             CONF_OVERRUN_TIMEOUT: 10,
         },
@@ -1994,6 +1996,31 @@ async def test_delay_overrun_rechecks_full_snapshot_before_write(hass) -> None:
     # Assert - the complete snapshot guard aborts before Bluetooth I/O.
     assert result["step_id"] == "delay_overrun"
     assert result["errors"] == {"base": "delay_overrun_settings_changed"}
+    coordinator.async_set_delay_overrun.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delay_enabled_candidate_must_be_changed_in_isolation(hass) -> None:
+    """Field 7 cannot be combined with an otherwise validated timer write."""
+
+    # Arrange - open the candidate with Delay off and a ten-minute timer.
+    entry, coordinator = _options_entry(hass, supports_delay_overrun=True)
+    form = await _open_delay_overrun_options(hass, entry)
+
+    # Act - request Delay On and change its paired timer in the same submission.
+    result = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {
+            CONF_DELAY_ENABLED: True,
+            CONF_DELAY_TIMEOUT: 11,
+            CONF_OVERRUN_ENABLED: True,
+            CONF_OVERRUN_TIMEOUT: 10,
+        },
+    )
+
+    # Assert - the candidate remains isolated and no write reaches the coordinator.
+    assert result["step_id"] == "delay_overrun"
+    assert result["errors"] == {"base": "delay_overrun_candidate_isolated"}
     coordinator.async_set_delay_overrun.assert_not_awaited()
 
 

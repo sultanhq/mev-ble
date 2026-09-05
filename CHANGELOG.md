@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.6.3-rc.6] - 2026-09-05
+
+### Added
+
+- Restore Delay On field 7 as an exact-identity guarded validation candidate
+  using the recovered official-client packet destination routing.
+- Expose the current Delay On boolean alongside its paired 1–60 minute timer,
+  while requiring field 7 to be changed by itself during validation.
+
+### Safety
+
+- Read and compare a fresh complete packet-137 record immediately before the
+  timer plan, then require exact readback after the isolated field-7 write.
+- Capture field ID, requested value, packet destination, encoded payload,
+  expected record, received record, and every differing byte on mismatch.
+- Preserve the previously validated Delay time and Overrun controls without
+  changing their established packet destination.
+
 ## [0.6.3-rc.5] - 2026-09-05
 
 ### Fixed

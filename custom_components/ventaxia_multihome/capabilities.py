@@ -392,6 +392,10 @@ DELAY_OVERRUN_FIELDS: Final = frozenset(
     }
 )
 
+DELAY_ENABLED_VALIDATION_FIELDS: Final = frozenset(
+    {GlobalSettingField.DELAY_ENABLED}
+)
+
 TEMPERATURE_VALIDATION_FIELDS: Final = frozenset(
     {
         GlobalSettingField.LOW_THRESHOLD_ACTION,
@@ -437,7 +441,20 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
     ),
 )
 
-VALIDATION_CANDIDATE_WRITE_PROFILES: Final = ()
+VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
+    InstallerWriteProfile(
+        model_number=10,
+        firmware="2.03.08",
+        hardware="01.00",
+        fields=DELAY_ENABLED_VALIDATION_FIELDS,
+        evidence=(
+            "official GlobalDataField enum maps DelayEnable to field 7 and the "
+            "official setSystemStatusField path copies its boolean value into "
+            "the packet destination; awaiting isolated No/Yes readback and "
+            "restoration on the installed unit"
+        ),
+    ),
+)
 
 
 def model_capability(model_number: int | None) -> ModelCapability | None:

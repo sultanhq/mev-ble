@@ -43,6 +43,7 @@ from custom_components.ventaxia_multihome.protocol import (
     encode_user_override,
     fragment_ack,
     fragment_packet,
+    global_setting_update_target,
     global_settings_after_update,
     plan_airflow_profile_updates,
     plan_comfort_mode_update,
@@ -443,6 +444,25 @@ def test_global_setting_expected_record_uses_field_map_not_enum_offset() -> None
     expected_analogue[28] = 4
     assert timeout.raw_record == bytes(expected_timeout)
     assert analogue.raw_record == bytes(expected_analogue)
+
+
+def test_delay_enabled_uses_recovered_value_destination_routing() -> None:
+    """Only field 7 copies its strict boolean value into the packet target."""
+
+    # Arrange - select both Delay On values and a previously validated boolean.
+    cases = (
+        (GlobalSettingField.DELAY_ENABLED, False, 0),
+        (GlobalSettingField.DELAY_ENABLED, True, 1),
+        (GlobalSettingField.OVERRUN_ENABLED, True, 0),
+    )
+
+    # Act - resolve the destination used by the packet-136 device writer.
+    targets = [
+        global_setting_update_target(field, value) for field, value, _ in cases
+    ]
+
+    # Assert - field 7 follows official-client routing without changing others.
+    assert targets == [expected for _, _, expected in cases]
 
 
 def test_every_global_setting_field_preserves_all_unrelated_bytes() -> None:

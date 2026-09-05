@@ -2330,25 +2330,80 @@ async def test_active_poll_finishes_before_control_and_its_readback() -> None:
 
 
 @pytest.mark.asyncio
-async def test_delay_enabled_is_blocked_after_physical_readback_mismatch() -> None:
-    """Field 7 cannot reach Bluetooth through the guarded timer method."""
+@pytest.mark.parametrize(("current", "desired"), [(False, True), (True, False)])
+async def test_delay_enabled_uses_value_target_and_exact_readback(
+    current: bool, desired: bool
+) -> None:
+    """Field 7 follows official routing in both reversible directions."""
 
-    # Arrange - prepare the exact candidate identity with Delay currently disabled.
+    # Arrange - prepare the exact candidate identity and both fresh records.
     device = MultihomeDevice("AA", "MEV", 1234)
     device.device_info = MultihomeDeviceInfo(
         model="10", firmware="2.03.08", hardware="01.00"
     )
-    device._confirmed_global_settings = decode_global_settings(
+    record = bytearray.fromhex(
+        "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+    )
+    record[7] = int(current)
+    confirmed = decode_global_settings(bytes(record))
+    expected = global_settings_after_update(
+        confirmed, GlobalSettingField.DELAY_ENABLED, desired
+    )
+    device._confirmed_global_settings = confirmed
+    device._global_settings_write_ready = True
+    device.connect = AsyncMock()
+    device._send = AsyncMock()
+    device._request = AsyncMock(
+        side_effect=[
+            SimpleNamespace(payload=confirmed.raw_record),
+            SimpleNamespace(payload=expected.raw_record),
+        ]
+    )
+
+    # Act - change only Delay On through the guarded paired-timer API.
+    result = await device.set_delay_overrun(
+        object(),
+        delay_enabled=desired,
+        delay_minutes=10,
+        overrun_enabled=True,
+        overrun_minutes=10,
+    )
+
+    # Assert - the value is both payload and destination, then read back exactly.
+    device._send.assert_awaited_once_with(
+        PacketType.GLOBAL_DATA_FIELD,
+        Operation.UPDATE,
+        encode_global_setting_update(GlobalSettingField.DELAY_ENABLED, desired),
+        target=int(desired),
+    )
+    assert result.raw_record == expected.raw_record
+    assert result.delay_enabled is desired
+
+
+@pytest.mark.asyncio
+async def test_delay_enabled_rejects_a_fresh_stale_baseline_before_write() -> None:
+    """A fresh packet-137 difference prevents candidate field-7 I/O."""
+
+    # Arrange - retain one confirmed record while the unit changes a neighbour.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    confirmed = decode_global_settings(
         bytes.fromhex(
             "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
         )
     )
+    stale = bytearray(confirmed.raw_record)
+    stale[5] += 1
+    device._confirmed_global_settings = confirmed
     device._global_settings_write_ready = True
     device.connect = AsyncMock()
     device._send = AsyncMock()
+    device._request = AsyncMock(return_value=SimpleNamespace(payload=bytes(stale)))
 
-    # Act - request the failed field-7 transition through the grouped API.
-    with pytest.raises(DeviceError, match="field 7 failed") as raised:
+    # Act - request Delay On after the underlying 36-byte record changed.
+    with pytest.raises(GlobalSettingUpdateError, match="changed before") as raised:
         await device.set_delay_overrun(
             object(),
             delay_enabled=True,
@@ -2357,9 +2412,84 @@ async def test_delay_enabled_is_blocked_after_physical_readback_mismatch() -> No
             overrun_minutes=10,
         )
 
-    # Assert - the rejection is explicit and no packet-136 write is attempted.
+    # Assert - no packet-136 write is sent and writable state requires recovery.
+    assert "no update was sent" in str(raised.value)
+    device._send.assert_not_awaited()
+    assert not device.global_settings_write_ready
+
+
+@pytest.mark.asyncio
+async def test_delay_enabled_rejects_combined_device_writes() -> None:
+    """The device boundary also keeps candidate field 7 isolated."""
+
+    # Arrange - prepare the exact identity with a fresh unchanged baseline.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    confirmed = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    device._confirmed_global_settings = confirmed
+    device._global_settings_write_ready = True
+    device.connect = AsyncMock()
+    device._send = AsyncMock()
+    device._request = AsyncMock(
+        return_value=SimpleNamespace(payload=confirmed.raw_record)
+    )
+
+    # Act - combine Delay On with a timer mutation through the device API.
+    with pytest.raises(ProtocolError, match="must be changed by itself") as raised:
+        await device.set_delay_overrun(
+            object(),
+            delay_enabled=True,
+            delay_minutes=11,
+            overrun_enabled=True,
+            overrun_minutes=10,
+        )
+
+    # Assert - the candidate guard rejects the plan before packet-136 I/O.
     assert raised.value
     device._send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delay_enabled_mismatch_captures_official_routing_evidence() -> None:
+    """A field-7 failure retains every byte needed for physical diagnosis."""
+
+    # Arrange - make the unit ignore a False-to-True field-7 candidate write.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    current = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    device._confirmed_global_settings = current
+    device._global_settings_write_ready = True
+    device._send = AsyncMock()
+    device._request = AsyncMock(
+        return_value=SimpleNamespace(payload=current.raw_record)
+    )
+    payload = encode_global_setting_update(GlobalSettingField.DELAY_ENABLED, True)
+
+    # Act - send the official-routing candidate and receive the unchanged record.
+    with pytest.raises(GlobalSettingUpdateError) as raised:
+        await device._set_global_setting_locked(
+            GlobalSettingField.DELAY_ENABLED, True
+        )
+
+    # Assert - field, value, target, payload, records, and offset are captured.
+    message = str(raised.value)
+    assert "field 7" in message
+    assert "requested=1" in message
+    assert "target=1" in message
+    assert f"payload={payload.hex()}" in message
+    assert "7:01->00" in message
+    assert f"expected={current.raw_record[:7].hex()}01" in message
+    assert f"received={current.raw_record.hex()}" in message
+    assert not device.global_settings_write_ready
 
 
 @pytest.mark.asyncio

@@ -1115,6 +1115,18 @@ def encode_global_setting_update(
     )
 
 
+def global_setting_update_target(
+    field: GlobalSettingField | int, value: int | bool
+) -> int:
+    """Return the recovered packet destination for one setting update."""
+
+    normalized_field = _normalize_global_setting_field(field)
+    encoded_value = encode_global_setting_value(normalized_field, value)
+    if normalized_field == GlobalSettingField.DELAY_ENABLED:
+        return encoded_value[0]
+    return 0
+
+
 def global_settings_after_update(
     settings: GlobalSettings,
     field: GlobalSettingField | int,

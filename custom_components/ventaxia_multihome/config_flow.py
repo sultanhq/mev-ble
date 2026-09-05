@@ -1275,7 +1275,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         if user_input is not None:
             try:
                 profile = (
-                    settings.delay_enabled,
+                    user_input[CONF_DELAY_ENABLED],
                     self._integer_setting(user_input[CONF_DELAY_TIMEOUT]),
                     user_input[CONF_OVERRUN_ENABLED],
                     self._integer_setting(user_input[CONF_OVERRUN_TIMEOUT]),
@@ -1290,7 +1290,12 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             except (KeyError, ProtocolError, TypeError, ValueError):
                 errors = {"base": "delay_overrun_invalid"}
             else:
-                if not plan:
+                delay_changed = profile[0] != settings.delay_enabled
+                if delay_changed and plan != (
+                    (GlobalSettingField.DELAY_ENABLED, profile[0]),
+                ):
+                    errors = {"base": "delay_overrun_candidate_isolated"}
+                elif not plan:
                     errors = {"base": "delay_overrun_unchanged"}
                 else:
                     self._delay_overrun = profile
@@ -1301,6 +1306,10 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             step_id="delay_overrun",
             data_schema=vol.Schema(
                 {
+                    vol.Required(
+                        CONF_DELAY_ENABLED,
+                        default=settings.delay_enabled,
+                    ): selector.BooleanSelector(),
                     vol.Required(
                         CONF_DELAY_TIMEOUT,
                         default=settings.delay_timeout_minutes,

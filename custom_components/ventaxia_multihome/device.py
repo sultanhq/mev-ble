@@ -23,6 +23,7 @@ from .capabilities import (
     AIRFLOW_FIELDS,
     BOOST_MINIMUM_FIELDS,
     COMFORT_MODE_FIELDS,
+    DELAY_ENABLED_VALIDATION_FIELDS,
     DELAY_OVERRUN_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
     LOW_TEMPERATURE_PROTECTION_FIELDS,
@@ -73,6 +74,7 @@ from .protocol import (
     encode_silent_hour_request,
     encode_silent_hour_update,
     encode_user_override,
+    global_setting_update_target,
     global_settings_after_update,
     plan_airflow_profile_updates,
     plan_comfort_mode_update,
@@ -284,9 +286,13 @@ class MultihomeDevice:
 
     @property
     def supports_delay_overrun_configuration(self) -> bool:
-        """Return whether the physically validated LS timers are writable."""
+        """Return whether validated timers and the field-7 candidate are writable."""
 
-        return DELAY_OVERRUN_FIELDS <= self.writable_installer_fields
+        return (
+            DELAY_OVERRUN_FIELDS <= self.writable_installer_fields
+            and DELAY_ENABLED_VALIDATION_FIELDS
+            <= self.configurable_installer_fields
+        )
 
     @property
     def supports_temperature_threshold_validation(self) -> bool:
@@ -686,22 +692,37 @@ class MultihomeDevice:
                 raise GlobalSettingsUnavailableError(
                     "global settings must be read successfully before an update"
                 )
-            if (
-                confirmed.delay_enabled is None
-                or delay_enabled != confirmed.delay_enabled
-            ):
-                raise DeviceError(
-                    "Delay On enable is read-only after field 7 failed physical "
-                    "readback validation"
+            fresh = decode_global_settings(
+                (
+                    await self._request(
+                        PacketType.GLOBAL_DATA,
+                        Operation.DATA_REQUEST,
+                    )
+                ).payload
+            )
+            if fresh.raw_record != confirmed.raw_record:
+                self._global_settings_write_ready = False
+                raise GlobalSettingUpdateError(
+                    "global settings changed before the Delay On/Overrun write; "
+                    f"confirmed={confirmed.raw_record.hex()}; "
+                    f"received={fresh.raw_record.hex()}; no update was sent and "
+                    "the last confirmed snapshot was retained"
                 )
             plan = plan_delay_overrun_updates(
-                confirmed,
+                fresh,
                 delay_enabled=delay_enabled,
                 delay_minutes=delay_minutes,
                 overrun_enabled=overrun_enabled,
                 overrun_minutes=overrun_minutes,
             )
-            result = confirmed
+            if delay_enabled != fresh.delay_enabled and plan != (
+                (GlobalSettingField.DELAY_ENABLED, delay_enabled),
+            ):
+                raise ProtocolError(
+                    "Delay On field 7 must be changed by itself during "
+                    "prerelease validation"
+                )
+            result = fresh
             for field, value in plan:
                 result = await self._set_global_setting_locked(field, value)
             return result
@@ -862,11 +883,23 @@ class MultihomeDevice:
             )
         expected = global_settings_after_update(confirmed, field, value)
         payload = encode_global_setting_update(field, value)
+        target = global_setting_update_target(field, value)
+        normalized_value = int(value)
+        _LOGGER.debug(
+            "Global setting write field=%d requested=%d target=%d payload=%s "
+            "expected=%s",
+            int(field),
+            normalized_value,
+            target,
+            payload.hex(),
+            expected.raw_record.hex(),
+        )
         try:
             await self._send(
                 PacketType.GLOBAL_DATA_FIELD,
                 Operation.UPDATE,
                 payload,
+                target=target,
             )
             response = await self._request(
                 PacketType.GLOBAL_DATA,
@@ -876,9 +909,18 @@ class MultihomeDevice:
         except Exception as err:
             self._global_settings_write_ready = False
             raise GlobalSettingUpdateError(
-                "global setting update was not confirmed; "
+                "global setting update was not confirmed for "
+                f"field {int(field)}; requested={normalized_value}; "
+                f"target={target}; payload={payload.hex()}; "
                 "the last confirmed snapshot was retained"
             ) from err
+        _LOGGER.debug(
+            "Global setting readback field=%d requested=%d target=%d received=%s",
+            int(field),
+            normalized_value,
+            target,
+            received.raw_record.hex(),
+        )
         if received.raw_record != expected.raw_record:
             self._global_settings_write_ready = False
             differences = ", ".join(
@@ -890,7 +932,9 @@ class MultihomeDevice:
             )
             raise GlobalSettingUpdateError(
                 "global setting readback did not match the requested update "
-                f"for field {int(field)}; differing bytes [{differences}]; "
+                f"for field {int(field)}; requested={normalized_value}; "
+                f"target={target}; payload={payload.hex()}; "
+                f"differing bytes [{differences}]; "
                 f"expected={expected.raw_record.hex()}; "
                 f"received={received.raw_record.hex()}; "
                 "the last confirmed snapshot was retained"
