@@ -135,9 +135,13 @@ time**. Fields 8–10 were independently changed, read back exactly, and restore
 readback. These settings affect mains-voltage switched-live inputs; their
 runtime electrical timing was not tested because no such input was connected.
 
-**Boost minimum** remains a read-only diagnostic. Although 0% → 1% → 0% was
-stored and restored successfully, its operating meaning, dependencies, and a
-safe general range are not established.
+Version 0.6.3 RC4 adds **Configure → Configure Boost minimum** on the same exact
+identity. It accepts the recovered one-byte 0–100% wire range, displays current
+and proposed values, rejects a stale full settings record, writes only field 4,
+and requires exact fresh packet-137 readback. The installed unit stored and
+restored 0% → 1% → 0%; that proves storage and restoration only. The flow warns
+that its runtime effect and relationship to the commissioned airflow profile
+remain uncharacterised, and the diagnostic entity remains the readback mirror.
 
 The application setup code, BLE address and config-entry unique ID are redacted
 from downloaded diagnostics. Internal routing addresses used to explain CO₂

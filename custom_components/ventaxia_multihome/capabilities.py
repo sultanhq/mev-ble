@@ -142,8 +142,12 @@ INSTALLER_FIELD_DEFINITIONS: Final = {
     GlobalSettingField.BOOST_MINIMUM: _field(
         GlobalSettingField.BOOST_MINIMUM,
         unit="percent",
-        dependencies=_UNVALIDATED_DEPENDENCY,
+        dependencies=(
+            "runtime meaning and relationship to the airflow profile are "
+            "uncharacterised"
+        ),
         risk=InstallerFieldRisk.VENTILATION,
+        evidence=CapabilityEvidence.PHYSICAL_VALIDATION,
     ),
     GlobalSettingField.HUMIDITY_THRESHOLD: _field(
         GlobalSettingField.HUMIDITY_THRESHOLD,
@@ -378,7 +382,7 @@ HUMIDITY_RESPONSE_FIELDS: Final = frozenset(
 
 COMFORT_MODE_FIELDS: Final = frozenset({GlobalSettingField.COMFORT_ENABLED})
 
-BOOST_MINIMUM_VALIDATION_FIELDS: Final = frozenset({GlobalSettingField.BOOST_MINIMUM})
+BOOST_MINIMUM_FIELDS: Final = frozenset({GlobalSettingField.BOOST_MINIMUM})
 
 DELAY_OVERRUN_FIELDS: Final = frozenset(
     {
@@ -410,6 +414,7 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
             AIRFLOW_FIELDS
             | SENSOR_THRESHOLD_FIELDS
             | HUMIDITY_RESPONSE_FIELDS
+            | BOOST_MINIMUM_FIELDS
             | COMFORT_MODE_FIELDS
             | DELAY_OVERRUN_FIELDS
             | TEMPERATURE_VALIDATION_FIELDS
@@ -420,6 +425,8 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
             "airflow 6/8/37/50 -> 7/9/38/51 -> 6/8/37/50; "
             "thresholds 81/1500/1750 -> 82/1550/1800 -> 81/1500/1750; "
             "rapid and ambient response independently changed and restored; "
+            "Boost minimum changed 0 -> 1 -> 0 with exact full-record readback "
+            "and unchanged neighbours; "
             "comfort mode disabled and restored enabled; fields 8..10 changed "
             "and restored with exact readback while field 7 remained blocked; "
             "temperature fields 17..20 changed independently and restored to "

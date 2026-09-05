@@ -83,8 +83,10 @@ from .protocol import (
     DEFAULT_CO2_CALIBRATION_REFERENCE,
     GLOBAL_CO2_THRESHOLD_STEP,
     GLOBAL_SETTING_FIELD_SPECS,
+    MAX_BOOST_MINIMUM,
     MAX_CO2_CALIBRATION_REFERENCE,
     MAX_GLOBAL_TIMER_MINUTES,
+    MIN_BOOST_MINIMUM,
     MIN_CO2_CALIBRATION_REFERENCE,
     MIN_GLOBAL_TIMER_MINUTES,
     GlobalSettingField,
@@ -446,10 +448,10 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         ):
             menu_options.append("airflow_profile")
         if (
-            coordinator.device.supports_boost_minimum_validation
+            coordinator.device.supports_boost_minimum_configuration
             and self._current_boost_minimum_settings() is not None
         ):
-            menu_options.append("boost_minimum_validation")
+            menu_options.append("boost_minimum")
         if (
             coordinator.device.supports_sensor_threshold_configuration
             and coordinator.data is not None
@@ -693,16 +695,16 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             },
         )
 
-    async def async_step_boost_minimum_validation(
+    async def async_step_boost_minimum(
         self,
         user_input: dict[str, Any] | None = None,
         *,
         errors: dict[str, str] | None = None,
     ) -> ConfigFlowResult:
-        """Collect the deliberately restricted field-4 validation value."""
+        """Collect a guarded Boost minimum value."""
 
         coordinator = self.config_entry.runtime_data
-        if not coordinator.device.supports_boost_minimum_validation:
+        if not coordinator.device.supports_boost_minimum_configuration:
             return self.async_abort(reason="boost_minimum_not_supported")
         settings = self._current_boost_minimum_settings()
         if settings is None:
@@ -714,7 +716,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             except (KeyError, TypeError, ValueError):
                 errors = {"base": "boost_minimum_invalid"}
             else:
-                if value not in {0, 1}:
+                if not MIN_BOOST_MINIMUM <= value <= MAX_BOOST_MINIMUM:
                     errors = {"base": "boost_minimum_invalid"}
                 elif value == settings.boost_minimum:
                     errors = {"base": "boost_minimum_unchanged"}
@@ -724,7 +726,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                     return await self.async_step_boost_minimum_confirm()
 
         return self.async_show_form(
-            step_id="boost_minimum_validation",
+            step_id="boost_minimum",
             data_schema=vol.Schema(
                 {
                     vol.Required(
@@ -732,8 +734,8 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                         default=settings.boost_minimum,
                     ): selector.NumberSelector(
                         selector.NumberSelectorConfig(
-                            min=0,
-                            max=1,
+                            min=MIN_BOOST_MINIMUM,
+                            max=MAX_BOOST_MINIMUM,
                             step=1,
                             mode=selector.NumberSelectorMode.BOX,
                             unit_of_measurement="%",
@@ -764,7 +766,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                 elif settings.raw_record != self._boost_minimum_baseline_raw:
                     self._boost_minimum = None
                     self._boost_minimum_baseline_raw = None
-                    return await self.async_step_boost_minimum_validation(
+                    return await self.async_step_boost_minimum(
                         errors={"base": "boost_minimum_settings_changed"}
                     )
                 else:
@@ -1791,10 +1793,13 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         return settings
 
     def _current_boost_minimum_settings(self) -> GlobalSettings | None:
-        """Return a current field-4 snapshot within the validation envelope."""
+        """Return a current field-4 snapshot within the recovered wire bounds."""
 
         settings = self._current_sensor_threshold_settings()
-        if settings is None or settings.boost_minimum not in {0, 1}:
+        if (
+            settings is None
+            or not MIN_BOOST_MINIMUM <= settings.boost_minimum <= MAX_BOOST_MINIMUM
+        ):
             return None
         return settings
 

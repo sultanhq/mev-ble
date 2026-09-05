@@ -1242,19 +1242,19 @@ async def test_humidity_response_updates_each_flag_with_exact_readback() -> None
 @pytest.mark.parametrize(
     ("model", "firmware", "hardware", "supported"),
     [
-        ("10", "2.03.08", "01.00", False),
+        ("10", "2.03.08", "01.00", True),
         ("10", "2.03.09", "01.00", False),
         ("10", "2.03.08", "01.01", False),
         ("2", "2.03.08", "01.00", False),
     ],
 )
-def test_boost_minimum_validation_requires_exact_identity(
+def test_boost_minimum_configuration_requires_exact_identity(
     model: str,
     firmware: str,
     hardware: str,
     supported: bool,
 ) -> None:
-    """Field 4 remains read-only even on the physically tested identity."""
+    """Field 4 is writable only for the physically tested identity."""
 
     # Arrange - apply one exact or near-match device identity.
     device = MultihomeDevice("AA", "MEV", 1234)
@@ -1262,16 +1262,19 @@ def test_boost_minimum_validation_requires_exact_identity(
         model=model, firmware=firmware, hardware=hardware
     )
 
-    # Act - evaluate the removed candidate capability gate.
-    result = device.supports_boost_minimum_validation
+    # Act - evaluate the exact-identity capability gate.
+    result = device.supports_boost_minimum_configuration
 
-    # Assert - uncertain runtime semantics keep field 4 unavailable everywhere.
+    # Assert - firmware, hardware, and model must all match.
     assert result is supported
 
 
 @pytest.mark.asyncio
-async def test_boost_minimum_write_is_blocked_before_ble() -> None:
-    """The removed field-4 candidate cannot send even the tested value."""
+@pytest.mark.parametrize("value", [-1, 101, True, 1.5])
+async def test_boost_minimum_rejects_invalid_value_before_ble(
+    value: object,
+) -> None:
+    """Invalid field-4 values are rejected before Bluetooth I/O."""
 
     # Arrange - prepare the exact tested identity without opening transport.
     device = MultihomeDevice("AA", "MEV", 1234)
@@ -1280,13 +1283,116 @@ async def test_boost_minimum_write_is_blocked_before_ble() -> None:
     )
     device.connect = AsyncMock()
 
-    # Act - request the previously tested 1% storage value.
-    with pytest.raises(DeviceError, match="not enabled") as raised:
-        await device.set_boost_minimum(object(), value=1)
+    # Act - request a non-integer or out-of-range value.
+    with pytest.raises(ProtocolError, match="between 0% and 100%") as raised:
+        await device.set_boost_minimum(object(), value=value)  # type: ignore[arg-type]
 
-    # Assert - the read-only disposition rejects it before Bluetooth operation.
+    # Assert - validation rejects it before Bluetooth operation.
     assert raised.value
     device.connect.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [0, 100])
+async def test_boost_minimum_accepts_bounds_and_preserves_unrelated_bytes(
+    value: int,
+) -> None:
+    """Both field-4 bounds preserve all 35 unrelated settings bytes."""
+
+    # Arrange - emulate firmware applying exactly one RawWithId field-4 write.
+    record = bytearray(decode_packet(_responses()[2]).payload)
+    record[4] = 50
+    current = decode_global_settings(bytes(record))
+    sent: list[bytes] = []
+
+    class ApplyingTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            nonlocal current
+            sent.append(packet)
+            wrapped = decode_data_object_array(decode_packet(packet).payload)
+            assert wrapped.object_id == GlobalSettingField.BOOST_MINIMUM
+            current = global_settings_after_update(
+                current,
+                GlobalSettingField.BOOST_MINIMUM,
+                wrapped.payload[0],
+            )
+
+        async def request(self, packet: bytes) -> bytes:
+            return encode_packet(
+                PacketType.GLOBAL_DATA,
+                Operation.RESPONSE,
+                current.raw_record,
+                timestamp=2,
+            )
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._client = DeviceClient([])
+    device._transport = ApplyingTransport()
+    device._authenticated = True
+    device._confirmed_global_settings = current
+    device._global_settings_write_ready = True
+    baseline = current.raw_record
+
+    # Act - write one inclusive boundary and require the fresh full-record readback.
+    result = await device.set_boost_minimum(object(), value=value)
+
+    # Assert - packet 136 targets only field 4 and every other byte is unchanged.
+    wrapped = decode_data_object_array(decode_packet(sent[0]).payload)
+    assert wrapped.object_id == GlobalSettingField.BOOST_MINIMUM
+    assert wrapped.payload == bytes([value])
+    assert result.boost_minimum == value
+    assert result.raw_record[:4] == baseline[:4]
+    assert result.raw_record[5:] == baseline[5:]
+    assert device.confirmed_global_settings == result
+
+
+@pytest.mark.asyncio
+async def test_boost_minimum_mismatch_retains_last_confirmed_snapshot() -> None:
+    """An unexpected field-4 readback cannot become confirmed state."""
+
+    # Arrange - emulate firmware returning the unchanged complete settings record.
+    current_record = decode_packet(_responses()[2]).payload
+    confirmed = decode_global_settings(current_record)
+    sent: list[bytes] = []
+
+    class MismatchTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            sent.append(packet)
+
+        async def request(self, packet: bytes) -> bytes:
+            return encode_packet(
+                PacketType.GLOBAL_DATA,
+                Operation.RESPONSE,
+                current_record,
+                timestamp=2,
+            )
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._client = DeviceClient([])
+    device._transport = MismatchTransport()
+    device._authenticated = True
+    device._confirmed_global_settings = confirmed
+    device._global_settings_write_ready = True
+
+    # Act - request a valid change whose exact readback does not match.
+    with pytest.raises(GlobalSettingUpdateError, match="did not match") as raised:
+        await device.set_boost_minimum(object(), value=50)
+
+    # Assert - one write occurred, the old snapshot remains, and writes are blocked.
+    assert raised.value
+    assert len(sent) == 1
+    assert device.confirmed_global_settings == confirmed
+    assert device.global_settings_write_ready is False
 
 
 @pytest.mark.parametrize(

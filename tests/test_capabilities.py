@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from custom_components.ventaxia_multihome.capabilities import (
     AIRFLOW_FIELDS,
+    BOOST_MINIMUM_FIELDS,
     COMFORT_MODE_FIELDS,
     DELAY_OVERRUN_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
@@ -110,6 +111,10 @@ def test_field_matrix_separates_wire_bounds_from_physical_write_evidence() -> No
     assert humidity.evidence is CapabilityEvidence.PHYSICAL_VALIDATION
     assert co2.evidence is CapabilityEvidence.PHYSICAL_VALIDATION
 
+    boost_minimum = INSTALLER_FIELD_DEFINITIONS[GlobalSettingField.BOOST_MINIMUM]
+    assert boost_minimum.evidence is CapabilityEvidence.PHYSICAL_VALIDATION
+    assert "runtime meaning" in boost_minimum.dependencies
+
 
 def test_temperature_metadata_matches_the_recovered_multihome_screen() -> None:
     """Temperature diagnostics use only limits and actions shown by the MEV app."""
@@ -166,6 +171,7 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
             AIRFLOW_FIELDS
             | SENSOR_THRESHOLD_FIELDS
             | HUMIDITY_RESPONSE_FIELDS
+            | BOOST_MINIMUM_FIELDS
             | COMFORT_MODE_FIELDS
             | DELAY_OVERRUN_FIELDS
             | TEMPERATURE_VALIDATION_FIELDS

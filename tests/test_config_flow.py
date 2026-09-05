@@ -134,7 +134,7 @@ def _options_entry(
         device=SimpleNamespace(
             supports_internal_co2_calibration=supports_calibration,
             supports_global_airflow_configuration=supports_airflow,
-            supports_boost_minimum_validation=supports_boost_minimum,
+            supports_boost_minimum_configuration=supports_boost_minimum,
             supports_sensor_threshold_configuration=supports_thresholds,
             supports_humidity_response_configuration=supports_humidity_response,
             supports_comfort_mode_configuration=supports_comfort_mode,
@@ -229,13 +229,13 @@ async def _open_humidity_response_options(hass, entry):
 
 
 async def _open_boost_minimum_options(hass, entry):
-    """Open the restricted Boost minimum validation screen."""
+    """Open the guarded Boost minimum configuration screen."""
 
     initial = await hass.config_entries.options.async_init(entry.entry_id)
     assert initial["type"] is data_entry_flow.FlowResultType.MENU
     assert initial["step_id"] == "init"
     return await hass.config_entries.options.async_configure(
-        initial["flow_id"], {"next_step_id": "boost_minimum_validation"}
+        initial["flow_id"], {"next_step_id": "boost_minimum"}
     )
 
 
@@ -774,15 +774,15 @@ async def test_humidity_response_rechecks_full_snapshot_before_write(hass) -> No
 
 @pytest.mark.asyncio
 async def test_boost_minimum_requires_review_and_confirmation(hass) -> None:
-    """The temporary field-4 value is written only after explicit confirmation."""
+    """A field-4 value is written only after explicit confirmation."""
 
     # Arrange - open the exact-identity flow with the observed 0% baseline.
     entry, coordinator = _options_entry(hass, supports_boost_minimum=True)
     form = await _open_boost_minimum_options(hass, entry)
 
-    # Act - request 1%, decline once, then confirm explicitly.
+    # Act - request a general in-range value, decline once, then confirm explicitly.
     confirm = await hass.config_entries.options.async_configure(
-        form["flow_id"], {CONF_BOOST_MINIMUM: 1}
+        form["flow_id"], {CONF_BOOST_MINIMUM: 50}
     )
     declined = await hass.config_entries.options.async_configure(
         confirm["flow_id"], {CONF_CONFIRM_BOOST_MINIMUM: False}
@@ -792,10 +792,10 @@ async def test_boost_minimum_requires_review_and_confirmation(hass) -> None:
     )
 
     # Assert - no write precedes confirmation and the result is explicit.
-    assert form["step_id"] == "boost_minimum_validation"
+    assert form["step_id"] == "boost_minimum"
     assert confirm["step_id"] == "boost_minimum_confirm"
     assert declined["errors"] == {"base": "boost_minimum_confirmation_required"}
-    coordinator.async_set_boost_minimum.assert_awaited_once_with(value=1)
+    coordinator.async_set_boost_minimum.assert_awaited_once_with(value=50)
     assert result["step_id"] == "boost_minimum_result"
 
 
@@ -803,11 +803,11 @@ async def test_boost_minimum_requires_review_and_confirmation(hass) -> None:
 async def test_boost_minimum_rechecks_full_snapshot_before_write(hass) -> None:
     """Any intervening packet-137 change invalidates the field-4 review."""
 
-    # Arrange - review the restricted 0% to 1% change.
+    # Arrange - review a guarded 0% to 50% change.
     entry, coordinator = _options_entry(hass, supports_boost_minimum=True)
     form = await _open_boost_minimum_options(hass, entry)
     confirm = await hass.config_entries.options.async_configure(
-        form["flow_id"], {CONF_BOOST_MINIMUM: 1}
+        form["flow_id"], {CONF_BOOST_MINIMUM: 50}
     )
     changed = bytearray(coordinator.data.global_settings.raw_record)
     changed[5] += 1
@@ -819,27 +819,47 @@ async def test_boost_minimum_rechecks_full_snapshot_before_write(hass) -> None:
     )
 
     # Assert - the complete snapshot guard blocks Bluetooth I/O.
-    assert result["step_id"] == "boost_minimum_validation"
+    assert result["step_id"] == "boost_minimum"
     assert result["errors"] == {"base": "boost_minimum_settings_changed"}
     coordinator.async_set_boost_minimum.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_boost_minimum_rejects_unvalidated_percentage(hass) -> None:
-    """The Home Assistant selector cannot submit a general field-4 percentage."""
+@pytest.mark.parametrize("value", [-1, 101])
+async def test_boost_minimum_rejects_out_of_range_percentage(hass, value: int) -> None:
+    """The Home Assistant selector rejects values outside the recovered bounds."""
 
-    # Arrange - open the exact-identity restricted validation screen.
+    # Arrange - open the exact-identity guarded configuration screen.
     entry, coordinator = _options_entry(hass, supports_boost_minimum=True)
     form = await _open_boost_minimum_options(hass, entry)
 
-    # Act - submit a value outside the deliberate 0%/1% envelope.
+    # Act - submit a value outside the recovered 0% to 100% wire range.
     with pytest.raises(data_entry_flow.InvalidData) as raised:
         await hass.config_entries.options.async_configure(
-            form["flow_id"], {CONF_BOOST_MINIMUM: 2}
+            form["flow_id"], {CONF_BOOST_MINIMUM: value}
         )
 
     # Assert - schema validation rejects it before coordinator or Bluetooth I/O.
     assert raised.value
+    coordinator.async_set_boost_minimum.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_boost_minimum_rejects_unchanged_value(hass) -> None:
+    """The guarded flow requires a real field-4 change."""
+
+    # Arrange - open the flow with the installed unit's 0% baseline.
+    entry, coordinator = _options_entry(hass, supports_boost_minimum=True)
+    form = await _open_boost_minimum_options(hass, entry)
+
+    # Act - submit the unchanged current value.
+    result = await hass.config_entries.options.async_configure(
+        form["flow_id"], {CONF_BOOST_MINIMUM: 0}
+    )
+
+    # Assert - the flow stays on review and no write reaches the coordinator.
+    assert result["step_id"] == "boost_minimum"
+    assert result["errors"] == {"base": "boost_minimum_unchanged"}
     coordinator.async_set_boost_minimum.assert_not_awaited()
 
 

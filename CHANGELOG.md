@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.3-rc.4] - 2026-09-05
+
+### Added
+
+- Add an exact-identity guarded Boost minimum installer control for packet-136
+  field 4 using the recovered 0–100% wire range.
+
+### Safety
+
+- Preserve the full-record stale check, one-field packet-136 write, and exact
+  fresh packet-137 readback before publishing a new value.
+- Warn that 0% → 1% → 0% proves storage and restoration only; the runtime effect
+  and relationship to the commissioned airflow profile remain uncharacterised.
+
 ## [0.6.3-rc.3] - 2026-09-04
 
 ### Changed

@@ -24,6 +24,8 @@ MIN_CO2_CALIBRATION_REFERENCE: Final = 400
 MAX_CO2_CALIBRATION_REFERENCE: Final = 2000
 DEFAULT_CO2_CALIBRATION_REFERENCE: Final = 450
 GLOBAL_SETTINGS_SIZE: Final = 36
+MIN_BOOST_MINIMUM: Final = 0
+MAX_BOOST_MINIMUM: Final = 100
 MIN_GLOBAL_CO2_THRESHOLD: Final = 0
 MAX_GLOBAL_CO2_THRESHOLD: Final = 2000
 GLOBAL_CO2_THRESHOLD_STEP: Final = 10
@@ -886,7 +888,7 @@ GLOBAL_SETTING_FIELD_SPECS: Final = {
     GlobalSettingField.SPEED_BOOST: GlobalSettingFieldSpec("speed_boost", 2, 3, 99),
     GlobalSettingField.SPEED_PURGE: GlobalSettingFieldSpec("speed_purge", 3, 4, 100),
     GlobalSettingField.BOOST_MINIMUM: GlobalSettingFieldSpec(
-        "boost_minimum", 4, 0, 100
+        "boost_minimum", 4, MIN_BOOST_MINIMUM, MAX_BOOST_MINIMUM
     ),
     GlobalSettingField.HUMIDITY_THRESHOLD: GlobalSettingFieldSpec(
         "humidity_threshold", 5, 0, 100

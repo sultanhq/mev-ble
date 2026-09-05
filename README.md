@@ -87,8 +87,8 @@ Detailed instructions:
   value; unknown units, scaling, and action meanings remain explicit raw codes
 - Guarded four-level airflow commissioning for a validated device identity,
   with exact readback and explicit review
-- Read-only Boost minimum diagnostics; its reversible 0%/1% storage test did
-  not establish a safe general configuration range or operating meaning
+- Guarded Boost minimum configuration across the recovered 0–100% wire range
+  on the exact validated identity; runtime meaning remains explicitly unresolved
 - Guarded CO₂/humidity threshold configuration on the exact physically validated
   model/firmware/hardware identity
 - Guarded Rapid/Ambient humidity-response configuration on the exact physically

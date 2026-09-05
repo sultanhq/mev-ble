@@ -66,7 +66,7 @@ changes before final confirmation.
 Measured **Fan RPM** remains telemetry. It can vary for the same configured
 percentage because duct resistance and motor load differ between installations.
 
-## Boost minimum remains read-only
+## Guarded Boost minimum flow
 
 The official-client enum names packet-136 field 4 `BoostMin`, and the validated
 unit reports a baseline of 0% alongside its 6/8/37/50% commissioned airflow
@@ -74,9 +74,16 @@ profile. Available primary evidence does not yet define the setting's operating
 meaning or profile dependency.
 
 The exact validation unit successfully stored and restored 0% → 1% → 0% with
-exact packet-137 readback. That proves only isolated storage. Because it did not
-establish the setting's operating meaning, dependencies, or safe general range,
-the validation flow has been removed and field 4 remains read-only.
+exact packet-137 readback and unchanged neighbouring bytes. On that exact
+identity, the prerelease exposes **Configure → Configure Boost minimum** across
+the recovered 0–100% wire range. It shows current and proposed values, requires
+explicit acknowledgement, rejects a stale full record, sends only field 4, and
+accepts success only after exact fresh packet-137 readback.
+
+This proves isolated storage and restoration, not runtime behaviour. The flow
+therefore warns that the setting's operating meaning and relationship to the
+commissioned airflow profile remain uncharacterised. Fan level, RPM, and state
+observations must be recorded separately.
 
 ## Model capability matrix
 
@@ -102,7 +109,7 @@ The only installer write profile currently enabled is:
 
 | Model | Firmware | Hardware | Writable fields | Evidence |
 | ---: | --- | --- | --- | --- |
-| 10 | `2.03.08` | `01.00` | IDs 0–3 airflow; ID 5 humidity; ID 6 Comfort; IDs 14–15 humidity response; IDs 21–22 CO₂ thresholds | Fragmented packet-136 writes with exact packet-137 readback and restored baselines |
+| 10 | `2.03.08` | `01.00` | IDs 0–6 except blocked ID 7; IDs 8–10, 14–22 | Fragmented packet-136 writes with exact packet-137 readback and restored baselines; field 4 runtime meaning remains uncharacterised |
 
 All three identity values must match. Missing identity data, a newer firmware, or
 a different hardware revision exposes no installer controls until separately
@@ -135,7 +142,7 @@ are proven.
 | 1 | `speed_medium` | 1 | UInt8, % | 2–98, step 1 | `low < normal < boost < purge` | Ventilation | Physical; exact validated identity only |
 | 2 | `speed_boost` | 2 | UInt8, % | 3–99, step 1 | `low < normal < boost < purge` | Ventilation | Physical; exact validated identity only |
 | 3 | `speed_purge` | 3 | UInt8, % | 4–100, step 1 | `low < normal < boost < purge` | Ventilation | Physical; exact validated identity only |
-| 4 | `boost_minimum` | 4 | UInt8, % | 0–100 | Model-specific interaction | Ventilation | Static; read-only |
+| 4 | `boost_minimum` | 4 | UInt8, % | 0–100 | Runtime meaning and airflow-profile relationship uncharacterised | Ventilation | Physical storage/readback; exact validated identity only |
 | 5 | `humidity_threshold` | 5 | UInt8, %RH | 0–100 | Humidity demand threshold | Sensor control | Physical; exact validated identity only |
 | 6 | `comfort_enabled` | 6 | strict UInt8 boolean | 0/1 | Model-specific interaction | Comfort | Physical; exact validated identity only |
 | 7 | `delay_enabled` | 7 | strict UInt8 boolean | 0/1 | Paired with ID 10; LS inputs only | Wired input | Physical readback mismatch; blocked/read-only |

@@ -473,11 +473,11 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         self.async_set_updated_data(replace(self.data, global_settings=settings))
 
     async def async_set_boost_minimum(self, *, value: int) -> None:
-        """Apply and publish a confirmed restricted Boost minimum value."""
+        """Apply and publish a confirmed Boost minimum value."""
 
-        if not self.device.supports_boost_minimum_validation:
+        if not self.device.supports_boost_minimum_configuration:
             raise BoostMinimumConfigurationNotSupportedError(
-                "Boost minimum validation is not enabled for this model, "
+                "Boost minimum configuration is not enabled for this model, "
                 "firmware, and hardware"
             )
         if (

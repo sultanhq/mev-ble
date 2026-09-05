@@ -21,7 +21,7 @@ from .bluetooth import (
 )
 from .capabilities import (
     AIRFLOW_FIELDS,
-    BOOST_MINIMUM_VALIDATION_FIELDS,
+    BOOST_MINIMUM_FIELDS,
     COMFORT_MODE_FIELDS,
     DELAY_OVERRUN_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
@@ -41,6 +41,8 @@ from .const import (
     WHOLE_PACKET_CHARACTERISTIC_UUID,
 )
 from .protocol import (
+    MAX_BOOST_MINIMUM,
+    MIN_BOOST_MINIMUM,
     SILENT_HOUR_SLOT_COUNT,
     AirflowPreset,
     DeviceType,
@@ -269,10 +271,10 @@ class MultihomeDevice:
         return HUMIDITY_RESPONSE_FIELDS <= self.writable_installer_fields
 
     @property
-    def supports_boost_minimum_validation(self) -> bool:
-        """Return whether the restricted field-4 validation is enabled."""
+    def supports_boost_minimum_configuration(self) -> bool:
+        """Return whether guarded Boost minimum writes are validated."""
 
-        return BOOST_MINIMUM_VALIDATION_FIELDS <= self.configurable_installer_fields
+        return BOOST_MINIMUM_FIELDS <= self.writable_installer_fields
 
     @property
     def supports_comfort_mode_configuration(self) -> bool:
@@ -606,15 +608,22 @@ class MultihomeDevice:
         *,
         value: int,
     ) -> GlobalSettings:
-        """Apply the restricted Boost minimum validation with exact readback."""
+        """Apply guarded Boost minimum with exact packet-137 readback."""
 
-        if not self.supports_boost_minimum_validation:
+        if not self.supports_boost_minimum_configuration:
             raise DeviceError(
-                "Boost minimum validation is not enabled for this model, "
+                "Boost minimum configuration is not enabled for this model, "
                 "firmware, and hardware"
             )
-        if isinstance(value, bool) or value not in {0, 1}:
-            raise ProtocolError("Boost minimum validation is restricted to 0% or 1%")
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not MIN_BOOST_MINIMUM <= value <= MAX_BOOST_MINIMUM
+        ):
+            raise ProtocolError(
+                "Boost minimum must be an integer between "
+                f"{MIN_BOOST_MINIMUM}% and {MAX_BOOST_MINIMUM}%"
+            )
         async with self._operation_lock:
             await self.connect(ble_device)
             if (
