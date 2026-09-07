@@ -140,6 +140,16 @@ before packet-136 I/O. The field can be reconsidered only if the official app
 changes it on this exact unit or a capture proves an additional prerequisite.
 Runtime electrical timing remains a separate test.
 
+Version 0.6.3 RC10 adds **Configure → Validate LS1–LS3 actions** on the same
+exact identity. The flow exposes only the manual's Low, Boost and Purge choices
+for LS1, LS2 and combined LS1+LS2. It requires all switched-live inputs to stay
+inactive, accepts exactly one selector change at a time, rereads the complete
+36-byte baseline immediately before the write, and requires exact packet-137
+readback. Each field must be changed and restored independently before it can
+be promoted from validation candidate to normal installer control. This proves
+stored configuration only; no mains input needs to be exercised during the
+storage test.
+
 Version 0.6.3 RC4 adds **Configure → Configure Boost minimum** on the same exact
 identity. It accepts the recovered one-byte 0–100% wire range, displays current
 and proposed values, rejects a stale full settings record, writes only field 4,

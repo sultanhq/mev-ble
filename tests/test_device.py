@@ -830,7 +830,7 @@ async def test_global_setting_write_rejects_unvalidated_field_before_io() -> Non
     with pytest.raises(DeviceError) as error:
         await device.set_global_setting(
             object(),
-            GlobalSettingField.LS1_ACTION,
+            GlobalSettingField.ANALOGUE_INPUT_1_LOW_ACTION,
             True,
         )
 
@@ -2447,6 +2447,77 @@ async def test_delay_timer_remains_writable_with_delay_enabled_unchanged() -> No
     assert result.raw_record == expected.raw_record
     assert result.delay_enabled is False
     assert result.delay_timeout_minutes == 11
+
+
+@pytest.mark.parametrize(
+    ("model", "firmware", "hardware", "supported"),
+    [
+        ("10", "2.03.08", "01.00", True),
+        ("10", "2.03.09", "01.00", False),
+        ("10", "2.03.08", "01.01", False),
+        ("2", "2.03.08", "01.00", False),
+    ],
+)
+def test_ls_action_validation_requires_exact_identity(
+    model: str, firmware: str, hardware: str, supported: bool
+) -> None:
+    """Switched-live action candidates never widen beyond the tested identity."""
+
+    # Arrange - report one exact or near-miss unit identity.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model=model, firmware=firmware, hardware=hardware
+    )
+
+    # Act - resolve the device-level guard used by coordinator and options flow.
+    result = device.supports_ls_action_validation
+
+    # Assert - only model 10 / 2.03.08 / 01.00 exposes the candidate.
+    assert result is supported
+
+
+@pytest.mark.asyncio
+async def test_ls_action_validation_writes_one_field_with_exact_readback() -> None:
+    """A candidate LS selector preserves every unrelated packet-137 byte."""
+
+    # Arrange - prepare the exact identity, fresh baseline, and field-11 result.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    confirmed = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    expected = global_settings_after_update(
+        confirmed, GlobalSettingField.LS1_ACTION, 3
+    )
+    device._confirmed_global_settings = confirmed
+    device._global_settings_write_ready = True
+    device.connect = AsyncMock()
+    device._send = AsyncMock()
+    device._request = AsyncMock(
+        side_effect=[
+            SimpleNamespace(payload=confirmed.raw_record),
+            SimpleNamespace(payload=expected.raw_record),
+        ]
+    )
+
+    # Act - change only LS1 from Low to Boost.
+    result = await device.set_ls_action_validation(
+        object(), ls1_action=3, ls2_action=3, ls3_action=4
+    )
+
+    # Assert - only field 11 is sent and the exact full record is published.
+    device._send.assert_awaited_once_with(
+        PacketType.GLOBAL_DATA_FIELD,
+        Operation.UPDATE,
+        encode_global_setting_update(GlobalSettingField.LS1_ACTION, 3),
+        target=0,
+    )
+    assert result.raw_record == expected.raw_record
+    assert result.ls1_action == 3
 
 
 @pytest.mark.asyncio

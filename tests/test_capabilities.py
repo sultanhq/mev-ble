@@ -10,6 +10,7 @@ from custom_components.ventaxia_multihome.capabilities import (
     HUMIDITY_RESPONSE_FIELDS,
     INSTALLER_FIELD_DEFINITIONS,
     LOW_TEMPERATURE_PROTECTION_FIELDS,
+    LS_ACTION_VALIDATION_FIELDS,
     MODEL_CAPABILITIES,
     SENSOR_THRESHOLD_FIELDS,
     TEMPERATURE_VALIDATION_FIELDS,
@@ -184,8 +185,8 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     ]
 
 
-def test_rejected_delay_enabled_is_not_a_validation_candidate() -> None:
-    """Field 7 is no longer exposed after both packet targets were rejected."""
+def test_only_ls_actions_are_exact_identity_validation_candidates() -> None:
+    """Fields 11–13 replace the physically rejected field-7 candidate."""
 
     # Arrange - include the intended unit plus firmware, hardware, and model misses.
     identities = [
@@ -200,10 +201,11 @@ def test_rejected_delay_enabled_is_not_a_validation_candidate() -> None:
         installer_validation_candidate_fields(*identity) for identity in identities
     ]
 
-    # Assert - no identity exposes the physically rejected field 7 write.
+    # Assert - only the exact identity exposes LS fields and field 7 stays absent.
     assert resolved == [
-        frozenset(),
+        LS_ACTION_VALIDATION_FIELDS,
         frozenset(),
         frozenset(),
         frozenset(),
     ]
+    assert GlobalSettingField.DELAY_ENABLED not in resolved[0]

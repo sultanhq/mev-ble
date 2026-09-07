@@ -866,6 +866,48 @@ async def test_temperature_validation_publishes_only_confirmed_settings() -> Non
 
 
 @pytest.mark.asyncio
+async def test_ls_action_validation_publishes_only_confirmed_settings() -> None:
+    """A successful LS operation publishes only its exact readback snapshot."""
+
+    # Arrange - retain telemetry and return a distinct confirmed settings object.
+    current = MultihomeData(
+        zone=object(),
+        system=object(),
+        global_settings=_settings(),
+        last_successful_update=datetime.now(UTC),
+    )
+    confirmed = decode_global_settings(bytes(36))
+    ble_device = object()
+    device = SimpleNamespace(
+        supports_ls_action_validation=True,
+        global_settings_write_ready=True,
+        set_ls_action_validation=AsyncMock(return_value=confirmed),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=current,
+        last_update_success=True,
+        _ble_device=lambda: ble_device,
+        async_set_updated_data=Mock(),
+        async_set_update_error=Mock(),
+    )
+
+    # Act - apply one reviewed LS1 action change.
+    await VentaxiaMultihomeCoordinator.async_set_ls_action_validation(
+        coordinator, ls1_action=3, ls2_action=3, ls3_action=4
+    )
+
+    # Assert - only the exact confirmed settings snapshot is replaced.
+    device.set_ls_action_validation.assert_awaited_once_with(
+        ble_device, ls1_action=3, ls2_action=3, ls3_action=4
+    )
+    published = coordinator.async_set_updated_data.call_args.args[0]
+    assert published.global_settings is confirmed
+    assert published.zone is current.zone
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("supported", "data", "last_success", "write_ready", "error"),
     [

@@ -165,6 +165,21 @@ TEMPERATURE_THRESHOLD_ACTION_NAMES: Final = {
     TemperatureThresholdAction.PURGE: "purge",
 }
 
+LS_ACTION_NAMES: Final = {
+    AirflowPreset.LOW: "low",
+    AirflowPreset.BOOST: "boost",
+    AirflowPreset.PURGE: "purge",
+}
+
+
+def ls_action_name(action: int) -> str:
+    """Return a documented LS action name without hiding unknown codes."""
+
+    try:
+        return LS_ACTION_NAMES[AirflowPreset(action)]
+    except (KeyError, ValueError):
+        return f"unknown_{action}"
+
 
 def temperature_threshold_action_name(action: int) -> str:
     """Return a known temperature action name without hiding unknown codes."""
@@ -1331,6 +1346,56 @@ def validate_temperature_threshold_profile(
             )
     if low_threshold >= high_threshold:
         raise ProtocolError("temperature thresholds must satisfy Low < High")
+
+
+def validate_ls_action_profile(
+    ls1_action: int, ls2_action: int, ls3_action: int
+) -> None:
+    """Validate the three action choices documented for switched-live inputs."""
+
+    known_actions = {int(action) for action in LS_ACTION_NAMES}
+    for name, value in {
+        "LS1 action": ls1_action,
+        "LS2 action": ls2_action,
+        "LS3 action": ls3_action,
+    }.items():
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ProtocolError(f"{name} requires an integer action code")
+        if value not in known_actions:
+            raise ProtocolError(f"{name} is not a documented LS action")
+
+
+def plan_ls_action_validation_update(
+    settings: GlobalSettings,
+    *,
+    ls1_action: int,
+    ls2_action: int,
+    ls3_action: int,
+) -> tuple[GlobalSettingField, int]:
+    """Plan exactly one reversible switched-live action validation write."""
+
+    validate_ls_action_profile(
+        settings.ls1_action,
+        settings.ls2_action,
+        settings.ls3_action,
+    )
+    validate_ls_action_profile(ls1_action, ls2_action, ls3_action)
+    current = {
+        GlobalSettingField.LS1_ACTION: settings.ls1_action,
+        GlobalSettingField.LS2_ACTION: settings.ls2_action,
+        GlobalSettingField.LS3_ACTION: settings.ls3_action,
+    }
+    desired = {
+        GlobalSettingField.LS1_ACTION: ls1_action,
+        GlobalSettingField.LS2_ACTION: ls2_action,
+        GlobalSettingField.LS3_ACTION: ls3_action,
+    }
+    changed = tuple(
+        (field, value) for field, value in desired.items() if current[field] != value
+    )
+    if len(changed) != 1:
+        raise ProtocolError("LS action validation requires exactly one changed field")
+    return changed[0]
 
 
 def plan_temperature_validation_update(

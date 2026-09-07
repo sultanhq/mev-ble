@@ -26,6 +26,7 @@ from .capabilities import (
     DELAY_OVERRUN_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
     LOW_TEMPERATURE_PROTECTION_FIELDS,
+    LS_ACTION_VALIDATION_FIELDS,
     SENSOR_THRESHOLD_FIELDS,
     TEMPERATURE_VALIDATION_FIELDS,
     installer_configurable_fields,
@@ -80,6 +81,7 @@ from .protocol import (
     plan_delay_overrun_updates,
     plan_humidity_response_updates,
     plan_low_temperature_protection_validation_update,
+    plan_ls_action_validation_update,
     plan_sensor_threshold_updates,
     plan_temperature_validation_update,
     preserve_unknown_silent_hour_slot,
@@ -305,6 +307,12 @@ class MultihomeDevice:
         """Return whether the three physically validated timer fields are writable."""
 
         return DELAY_OVERRUN_FIELDS <= self.writable_installer_fields
+
+    @property
+    def supports_ls_action_validation(self) -> bool:
+        """Return whether guarded LS action candidates are enabled."""
+
+        return LS_ACTION_VALIDATION_FIELDS <= self.validation_candidate_installer_fields
 
     @property
     def supports_temperature_threshold_validation(self) -> bool:
@@ -809,6 +817,62 @@ class MultihomeDevice:
                 high_action=high_action,
                 low_threshold=low_threshold,
                 high_threshold=high_threshold,
+            )
+            return await self._set_global_setting_locked(field, value)
+
+    async def set_ls_action_validation(
+        self,
+        ble_device: BLEDevice,
+        *,
+        ls1_action: int,
+        ls2_action: int,
+        ls3_action: int,
+    ) -> GlobalSettings:
+        """Apply one guarded switched-live action validation write."""
+
+        if not self.supports_ls_action_validation:
+            raise DeviceError(
+                "LS action validation is not enabled for this model, firmware, "
+                "and hardware"
+            )
+        confirmed = self._confirmed_global_settings
+        if confirmed is None or not self._global_settings_write_ready:
+            raise GlobalSettingsUnavailableError(
+                "global settings must be read successfully before an update"
+            )
+        plan_ls_action_validation_update(
+            confirmed,
+            ls1_action=ls1_action,
+            ls2_action=ls2_action,
+            ls3_action=ls3_action,
+        )
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            confirmed = self._confirmed_global_settings
+            if confirmed is None or not self._global_settings_write_ready:
+                raise GlobalSettingsUnavailableError(
+                    "global settings must be read successfully before an update"
+                )
+            fresh = decode_global_settings(
+                (
+                    await self._request(
+                        PacketType.GLOBAL_DATA,
+                        Operation.DATA_REQUEST,
+                    )
+                ).payload
+            )
+            if fresh.raw_record != confirmed.raw_record:
+                self._global_settings_write_ready = False
+                raise GlobalSettingUpdateError(
+                    "global settings changed before the LS action validation "
+                    "write; no update was sent and the last confirmed snapshot "
+                    "was retained"
+                )
+            field, value = plan_ls_action_validation_update(
+                fresh,
+                ls1_action=ls1_action,
+                ls2_action=ls2_action,
+                ls3_action=ls3_action,
             )
             return await self._set_global_setting_locked(field, value)
 

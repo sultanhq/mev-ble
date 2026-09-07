@@ -8,6 +8,7 @@ from typing import Final
 
 from .protocol import (
     GLOBAL_SETTING_FIELD_SPECS,
+    LS_ACTION_NAMES,
     TEMPERATURE_THRESHOLD_ACTION_NAMES,
     GlobalSettingField,
 )
@@ -192,18 +193,30 @@ INSTALLER_FIELD_DEFINITIONS: Final = {
     ),
     GlobalSettingField.LS1_ACTION: _field(
         GlobalSettingField.LS1_ACTION,
-        dependencies=_INPUT_DEPENDENCY,
+        unit="action_code",
+        dependencies="switched-live input; Low, Boost or Purge",
         risk=InstallerFieldRisk.WIRED_INPUT,
+        known_values=tuple(
+            (int(action), name) for action, name in LS_ACTION_NAMES.items()
+        ),
     ),
     GlobalSettingField.LS2_ACTION: _field(
         GlobalSettingField.LS2_ACTION,
-        dependencies=_INPUT_DEPENDENCY,
+        unit="action_code",
+        dependencies="switched-live input; Low, Boost or Purge",
         risk=InstallerFieldRisk.WIRED_INPUT,
+        known_values=tuple(
+            (int(action), name) for action, name in LS_ACTION_NAMES.items()
+        ),
     ),
     GlobalSettingField.LS3_ACTION: _field(
         GlobalSettingField.LS3_ACTION,
-        dependencies=_INPUT_DEPENDENCY,
+        unit="action_code",
+        dependencies="combined LS1+LS2 input; Low, Boost or Purge",
         risk=InstallerFieldRisk.WIRED_INPUT,
+        known_values=tuple(
+            (int(action), name) for action, name in LS_ACTION_NAMES.items()
+        ),
     ),
     GlobalSettingField.RAPID_RESPONSE_ENABLED: _field(
         GlobalSettingField.RAPID_RESPONSE_ENABLED,
@@ -392,6 +405,14 @@ DELAY_OVERRUN_FIELDS: Final = frozenset(
     }
 )
 
+LS_ACTION_VALIDATION_FIELDS: Final = frozenset(
+    {
+        GlobalSettingField.LS1_ACTION,
+        GlobalSettingField.LS2_ACTION,
+        GlobalSettingField.LS3_ACTION,
+    }
+)
+
 TEMPERATURE_VALIDATION_FIELDS: Final = frozenset(
     {
         GlobalSettingField.LOW_THRESHOLD_ACTION,
@@ -437,7 +458,19 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
     ),
 )
 
-VALIDATION_CANDIDATE_WRITE_PROFILES: Final = ()
+VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
+    InstallerWriteProfile(
+        model_number=10,
+        firmware="2.03.08",
+        hardware="01.00",
+        fields=LS_ACTION_VALIDATION_FIELDS,
+        evidence=(
+            "official packet-136 enum maps LS1/LS2/LS3 to fields 11/12/13; "
+            "packet-137 offsets are 19/20/21; manual choices are Low, Boost "
+            "and Purge; awaiting independent reversible storage validation"
+        ),
+    ),
+)
 
 
 def model_capability(model_number: int | None) -> ModelCapability | None:

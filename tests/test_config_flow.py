@@ -44,6 +44,7 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_CONFIRM_DELAY_OVERRUN,
     CONF_CONFIRM_HUMIDITY_RESPONSE,
     CONF_CONFIRM_LOW_TEMPERATURE_PROTECTION,
+    CONF_CONFIRM_LS_ACTION_VALIDATION,
     CONF_CONFIRM_SENSOR_THRESHOLDS,
     CONF_CONFIRM_SILENT_HOUR_DELETE,
     CONF_CONFIRM_TEMPERATURE_VALIDATION,
@@ -54,6 +55,9 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_LOW_TEMPERATURE_ACTION,
     CONF_LOW_TEMPERATURE_PROTECTION,
     CONF_LOW_TEMPERATURE_THRESHOLD,
+    CONF_LS1_ACTION,
+    CONF_LS2_ACTION,
+    CONF_LS3_ACTION,
     CONF_OVERRUN_ENABLED,
     CONF_OVERRUN_TIMEOUT,
     CONF_RAPID_RESPONSE,
@@ -112,6 +116,7 @@ def _options_entry(
     supports_humidity_response: bool = False,
     supports_comfort_mode: bool = False,
     supports_delay_overrun: bool = False,
+    supports_ls_actions: bool = False,
     supports_temperature_validation: bool = False,
     supports_low_temperature_protection: bool = False,
     airflow_available: bool = True,
@@ -138,6 +143,7 @@ def _options_entry(
             supports_humidity_response_configuration=supports_humidity_response,
             supports_comfort_mode_configuration=supports_comfort_mode,
             supports_delay_overrun_configuration=supports_delay_overrun,
+            supports_ls_action_validation=supports_ls_actions,
             supports_temperature_threshold_validation=(supports_temperature_validation),
             supports_low_temperature_protection_validation=(
                 supports_low_temperature_protection
@@ -163,6 +169,7 @@ def _options_entry(
         async_set_humidity_response=AsyncMock(),
         async_set_comfort_mode=AsyncMock(),
         async_set_delay_overrun=AsyncMock(),
+        async_set_ls_action_validation=AsyncMock(),
         async_set_temperature_threshold_validation=AsyncMock(),
         async_set_low_temperature_protection_validation=AsyncMock(),
         async_set_silent_hour=AsyncMock(),
@@ -268,6 +275,17 @@ async def _open_temperature_validation_options(hass, entry):
     assert initial["step_id"] == "init"
     return await hass.config_entries.options.async_configure(
         initial["flow_id"], {"next_step_id": "temperature_validation"}
+    )
+
+
+async def _open_ls_action_validation_options(hass, entry):
+    """Open the one-field switched-live action validation screen."""
+
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    assert initial["type"] is data_entry_flow.FlowResultType.MENU
+    assert initial["step_id"] == "init"
+    return await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "ls_action_validation"}
     )
 
 
@@ -860,6 +878,84 @@ async def test_boost_minimum_rejects_unchanged_value(hass) -> None:
     assert result["step_id"] == "boost_minimum"
     assert result["errors"] == {"base": "boost_minimum_unchanged"}
     coordinator.async_set_boost_minimum.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ls_action_validation_requires_review_and_one_change(hass) -> None:
+    """One documented LS selector reaches the coordinator only after confirmation."""
+
+    # Arrange - open the exact-identity Low/Boost/Purge validation profile.
+    entry, coordinator = _options_entry(hass, supports_ls_actions=True)
+    form = await _open_ls_action_validation_options(hass, entry)
+
+    # Act - change only LS1 from Low to Boost, decline, then confirm.
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {CONF_LS1_ACTION: "3", CONF_LS2_ACTION: "3", CONF_LS3_ACTION: "4"},
+    )
+    declined = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_LS_ACTION_VALIDATION: False}
+    )
+    result = await hass.config_entries.options.async_configure(
+        declined["flow_id"], {CONF_CONFIRM_LS_ACTION_VALIDATION: True}
+    )
+
+    # Assert - the exact profile is sent once and only after acknowledgement.
+    assert form["step_id"] == "ls_action_validation"
+    assert confirm["step_id"] == "ls_action_validation_confirm"
+    assert declined["errors"] == {
+        "base": "ls_action_validation_confirmation_required"
+    }
+    coordinator.async_set_ls_action_validation.assert_awaited_once_with(
+        ls1_action=3, ls2_action=3, ls3_action=4
+    )
+    assert result["step_id"] == "ls_action_validation_result"
+
+
+@pytest.mark.asyncio
+async def test_ls_action_validation_rejects_multiple_changes(hass) -> None:
+    """The options flow cannot combine two unvalidated switched-live fields."""
+
+    # Arrange - open the installed Low/Boost/Purge LS profile.
+    entry, coordinator = _options_entry(hass, supports_ls_actions=True)
+    form = await _open_ls_action_validation_options(hass, entry)
+
+    # Act - request simultaneous LS1 and LS2 changes.
+    result = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {CONF_LS1_ACTION: "3", CONF_LS2_ACTION: "1", CONF_LS3_ACTION: "4"},
+    )
+
+    # Assert - validation returns to the form without coordinator or BLE I/O.
+    assert result["step_id"] == "ls_action_validation"
+    assert result["errors"] == {"base": "ls_action_validation_invalid"}
+    coordinator.async_set_ls_action_validation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ls_action_validation_rechecks_full_snapshot(hass) -> None:
+    """Any packet-137 change after review invalidates the LS action proposal."""
+
+    # Arrange - review one LS1 change, then mutate an unrelated stored byte.
+    entry, coordinator = _options_entry(hass, supports_ls_actions=True)
+    form = await _open_ls_action_validation_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {CONF_LS1_ACTION: "3", CONF_LS2_ACTION: "3", CONF_LS3_ACTION: "4"},
+    )
+    changed = bytearray(coordinator.data.global_settings.raw_record)
+    changed[5] += 1
+    coordinator.data.global_settings = decode_global_settings(bytes(changed))
+
+    # Act - confirm against the now-stale complete settings snapshot.
+    result = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_LS_ACTION_VALIDATION: True}
+    )
+
+    # Assert - the flow returns to review and never invokes the coordinator.
+    assert result["step_id"] == "ls_action_validation"
+    assert result["errors"] == {"base": "ls_action_validation_settings_changed"}
+    coordinator.async_set_ls_action_validation.assert_not_awaited()
 
 
 @pytest.mark.asyncio

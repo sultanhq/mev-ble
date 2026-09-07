@@ -102,6 +102,8 @@ Detailed instructions:
 - Guarded Delay time, Overrun, and Overrun time configuration on the exact
   validated identity; Delay enabled remains visible but read-only after both
   recovered packet-target variants returned the original value unchanged
+- Exact-identity validation selectors for LS1, LS2, and combined LS1+LS2 using
+  the documented Low, Boost, and Purge actions, one field per confirmed write
 - Redacted Home Assistant diagnostics
 
 The physically inspected MEV remote exposes speed levels 1–4 and timers for 30,

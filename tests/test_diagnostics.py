@@ -194,7 +194,7 @@ async def test_diagnostics_include_control_validation_state() -> None:
         "value_status": "decoded",
     }
     assert installer["fields"]["ls1_action"]["value_status"] == (
-        "raw_code_semantics_unknown"
+        "unknown_action_code"
     )
     low_action = installer["fields"]["low_threshold_action"]
     high_action = installer["fields"]["high_threshold_action"]
@@ -271,7 +271,7 @@ async def test_diagnostics_include_control_validation_state() -> None:
             "01.00",
             "SmvHxCo2",
             [0, 1, 2, 3, 4, 5, 6, 8, 9, 10, 14, 15, 16, 17, 18, 19, 20, 21, 22],
-            [],
+            [11, 12, 13],
         ),
         ("10", "2.03.09", "01.00", "SmvHxCo2", [], []),
         ("unknown", "2.03.08", "01.00", None, [], []),

@@ -128,6 +128,14 @@ class DelayOverrunConfigurationUnavailableError(HomeAssistantError):
     """Raised when no current record permits a delay/overrun update."""
 
 
+class LsActionValidationNotSupportedError(HomeAssistantError):
+    """Raised when guarded switched-live action validation is not enabled."""
+
+
+class LsActionValidationUnavailableError(HomeAssistantError):
+    """Raised when no current record permits switched-live action validation."""
+
+
 class TemperatureValidationNotSupportedError(HomeAssistantError):
     """Raised when guarded temperature validation is not enabled."""
 
@@ -637,6 +645,51 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             self.async_set_update_error(err)
             raise HomeAssistantError(
                 f"Unable to update Multihome temperature validation field: {err}"
+            ) from err
+        self.async_set_updated_data(replace(self.data, global_settings=settings))
+
+    async def async_set_ls_action_validation(
+        self,
+        *,
+        ls1_action: int,
+        ls2_action: int,
+        ls3_action: int,
+    ) -> None:
+        """Apply and publish one confirmed switched-live action change."""
+
+        if not self.device.supports_ls_action_validation:
+            raise LsActionValidationNotSupportedError(
+                "LS action validation is not enabled for this model, firmware, "
+                "and hardware"
+            )
+        if (
+            self.data is None
+            or not self.last_update_success
+            or not self.device.global_settings_write_ready
+        ):
+            raise LsActionValidationUnavailableError(
+                "Current global settings are unavailable; wait for a successful poll"
+            )
+        try:
+            settings = await self.device.set_ls_action_validation(
+                self._ble_device(),
+                ls1_action=ls1_action,
+                ls2_action=ls2_action,
+                ls3_action=ls3_action,
+            )
+        except GlobalSettingsUnavailableError as err:
+            raise LsActionValidationUnavailableError(str(err)) from err
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            await self.device.disconnect()
+            self.async_set_update_error(err)
+            raise HomeAssistantError(
+                f"Unable to update Multihome LS action validation field: {err}"
             ) from err
         self.async_set_updated_data(replace(self.data, global_settings=settings))
 

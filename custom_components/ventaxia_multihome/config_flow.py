@@ -63,6 +63,8 @@ from .coordinator import (
     HumidityResponseConfigurationUnavailableError,
     LowTemperatureProtectionValidationNotSupportedError,
     LowTemperatureProtectionValidationUnavailableError,
+    LsActionValidationNotSupportedError,
+    LsActionValidationUnavailableError,
     SensorThresholdConfigurationNotSupportedError,
     SensorThresholdConfigurationUnavailableError,
     SilentHoursConfigurationUnavailableError,
@@ -83,6 +85,7 @@ from .protocol import (
     DEFAULT_CO2_CALIBRATION_REFERENCE,
     GLOBAL_CO2_THRESHOLD_STEP,
     GLOBAL_SETTING_FIELD_SPECS,
+    LS_ACTION_NAMES,
     MAX_BOOST_MINIMUM,
     MAX_CO2_CALIBRATION_REFERENCE,
     MAX_GLOBAL_TIMER_MINUTES,
@@ -97,11 +100,14 @@ from .protocol import (
     TemperatureThresholdAction,
     decode_silent_hour,
     encode_silent_hour,
+    ls_action_name,
     plan_delay_overrun_updates,
     plan_low_temperature_protection_validation_update,
+    plan_ls_action_validation_update,
     plan_temperature_validation_update,
     temperature_threshold_action_name,
     validate_airflow_profile,
+    validate_ls_action_profile,
     validate_sensor_thresholds,
     validate_temperature_threshold_profile,
 )
@@ -132,6 +138,10 @@ CONF_DELAY_TIMEOUT = "delay_timeout"
 CONF_OVERRUN_ENABLED = "overrun_enabled"
 CONF_OVERRUN_TIMEOUT = "overrun_timeout"
 CONF_CONFIRM_DELAY_OVERRUN = "confirm_delay_overrun"
+CONF_LS1_ACTION = "ls1_action"
+CONF_LS2_ACTION = "ls2_action"
+CONF_LS3_ACTION = "ls3_action"
+CONF_CONFIRM_LS_ACTION_VALIDATION = "confirm_ls_action_validation"
 CONF_LOW_TEMPERATURE_ACTION = "low_temperature_action"
 CONF_HIGH_TEMPERATURE_ACTION = "high_temperature_action"
 CONF_LOW_TEMPERATURE_THRESHOLD = "low_temperature_threshold"
@@ -423,6 +433,8 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._comfort_mode_baseline_raw: bytes | None = None
         self._delay_overrun: tuple[bool, int, bool, int] | None = None
         self._delay_overrun_baseline_raw: bytes | None = None
+        self._ls_action_validation: tuple[int, int, int] | None = None
+        self._ls_action_validation_baseline_raw: bytes | None = None
         self._temperature_validation: tuple[int, int, int, int] | None = None
         self._temperature_validation_baseline_raw: bytes | None = None
         self._low_temperature_protection: bool | None = None
@@ -480,6 +492,11 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             and self._current_delay_overrun_settings() is not None
         ):
             menu_options.append("delay_overrun")
+        if (
+            coordinator.device.supports_ls_action_validation
+            and self._current_ls_action_validation_settings() is not None
+        ):
+            menu_options.append("ls_action_validation")
         if (
             coordinator.device.supports_low_temperature_protection_validation
             and self._current_low_temperature_protection_settings() is not None
@@ -1412,6 +1429,154 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             },
         )
 
+    async def async_step_ls_action_validation(
+        self,
+        user_input: dict[str, Any] | None = None,
+        *,
+        errors: dict[str, str] | None = None,
+    ) -> ConfigFlowResult:
+        """Collect exactly one switched-live action validation change."""
+
+        coordinator = self.config_entry.runtime_data
+        if not coordinator.device.supports_ls_action_validation:
+            return self.async_abort(reason="ls_action_validation_not_supported")
+        settings = self._current_ls_action_validation_settings()
+        if settings is None:
+            return self.async_abort(reason="ls_action_validation_unavailable")
+
+        if user_input is not None:
+            try:
+                profile = (
+                    int(user_input[CONF_LS1_ACTION]),
+                    int(user_input[CONF_LS2_ACTION]),
+                    int(user_input[CONF_LS3_ACTION]),
+                )
+                validate_ls_action_profile(*profile)
+                plan_ls_action_validation_update(
+                    settings,
+                    ls1_action=profile[0],
+                    ls2_action=profile[1],
+                    ls3_action=profile[2],
+                )
+            except (KeyError, ProtocolError, TypeError, ValueError):
+                errors = {"base": "ls_action_validation_invalid"}
+            else:
+                self._ls_action_validation = profile
+                self._ls_action_validation_baseline_raw = settings.raw_record
+                return await self.async_step_ls_action_validation_confirm()
+
+        return self.async_show_form(
+            step_id="ls_action_validation",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_LS1_ACTION, default=str(settings.ls1_action)
+                    ): self._ls_action_selector(),
+                    vol.Required(
+                        CONF_LS2_ACTION, default=str(settings.ls2_action)
+                    ): self._ls_action_selector(),
+                    vol.Required(
+                        CONF_LS3_ACTION, default=str(settings.ls3_action)
+                    ): self._ls_action_selector(),
+                }
+            ),
+            errors=errors or {},
+            description_placeholders={
+                "current_profile": self._format_ls_action_profile(
+                    *self._ls_action_profile(settings)
+                )
+            },
+        )
+
+    async def async_step_ls_action_validation_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Recheck the full record before one switched-live action write."""
+
+        assert self._ls_action_validation is not None
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input[CONF_CONFIRM_LS_ACTION_VALIDATION]:
+                errors["base"] = "ls_action_validation_confirmation_required"
+            else:
+                settings = self._current_ls_action_validation_settings()
+                if settings is None:
+                    errors["base"] = "ls_action_validation_unavailable"
+                elif settings.raw_record != self._ls_action_validation_baseline_raw:
+                    self._ls_action_validation = None
+                    self._ls_action_validation_baseline_raw = None
+                    return await self.async_step_ls_action_validation(
+                        errors={"base": "ls_action_validation_settings_changed"}
+                    )
+                else:
+                    ls1_action, ls2_action, ls3_action = self._ls_action_validation
+                    try:
+                        coordinator = self.config_entry.runtime_data
+                        await coordinator.async_set_ls_action_validation(
+                            ls1_action=ls1_action,
+                            ls2_action=ls2_action,
+                            ls3_action=ls3_action,
+                        )
+                    except LsActionValidationNotSupportedError:
+                        return self.async_abort(
+                            reason="ls_action_validation_not_supported"
+                        )
+                    except LsActionValidationUnavailableError:
+                        errors["base"] = "ls_action_validation_unavailable"
+                    except HomeAssistantError as err:
+                        _LOGGER.warning(
+                            "Unable to update Multihome LS action validation: %s",
+                            err,
+                        )
+                        errors["base"] = "ls_action_validation_update_failed"
+                    else:
+                        return await self.async_step_ls_action_validation_result()
+
+        settings = self._current_ls_action_validation_settings()
+        current = (
+            self._format_ls_action_profile(*self._ls_action_profile(settings))
+            if settings is not None
+            else "Unavailable"
+        )
+        return self.async_show_form(
+            step_id="ls_action_validation_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONFIRM_LS_ACTION_VALIDATION, default=False
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "device": self.config_entry.title,
+                "current_profile": current,
+                "new_profile": self._format_ls_action_profile(
+                    *self._ls_action_validation
+                ),
+            },
+        )
+
+    async def async_step_ls_action_validation_result(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report one switched-live action confirmed through exact readback."""
+
+        assert self._ls_action_validation is not None
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        return self.async_show_form(
+            step_id="ls_action_validation_result",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "new_profile": self._format_ls_action_profile(
+                    *self._ls_action_validation
+                )
+            },
+        )
+
     async def async_step_temperature_validation(
         self,
         user_input: dict[str, Any] | None = None,
@@ -1840,6 +2005,18 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             return None
         return settings
 
+    def _current_ls_action_validation_settings(self) -> GlobalSettings | None:
+        """Return a current switched-live profile with documented action codes."""
+
+        settings = self._current_sensor_threshold_settings()
+        if settings is None:
+            return None
+        try:
+            validate_ls_action_profile(*self._ls_action_profile(settings))
+        except ProtocolError:
+            return None
+        return settings
+
     def _current_low_temperature_protection_settings(
         self,
     ) -> GlobalSettings | None:
@@ -1863,6 +2040,37 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             settings.high_threshold_action,
             settings.low_temperature_threshold,
             settings.high_temperature_threshold,
+        )
+
+    @staticmethod
+    def _ls_action_profile(settings: GlobalSettings) -> tuple[int, int, int]:
+        """Return the three switched-live actions in installer UI order."""
+
+        return settings.ls1_action, settings.ls2_action, settings.ls3_action
+
+    @staticmethod
+    def _ls_action_selector() -> selector.SelectSelector:
+        """Return the three actions documented for switched-live inputs."""
+
+        return selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[
+                    {"value": str(int(action)), "label": name.title()}
+                    for action, name in LS_ACTION_NAMES.items()
+                ]
+            )
+        )
+
+    @staticmethod
+    def _format_ls_action_profile(
+        ls1_action: int, ls2_action: int, ls3_action: int
+    ) -> str:
+        """Return an unambiguous switched-live action review string."""
+
+        return (
+            f"LS1 {ls_action_name(ls1_action).title()} · "
+            f"LS2 {ls_action_name(ls2_action).title()} · "
+            f"LS3 (LS1+LS2) {ls_action_name(ls3_action).title()}"
         )
 
     @staticmethod

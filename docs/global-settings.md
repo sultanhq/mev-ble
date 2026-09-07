@@ -266,3 +266,13 @@ mapping. Fields 8–10 remain physically validated. Field 7 can be reconsidered
 if the official app changes it on the same unit or a BLE capture identifies an
 additional prerequisite. Runtime electrical timing remains unverified because
 no switched-live input was connected during testing.
+
+Fields 11–13 map LS1, LS2 and combined LS1+LS2 to packet-137 offsets 19–21.
+Recovered app encoding and the installer manual agree on the available actions:
+Low=`1`, Boost=`3`, and Purge=`4`; Normal is deliberately excluded. RC10 exposes
+these three fields only as exact-identity validation candidates. The flow
+requires exactly one changed field, a fresh unchanged complete record, and
+exact full-record readback. Unknown stored action codes remain visible in
+diagnostics but block the flow rather than being rewritten. Physical promotion
+requires independent change/readback/restore evidence for all three fields;
+live switched-input behavior is a separate test.

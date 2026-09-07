@@ -50,11 +50,13 @@ from custom_components.ventaxia_multihome.protocol import (
     plan_delay_overrun_updates,
     plan_humidity_response_updates,
     plan_low_temperature_protection_validation_update,
+    plan_ls_action_validation_update,
     plan_sensor_threshold_updates,
     plan_temperature_validation_update,
     reassemble_fragments,
     temperature_threshold_action_name,
     validate_airflow_profile,
+    validate_ls_action_profile,
     validate_sensor_thresholds,
 )
 
@@ -615,6 +617,52 @@ def test_temperature_validation_plans_exactly_one_disabled_profile_change() -> N
 
     # Assert - only field 19 and its exact integer value are planned.
     assert update == (GlobalSettingField.LOW_TEMPERATURE_THRESHOLD, 14)
+
+
+def test_ls_action_validation_plans_exactly_one_documented_change() -> None:
+    """One LS selector maps to its packet-136 field without touching neighbours."""
+
+    # Arrange - use the installed Low/Boost/Purge profile from packet 137.
+    settings = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+
+    # Act - change LS1 from Low to Boost while retaining LS2 and combined LS3.
+    update = plan_ls_action_validation_update(
+        settings, ls1_action=3, ls2_action=3, ls3_action=4
+    )
+
+    # Assert - the plan contains only official field 11 and code 3.
+    assert update == (GlobalSettingField.LS1_ACTION, 3)
+
+
+@pytest.mark.parametrize(
+    ("ls1_action", "ls2_action", "ls3_action"),
+    [(2, 3, 4), (1, 3, 4), (3, 1, 4)],
+)
+def test_ls_action_validation_rejects_unknown_or_non_single_changes(
+    ls1_action: int, ls2_action: int, ls3_action: int
+) -> None:
+    """Unknown, unchanged, and multi-field LS profiles are not writable."""
+
+    # Arrange - use the installed Low/Boost/Purge profile from packet 137.
+    settings = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+
+    # Act / Assert - validation refuses anything except one documented change.
+    with pytest.raises(ProtocolError):
+        validate_ls_action_profile(ls1_action, ls2_action, ls3_action)
+        plan_ls_action_validation_update(
+            settings,
+            ls1_action=ls1_action,
+            ls2_action=ls2_action,
+            ls3_action=ls3_action,
+        )
 
 
 def test_low_temperature_protection_validation_plans_field_16_boolean() -> None:

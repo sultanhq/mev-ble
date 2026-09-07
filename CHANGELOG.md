@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.6.3-rc.10] - 2026-09-07
+
+### Added
+
+- Add an exact-identity validation flow for LS1, LS2, and combined LS1+LS2
+  action fields 11–13 with the documented Low, Boost, and Purge choices.
+- Show the complete three-action profile and require exactly one changed field
+  per review, enabling independent change/readback/restore tests.
+
+### Safety
+
+- Reject unknown action codes, stale 36-byte settings records, unconfirmed
+  reviews, and multi-field candidate writes before packet-136 I/O.
+- Require an exact fresh complete packet-137 readback before publishing the
+  selected action; live switched-input behavior remains a separate test.
+
 ## [0.6.3-rc.9] - 2026-09-07
 
 ### Changed
