@@ -23,7 +23,6 @@ from .capabilities import (
     AIRFLOW_FIELDS,
     BOOST_MINIMUM_FIELDS,
     COMFORT_MODE_FIELDS,
-    DELAY_ENABLED_VALIDATION_FIELDS,
     DELAY_OVERRUN_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
     LOW_TEMPERATURE_PROTECTION_FIELDS,
@@ -303,13 +302,9 @@ class MultihomeDevice:
 
     @property
     def supports_delay_overrun_configuration(self) -> bool:
-        """Return whether validated timers and the field-7 candidate are writable."""
+        """Return whether the three physically validated timer fields are writable."""
 
-        return (
-            DELAY_OVERRUN_FIELDS <= self.writable_installer_fields
-            and DELAY_ENABLED_VALIDATION_FIELDS
-            <= self.configurable_installer_fields
-        )
+        return DELAY_OVERRUN_FIELDS <= self.writable_installer_fields
 
     @property
     def supports_temperature_threshold_validation(self) -> bool:
@@ -741,6 +736,11 @@ class MultihomeDevice:
                     f"received={fresh.raw_record.hex()}; no update was sent and "
                     "the last confirmed snapshot was retained"
                 )
+            if delay_enabled != fresh.delay_enabled:
+                raise ProtocolError(
+                    "Delay On field 7 is read-only on this model and firmware "
+                    "after exact readback rejected both recovered packet targets"
+                )
             plan = plan_delay_overrun_updates(
                 fresh,
                 delay_enabled=delay_enabled,
@@ -748,13 +748,6 @@ class MultihomeDevice:
                 overrun_enabled=overrun_enabled,
                 overrun_minutes=overrun_minutes,
             )
-            if delay_enabled != fresh.delay_enabled and plan != (
-                (GlobalSettingField.DELAY_ENABLED, delay_enabled),
-            ):
-                raise ProtocolError(
-                    "Delay On field 7 must be changed by itself during "
-                    "prerelease validation"
-                )
             result = fresh
             for field, value in plan:
                 result = await self._set_global_setting_locked(field, value)

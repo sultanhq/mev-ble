@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.3-rc.9] - 2026-09-07
+
+### Changed
+
+- Remove Delay On field 7 from the guarded validation candidates after the
+  installed model 10 / firmware 2.03.08 / hardware 01.00 unit returned the
+  complete original packet-137 record unchanged for the recovered official
+  destination-1 write.
+- Keep Delay On visible as paired-timer context while exposing only the
+  physically validated Delay time, Overrun, and Overrun time controls.
+
+### Safety
+
+- Reject any field-7 change at the device boundary before packet-136 I/O.
+- Retain the recovered field-7 codec and packet-target mapping as protocol
+  evidence without treating it as permission to write the installed unit.
+
 ## [0.6.3-rc.8] - 2026-09-05
 
 ### Added

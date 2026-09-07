@@ -6,7 +6,6 @@ from custom_components.ventaxia_multihome.capabilities import (
     AIRFLOW_FIELDS,
     BOOST_MINIMUM_FIELDS,
     COMFORT_MODE_FIELDS,
-    DELAY_ENABLED_VALIDATION_FIELDS,
     DELAY_OVERRUN_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
     INSTALLER_FIELD_DEFINITIONS,
@@ -185,8 +184,8 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     ]
 
 
-def test_delay_enabled_is_an_exact_identity_validation_candidate() -> None:
-    """Only the official-routing field-7 candidate is awaiting validation."""
+def test_rejected_delay_enabled_is_not_a_validation_candidate() -> None:
+    """Field 7 is no longer exposed after both packet targets were rejected."""
 
     # Arrange - include the intended unit plus firmware, hardware, and model misses.
     identities = [
@@ -201,9 +200,9 @@ def test_delay_enabled_is_an_exact_identity_validation_candidate() -> None:
         installer_validation_candidate_fields(*identity) for identity in identities
     ]
 
-    # Assert - only the exact identity exposes guarded field 7.
+    # Assert - no identity exposes the physically rejected field 7 write.
     assert resolved == [
-        DELAY_ENABLED_VALIDATION_FIELDS,
+        frozenset(),
         frozenset(),
         frozenset(),
         frozenset(),

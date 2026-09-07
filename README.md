@@ -100,7 +100,8 @@ Detailed instructions:
 - Guarded Low-temperature protection configuration on the exact physically
   validated identity, with full-profile review and exact readback
 - Guarded Delay time, Overrun, and Overrun time configuration on the exact
-  validated identity; the failed Delay enabled field remains read-only
+  validated identity; Delay enabled remains visible but read-only after both
+  recovered packet-target variants returned the original value unchanged
 - Redacted Home Assistant diagnostics
 
 The physically inspected MEV remote exposes speed levels 1–4 and timers for 30,

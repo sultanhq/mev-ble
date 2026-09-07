@@ -47,7 +47,6 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_CONFIRM_SENSOR_THRESHOLDS,
     CONF_CONFIRM_SILENT_HOUR_DELETE,
     CONF_CONFIRM_TEMPERATURE_VALIDATION,
-    CONF_DELAY_ENABLED,
     CONF_DELAY_TIMEOUT,
     CONF_HIGH_TEMPERATURE_ACTION,
     CONF_HIGH_TEMPERATURE_THRESHOLD,
@@ -1932,18 +1931,17 @@ async def test_silent_hours_delete_rejects_semantic_table_change(hass) -> None:
 
 @pytest.mark.asyncio
 async def test_delay_overrun_requires_review_and_confirmation(hass) -> None:
-    """Field 7 is written alone only after explicit review and confirmation."""
+    """Validated timer fields are written only after review and confirmation."""
 
-    # Arrange - open the exact-identity candidate with Delay off and Overrun on.
+    # Arrange - open the exact-identity timer flow with Delay off and Overrun on.
     entry, coordinator = _options_entry(hass, supports_delay_overrun=True)
     form = await _open_delay_overrun_options(hass, entry)
 
-    # Act - request only Delay On, decline once, then confirm explicitly.
+    # Act - request a Delay timer change, decline once, then confirm explicitly.
     confirm = await hass.config_entries.options.async_configure(
         form["flow_id"],
         {
-            CONF_DELAY_ENABLED: True,
-            CONF_DELAY_TIMEOUT: 10,
+            CONF_DELAY_TIMEOUT: 11,
             CONF_OVERRUN_ENABLED: True,
             CONF_OVERRUN_TIMEOUT: 10,
         },
@@ -1960,8 +1958,8 @@ async def test_delay_overrun_requires_review_and_confirmation(hass) -> None:
     assert confirm["step_id"] == "delay_overrun_confirm"
     assert declined["errors"] == {"base": "delay_overrun_confirmation_required"}
     coordinator.async_set_delay_overrun.assert_awaited_once_with(
-        delay_enabled=True,
-        delay_minutes=10,
+        delay_enabled=False,
+        delay_minutes=11,
         overrun_enabled=True,
         overrun_minutes=10,
     )
@@ -1978,8 +1976,7 @@ async def test_delay_overrun_rechecks_full_snapshot_before_write(hass) -> None:
     confirm = await hass.config_entries.options.async_configure(
         form["flow_id"],
         {
-            CONF_DELAY_ENABLED: True,
-            CONF_DELAY_TIMEOUT: 10,
+            CONF_DELAY_TIMEOUT: 11,
             CONF_OVERRUN_ENABLED: True,
             CONF_OVERRUN_TIMEOUT: 10,
         },
@@ -2000,28 +1997,30 @@ async def test_delay_overrun_rechecks_full_snapshot_before_write(hass) -> None:
 
 
 @pytest.mark.asyncio
-async def test_delay_enabled_candidate_must_be_changed_in_isolation(hass) -> None:
-    """Field 7 cannot be combined with an otherwise validated timer write."""
+async def test_delay_enabled_is_displayed_but_not_editable(hass) -> None:
+    """The rejected field 7 is omitted while its timer remains configurable."""
 
-    # Arrange - open the candidate with Delay off and a ten-minute timer.
+    # Arrange - open the validated timer flow with Delay currently disabled.
     entry, coordinator = _options_entry(hass, supports_delay_overrun=True)
     form = await _open_delay_overrun_options(hass, entry)
 
-    # Act - request Delay On and change its paired timer in the same submission.
+    # Act - inspect the form and change only the exposed Delay timer.
+    fields = {marker.schema for marker in form["data_schema"].schema}
     result = await hass.config_entries.options.async_configure(
         form["flow_id"],
         {
-            CONF_DELAY_ENABLED: True,
             CONF_DELAY_TIMEOUT: 11,
             CONF_OVERRUN_ENABLED: True,
             CONF_OVERRUN_TIMEOUT: 10,
         },
     )
 
-    # Assert - the candidate remains isolated and no write reaches the coordinator.
-    assert result["step_id"] == "delay_overrun"
-    assert result["errors"] == {"base": "delay_overrun_candidate_isolated"}
-    coordinator.async_set_delay_overrun.assert_not_awaited()
+    # Assert - field 7 cannot be selected and the retained False value is reviewed.
+    assert "delay_enabled" not in fields
+    assert result["step_id"] == "delay_overrun_confirm"
+    assert "Delay disabled (11 min)" in result["description_placeholders"][
+        "new_timers"
+    ]
 
 
 @pytest.mark.asyncio
@@ -2037,7 +2036,6 @@ async def test_delay_overrun_rejects_out_of_range_timer(hass) -> None:
         await hass.config_entries.options.async_configure(
             form["flow_id"],
             {
-                CONF_DELAY_ENABLED: True,
                 CONF_DELAY_TIMEOUT: 61,
                 CONF_OVERRUN_ENABLED: True,
                 CONF_OVERRUN_TIMEOUT: 10,

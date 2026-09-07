@@ -203,25 +203,24 @@
         "description": "The MEV manual's three-minute sampling period has elapsed for the {reference_ppm} ppm command sent to {device}. You may now close the windows and use the rooms normally. This Home Assistant timer does not prove firmware completion because the MEV protocol exposes no calibration-status readback.\n\nCalibration can be run again after the five-minute safety cooldown. Home Assistant has no safe calibration-reset command; repeat the prepared flow with the official 450 ppm default or a trusted measured value."
       },
       "delay_overrun": {
-        "title": "Configure Delay On and Overrun",
-        "description": "Current timers: **{current_timers}**\n\nDelay On is a guarded prerelease validation control. The two earlier writes used packet destination 0; the recovered official-client path copies the requested boolean into the destination as well as field 7. Change Delay On by itself, keep its timer within 1–60 minutes, and leave LS inputs inactive during this storage test.\n\nDelay time, Overrun, and Overrun time remain physically validated installer controls. Runtime electrical-input timing has not been tested because no switched-live input was connected.",
+        "title": "Configure Delay timer and Overrun",
+        "description": "Current timers: **{current_timers}**\n\nDelay On itself is read-only: this exact unit returned the original disabled value after both the earlier destination-0 write and the recovered official-client destination-1 write. Delay time, Overrun, and Overrun time remain physically validated installer controls. Runtime electrical-input timing has not been tested because no switched-live input was connected.",
         "data": {
-          "delay_enabled": "Delay On",
           "delay_timeout": "Delay On time",
           "overrun_enabled": "Overrun",
           "overrun_timeout": "Overrun time"
         }
       },
       "delay_overrun_confirm": {
-        "title": "Confirm Delay On and Overrun",
-        "description": "Device: **{device}**\n\nCurrent timers: **{current_timers}**\n\nNew timers: **{new_timers}**\n\nFor a Delay On change, Home Assistant sends only field 7 and copies its 0/1 value into the packet destination, matching the recovered official-client path. It requires a fresh unchanged 36-byte baseline and exact packet-137 readback. Restore the original Delay On state through this same flow after the first successful change.",
+        "title": "Confirm Delay timer and Overrun",
+        "description": "Device: **{device}**\n\nCurrent timers: **{current_timers}**\n\nNew timers: **{new_timers}**\n\nDelay On remains unchanged and read-only. Home Assistant requires a fresh unchanged 36-byte baseline and exact packet-137 readback for each selected timer or Overrun change.",
         "data": {
           "confirm_delay_overrun": "I recorded the current values and want to apply this paired timer profile"
         }
       },
       "delay_overrun_result": {
-        "title": "Delay On and Overrun confirmed",
-        "description": "The installed unit returned **{new_timers}** through exact fresh packet-137 readback. If Delay On changed, restore its original state now through the same guarded flow; runtime LS-input timing remains a separate test."
+        "title": "Delay timer and Overrun confirmed",
+        "description": "The installed unit returned **{new_timers}** through exact fresh packet-137 readback. Delay On remained unchanged; runtime LS-input timing remains a separate test."
       },
       "boost_minimum": {
         "title": "Configure Boost minimum",
@@ -325,8 +324,7 @@
       "reference_unavailable": "A selected reference sensor is currently unavailable. No calibration was sent.",
       "self_reference": "The MEV cannot use its own CO₂ entity as a calibration reference.",
       "delay_overrun_confirmation_required": "Confirm the reviewed Delay On and Overrun profile before changing installer settings.",
-      "delay_overrun_invalid": "Both enabled values must be on or off, and both timer values must be whole minutes from 1 to 60.",
-      "delay_overrun_candidate_isolated": "Change Delay On by itself during field-7 validation. Leave Delay On time, Overrun, and Overrun time at their current values.",
+      "delay_overrun_invalid": "Overrun must be on or off, and both timer values must be whole minutes from 1 to 60.",
       "delay_overrun_unchanged": "The selected Delay On and Overrun profile is already active.",
       "delay_overrun_settings_changed": "The unit's settings changed after review. Review all four current values and try again.",
       "delay_overrun_update_failed": "The complete paired timer profile could not be confirmed. Reopen the flow and inspect all four current values before retrying.",

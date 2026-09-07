@@ -131,14 +131,14 @@ restoration, not a runtime fan-speed response.
 
 The same identity can configure **Delay On time**, **Overrun**, and **Overrun
 time**. Fields 8–10 were independently changed, read back exactly, and restored.
-Version 0.6.3 RC6 restores **Delay On** field 7 as a guarded validation
-candidate. The earlier attempts sent destination 0; the recovered official
-client copies the requested boolean into the packet destination as well as the
-field-7 payload. While this is awaiting physical validation, Delay On must be
-changed by itself with a valid 1–60 minute timer and inactive LS inputs. The
-flow rereads all 36 bytes before sending, requires exact packet-137 readback,
-and directs the tester to restore the original state. Runtime electrical timing
-remains a separate test.
+**Delay On** field 7 remains visible but read-only. Earlier destination-0 writes
+were not accepted, and the RC8 physical test of the recovered official-client
+destination-1 path returned the complete original packet-137 record unchanged:
+the requested byte 7 remained `00`, with every neighbour also unchanged. RC9
+therefore removes field 7 from the validation candidates and rejects changes
+before packet-136 I/O. The field can be reconsidered only if the official app
+changes it on this exact unit or a capture proves an additional prerequisite.
+Runtime electrical timing remains a separate test.
 
 Version 0.6.3 RC4 adds **Configure → Configure Boost minimum** on the same exact
 identity. It accepts the recovered one-byte 0–100% wire range, displays current

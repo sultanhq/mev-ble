@@ -14,8 +14,9 @@ The official app changes one setting at a time with packet type 136 and a
 - the object ID is one of the documented field IDs 0–32;
 - most values are one byte;
 - CO₂ threshold fields 21 and 22 contain `ppm / 10` as UInt16LE;
-- the packet target is zero for validated fields; guarded field 7 uses the
-  requested boolean as its candidate destination based on the recovered client.
+- the packet target is zero for validated fields;
+- recovered code maps field 7's requested boolean to the packet target, but the
+  field is not writable because the installed firmware rejected both targets.
 
 Field IDs and record offsets are not interchangeable after field ID 8. The
 integration therefore uses an explicit mapping and preserves all bytes outside
@@ -248,18 +249,20 @@ Comfort mode was then disabled on the same unit, returned exactly by a fresh
 packet-137 read, and restored enabled through the guarded flow.
 
 The official Multihome manual documents Delay On and Overrun as LS-input-only
-features with 1–60 minute ranges.
-On the exact validation unit, fields 8–10 changed with exact readback, while
-field 7 (Delay On enabled) produced a readback mismatch when the packet
-destination remained zero. The recovered official-client
+features with 1–60 minute ranges. On the exact validation unit, fields 8–10
+changed with exact readback, while field 7 (Delay On enabled) did not. Earlier
+writes with packet destination 0 were rejected. The recovered official-client
 `setSystemStatusField(field, value)` path also copies the requested value into
-the packet destination. RC6 therefore exposed field 7 only as an
-exact-identity, isolated validation candidate using destination 1 for Yes and 0
-for No. The first physical destination-1 attempt did not confirm the update; a
-later recovered packet-137 record retained the original disabled value and all
-paired timer values. RC7 retains the complete structured write attempt in
-downloaded diagnostics, including the underlying transport error or an exact
-returned-record difference, and keeps unrelated telemetry available after a
-failed candidate write. Field 7 remains a validation candidate. Fields 8–10
-remain physically validated. Runtime electrical timing remains unverified
-because no switched-live input was connected during testing.
+the packet destination, so RC8 tested field 7 value 1 with destination 1.
+
+The RC8 diagnostic evidence is an exact mismatch, not a timeout: payload
+`ba0a07050700000001` was sent, the expected record contained byte 7 `01`, and
+the received complete record was the original
+`06082532005101000100000001011a1b000a0a0103049600af000f4b01030f4b01030103`.
+The sole expected/received difference was `7:01->00`; no neighbour changed.
+RC9 therefore removes field 7 from the validation candidates and blocks it
+before packet-136 I/O while retaining its readback and recovered protocol
+mapping. Fields 8–10 remain physically validated. Field 7 can be reconsidered
+if the official app changes it on the same unit or a BLE capture identifies an
+additional prerequisite. Runtime electrical timing remains unverified because
+no switched-live input was connected during testing.
