@@ -336,7 +336,10 @@ class MultihomeDevice:
     def supports_digital_input_validation(self) -> bool:
         """Return whether guarded digital-input action candidates are enabled."""
 
-        return DIGITAL_INPUT_VALIDATION_FIELDS <= self.validation_candidate_installer_fields
+        return (
+            DIGITAL_INPUT_VALIDATION_FIELDS
+            <= self.validation_candidate_installer_fields
+        )
 
     @property
     def supports_temperature_threshold_validation(self) -> bool:
