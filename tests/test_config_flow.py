@@ -932,23 +932,28 @@ async def test_ls_action_validation_requires_review_and_one_change(hass) -> None
 
 
 @pytest.mark.asyncio
-async def test_ls_action_validation_rejects_multiple_changes(hass) -> None:
-    """The options flow cannot combine two unvalidated switched-live fields."""
+async def test_ls_action_validation_accepts_multiple_reviewed_changes(hass) -> None:
+    """The options flow can review multiple LS changes as one configuration."""
 
     # Arrange - open the installed Low/Boost/Purge LS profile.
     entry, coordinator = _options_entry(hass, supports_ls_actions=True)
     form = await _open_ls_action_validation_options(hass, entry)
 
-    # Act - request simultaneous LS1 and LS2 changes.
-    result = await hass.config_entries.options.async_configure(
+    # Act - request simultaneous LS1 and LS2 changes, then confirm the profile.
+    confirm = await hass.config_entries.options.async_configure(
         form["flow_id"],
         {CONF_LS1_ACTION: "3", CONF_LS2_ACTION: "1", CONF_LS3_ACTION: "4"},
     )
+    result = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_LS_ACTION_VALIDATION: True}
+    )
 
-    # Assert - validation returns to the form without coordinator or BLE I/O.
-    assert result["step_id"] == "ls_action_validation"
-    assert result["errors"] == {"base": "ls_action_validation_invalid"}
-    coordinator.async_set_ls_action_validation.assert_not_awaited()
+    # Assert - the complete reviewed profile reaches the coordinator once.
+    assert confirm["step_id"] == "ls_action_validation_confirm"
+    coordinator.async_set_ls_action_validation.assert_awaited_once_with(
+        ls1_action=3, ls2_action=1, ls3_action=4
+    )
+    assert result["step_id"] == "ls_action_validation_result"
 
 
 @pytest.mark.asyncio
