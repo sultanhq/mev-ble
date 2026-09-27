@@ -244,7 +244,7 @@
         "title": "LS actions confirmed",
         "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback after every changed field. This confirms stored configuration; live switched-input behaviour is separate."
       },
-            "boost_minimum": {
+      "boost_minimum": {
         "title": "Configure Boost minimum",
         "description": "Current value: **{current_boost_minimum}**\n\nThe recovered app names packet-136 field 4 `BoostMin`. Storage writes are validated on the exact model 10 / firmware 2.03.08 / hardware 01.00 identity, but its runtime effect and relationship to the commissioned airflow profile are not characterised. Use the recovered **0–100%** wire range cautiously and record the original value before changing it.",
         "data": {
