@@ -19,13 +19,17 @@
       "service_uuid": "e6ec2fd8-e888-4eb2-9680-e78ed6ea89e1"
     }
   ],
-  "codeowners": ["@sultanhq"],
+  "codeowners": [
+    "@sultanhq"
+  ],
   "config_flow": true,
-  "dependencies": ["bluetooth_adapters"],
+  "dependencies": [
+    "bluetooth_adapters"
+  ],
   "documentation": "https://github.com/sultanhq/mev-ble",
   "integration_type": "device",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/sultanhq/mev-ble/issues",
   "requirements": [],
-  "version": "0.6.3-rc.10"
+  "version": "0.6.3-rc.11"
 }
