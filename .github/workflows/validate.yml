@@ -13,7 +13,7 @@ permissions:
 jobs:
   validate-hacs:
     name: HACS
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, nimbus-namai]
     steps:
       - name: HACS validation
         uses: hacs/action@main
@@ -22,7 +22,7 @@ jobs:
 
   validate-hassfest:
     name: Hassfest
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, nimbus-namai]
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
