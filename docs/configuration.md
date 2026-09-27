@@ -150,6 +150,19 @@ be promoted from validation candidate to normal installer control. This proves
 stored configuration only; no mains input needs to be exercised during the
 storage test.
 
+Version 0.6.3 RC11 adds **Configure → Validate analogue input 1** on the same
+exact identity. Low and High actions use dropdowns containing Low, Normal, Boost
+and Purge. Low and High thresholds use sliders from 0.1 V to 9.9 V in 0.1 V
+steps; Home Assistant converts each displayed voltage to the protocol's integer
+tenths-of-a-volt value. Low must remain below High.
+
+During RC11 validation, change exactly one of the four fields at a time. The
+flow rereads the complete 36-byte baseline immediately before the write and
+requires exact packet-137 readback afterwards. Change and restore Low action,
+High action, Low threshold and High threshold independently before promotion.
+Keep the physical 0–10 V input inactive for this storage test; live electrical
+response is separate.
+
 Version 0.6.3 RC4 adds **Configure → Configure Boost minimum** on the same exact
 identity. It accepts the recovered one-byte 0–100% wire range, displays current
 and proposed values, rejects a stale full settings record, writes only field 4,
