@@ -621,7 +621,7 @@ def test_temperature_validation_plans_exactly_one_disabled_profile_change() -> N
     assert update == (GlobalSettingField.LOW_TEMPERATURE_THRESHOLD, 14)
 
 
-def test_ls_action_validation_plans_exactly_one_documented_change() -> None:
+def test_ls_action_validation_plans_one_documented_change() -> None:
     """One LS selector maps to its packet-136 field without touching neighbours."""
 
     # Arrange - use the installed Low/Boost/Purge profile from packet 137.
@@ -632,22 +632,16 @@ def test_ls_action_validation_plans_exactly_one_documented_change() -> None:
     )
 
     # Act - change LS1 from Low to Boost while retaining LS2 and combined LS3.
-    update = plan_ls_action_validation_update(
+    updates = plan_ls_action_validation_update(
         settings, ls1_action=3, ls2_action=3, ls3_action=4
     )
 
     # Assert - the plan contains only official field 11 and code 3.
-    assert update == (GlobalSettingField.LS1_ACTION, 3)
+    assert updates == ((GlobalSettingField.LS1_ACTION, 3),)
 
 
-@pytest.mark.parametrize(
-    ("ls1_action", "ls2_action", "ls3_action"),
-    [(2, 3, 4), (1, 3, 4), (3, 1, 4)],
-)
-def test_ls_action_validation_rejects_unknown_or_non_single_changes(
-    ls1_action: int, ls2_action: int, ls3_action: int
-) -> None:
-    """Unknown, unchanged, and multi-field LS profiles are not writable."""
+def test_ls_action_validation_plans_multiple_changes_in_field_order() -> None:
+    """Multiple LS changes are serialized deterministically as fields 11, 12, 13."""
 
     # Arrange - use the installed Low/Boost/Purge profile from packet 137.
     settings = decode_global_settings(
@@ -656,9 +650,40 @@ def test_ls_action_validation_rejects_unknown_or_non_single_changes(
         )
     )
 
-    # Act / Assert - validation refuses anything except one documented change.
-    with pytest.raises(ProtocolError):
-        validate_ls_action_profile(ls1_action, ls2_action, ls3_action)
+    # Act - change all three documented LS actions in one reviewed profile.
+    updates = plan_ls_action_validation_update(
+        settings, ls1_action=3, ls2_action=4, ls3_action=1
+    )
+
+    # Assert - changed fields are emitted exactly in LS1 -> LS2 -> LS3 order.
+    assert updates == (
+        (GlobalSettingField.LS1_ACTION, 3),
+        (GlobalSettingField.LS2_ACTION, 4),
+        (GlobalSettingField.LS3_ACTION, 1),
+    )
+
+
+@pytest.mark.parametrize(
+    ("ls1_action", "ls2_action", "ls3_action", "message"),
+    [
+        (2, 3, 4, "not a documented LS action"),
+        (1, 3, 4, "unchanged"),
+    ],
+)
+def test_ls_action_validation_rejects_unknown_or_unchanged_profiles(
+    ls1_action: int, ls2_action: int, ls3_action: int, message: str
+) -> None:
+    """Unknown action codes and no-op LS submissions remain blocked."""
+
+    # Arrange - use the installed Low/Boost/Purge profile from packet 137.
+    settings = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+
+    # Act / Assert - invalid or unchanged profiles do not produce writes.
+    with pytest.raises(ProtocolError, match=message):
         plan_ls_action_validation_update(
             settings,
             ls1_action=ls1_action,
