@@ -58,7 +58,6 @@ from custom_components.ventaxia_multihome.protocol import (
     temperature_threshold_action_name,
     validate_airflow_profile,
     validate_analogue_input_1_profile,
-    validate_ls_action_profile,
     validate_sensor_thresholds,
 )
 
