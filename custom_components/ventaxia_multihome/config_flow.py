@@ -1453,7 +1453,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         *,
         errors: dict[str, str] | None = None,
     ) -> ConfigFlowResult:
-        """Collect exactly one switched-live action validation change."""
+        """Collect one or more reviewed switched-live action changes."""
 
         coordinator = self.config_entry.runtime_data
         if not coordinator.device.supports_ls_action_validation:
@@ -1509,7 +1509,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
     async def async_step_ls_action_validation_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Recheck the full record before one switched-live action write."""
+        """Recheck the full record before serialized switched-live action writes."""
 
         assert self._ls_action_validation is not None
         errors: dict[str, str] = {}
