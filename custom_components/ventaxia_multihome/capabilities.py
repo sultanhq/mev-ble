@@ -458,6 +458,8 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
             | BOOST_MINIMUM_FIELDS
             | COMFORT_MODE_FIELDS
             | DELAY_OVERRUN_FIELDS
+            | LS_ACTION_VALIDATION_FIELDS
+            | ANALOGUE_INPUT_1_VALIDATION_FIELDS
             | TEMPERATURE_VALIDATION_FIELDS
             | LOW_TEMPERATURE_PROTECTION_FIELDS
         ),
@@ -473,26 +475,16 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
             "temperature fields 17..20 changed independently and restored to "
             "Low/Purge/15 C/25 C with exact readback while field 16 remained Off; "
             "field 16 changed Off -> On -> Off with exact full-record readback and "
-            "unchanged temperature-profile neighbours"
+            "unchanged temperature-profile neighbours; "
+            "LS1, LS2 and LS3 fields 11..13 each changed/read back/restored "
+            "independently with exact full-record readback; "
+            "analogue input 1 fields 23..26 each changed/read back/restored "
+            "independently with exact full-record readback"
         ),
     ),
 )
 
-VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
-    InstallerWriteProfile(
-        model_number=10,
-        firmware="2.03.08",
-        hardware="01.00",
-        fields=LS_ACTION_VALIDATION_FIELDS | ANALOGUE_INPUT_1_VALIDATION_FIELDS,
-        evidence=(
-            "official packet-136 enum maps LS1/LS2/LS3 to fields 11/12/13 and "
-            "analogue input 1 to fields 23..26; packet-137 offsets are 19..21 "
-            "and 26..29; manual choices for analogue actions are Low, Normal, "
-            "Boost and Purge with raw thresholds 1..99 representing 0.1..9.9 V; "
-            "awaiting independent reversible storage validation"
-        ),
-    ),
-)
+VALIDATION_CANDIDATE_WRITE_PROFILES: Final = ()
 
 
 def model_capability(model_number: int | None) -> ModelCapability | None:
