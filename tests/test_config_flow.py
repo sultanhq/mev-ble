@@ -32,12 +32,17 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_AIRFLOW_NORMAL,
     CONF_AIRFLOW_PURGE,
     CONF_AMBIENT_RESPONSE,
+    CONF_ANALOGUE_INPUT_1_HIGH_ACTION,
+    CONF_ANALOGUE_INPUT_1_HIGH_THRESHOLD,
+    CONF_ANALOGUE_INPUT_1_LOW_ACTION,
+    CONF_ANALOGUE_INPUT_1_LOW_THRESHOLD,
     CONF_BOOST_MINIMUM,
     CONF_CALIBRATION_METHOD,
     CONF_CO2_BOOST_THRESHOLD,
     CONF_CO2_PURGE_THRESHOLD,
     CONF_COMFORT_MODE,
     CONF_CONFIRM_AIRFLOW,
+    CONF_CONFIRM_ANALOGUE_INPUT_1_VALIDATION,
     CONF_CONFIRM_BOOST_MINIMUM,
     CONF_CONFIRM_CALIBRATION,
     CONF_CONFIRM_COMFORT_MODE,
@@ -117,6 +122,7 @@ def _options_entry(
     supports_comfort_mode: bool = False,
     supports_delay_overrun: bool = False,
     supports_ls_actions: bool = False,
+    supports_analogue_input_1: bool = False,
     supports_temperature_validation: bool = False,
     supports_low_temperature_protection: bool = False,
     airflow_available: bool = True,
@@ -144,6 +150,7 @@ def _options_entry(
             supports_comfort_mode_configuration=supports_comfort_mode,
             supports_delay_overrun_configuration=supports_delay_overrun,
             supports_ls_action_validation=supports_ls_actions,
+            supports_analogue_input_1_validation=supports_analogue_input_1,
             supports_temperature_threshold_validation=(supports_temperature_validation),
             supports_low_temperature_protection_validation=(
                 supports_low_temperature_protection
@@ -170,6 +177,7 @@ def _options_entry(
         async_set_comfort_mode=AsyncMock(),
         async_set_delay_overrun=AsyncMock(),
         async_set_ls_action_validation=AsyncMock(),
+        async_set_analogue_input_1_validation=AsyncMock(),
         async_set_temperature_threshold_validation=AsyncMock(),
         async_set_low_temperature_protection_validation=AsyncMock(),
         async_set_silent_hour=AsyncMock(),
@@ -286,6 +294,17 @@ async def _open_ls_action_validation_options(hass, entry):
     assert initial["step_id"] == "init"
     return await hass.config_entries.options.async_configure(
         initial["flow_id"], {"next_step_id": "ls_action_validation"}
+    )
+
+
+async def _open_analogue_input_1_validation_options(hass, entry):
+    """Open the one-field analogue-input 1 validation screen."""
+
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    assert initial["type"] is data_entry_flow.FlowResultType.MENU
+    assert initial["step_id"] == "init"
+    return await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "analogue_input_1_validation"}
     )
 
 
@@ -956,6 +975,104 @@ async def test_ls_action_validation_rechecks_full_snapshot(hass) -> None:
     assert result["step_id"] == "ls_action_validation"
     assert result["errors"] == {"base": "ls_action_validation_settings_changed"}
     coordinator.async_set_ls_action_validation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_analogue_input_1_uses_action_dropdowns_and_voltage_sliders(hass) -> None:
+    """The HA form exposes documented actions and 0.1–9.9 V slider thresholds."""
+
+    # Arrange - open the exact-identity analogue-input 1 validation form.
+    entry, _ = _options_entry(hass, supports_analogue_input_1=True)
+
+    # Act - inspect the rendered selector definitions and defaults.
+    result = await _open_analogue_input_1_validation_options(hass, entry)
+    fields = {
+        marker.schema: field for marker, field in result["data_schema"].schema.items()
+    }
+
+    # Assert - actions are dropdowns and thresholds are 0.1 V sliders.
+    assert result["step_id"] == "analogue_input_1_validation"
+    assert fields[CONF_ANALOGUE_INPUT_1_LOW_ACTION].config["mode"] == "dropdown"
+    assert fields[CONF_ANALOGUE_INPUT_1_HIGH_ACTION].config["mode"] == "dropdown"
+    for name, default in (
+        (CONF_ANALOGUE_INPUT_1_LOW_THRESHOLD, 1.5),
+        (CONF_ANALOGUE_INPUT_1_HIGH_THRESHOLD, 7.5),
+    ):
+        assert fields[name].config["min"] == 0.1
+        assert fields[name].config["max"] == 9.9
+        assert fields[name].config["step"] == 0.1
+        assert fields[name].config["mode"] == "slider"
+        assert fields[name].config["unit_of_measurement"] == "V"
+        marker = next(
+            item for item in result["data_schema"].schema if item.schema == name
+        )
+        assert marker.default() == default
+
+
+@pytest.mark.asyncio
+async def test_analogue_input_1_requires_review_and_converts_volts_to_tenths(
+    hass,
+) -> None:
+    """One slider step is reviewed then sent as the exact raw integer tenth."""
+
+    # Arrange - open the 1.5 V / 7.5 V, Low / Boost installed baseline.
+    entry, coordinator = _options_entry(hass, supports_analogue_input_1=True)
+    form = await _open_analogue_input_1_validation_options(hass, entry)
+
+    # Act - change only Low threshold to 1.6 V, decline, then confirm.
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {
+            CONF_ANALOGUE_INPUT_1_LOW_ACTION: "1",
+            CONF_ANALOGUE_INPUT_1_LOW_THRESHOLD: 1.6,
+            CONF_ANALOGUE_INPUT_1_HIGH_ACTION: "3",
+            CONF_ANALOGUE_INPUT_1_HIGH_THRESHOLD: 7.5,
+        },
+    )
+    declined = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_ANALOGUE_INPUT_1_VALIDATION: False}
+    )
+    result = await hass.config_entries.options.async_configure(
+        declined["flow_id"], {CONF_CONFIRM_ANALOGUE_INPUT_1_VALIDATION: True}
+    )
+
+    # Assert - the coordinator receives raw tenths only after acknowledgement.
+    assert confirm["step_id"] == "analogue_input_1_validation_confirm"
+    assert declined["errors"] == {
+        "base": "analogue_input_1_validation_confirmation_required"
+    }
+    coordinator.async_set_analogue_input_1_validation.assert_awaited_once_with(
+        low_action=1,
+        high_action=3,
+        low_threshold=16,
+        high_threshold=75,
+    )
+    assert result["step_id"] == "analogue_input_1_validation_result"
+
+
+@pytest.mark.asyncio
+async def test_analogue_input_1_rejects_multiple_validation_changes(hass) -> None:
+    """Unvalidated analogue fields cannot be changed together in one operation."""
+
+    # Arrange - open the exact-identity one-field validation screen.
+    entry, coordinator = _options_entry(hass, supports_analogue_input_1=True)
+    form = await _open_analogue_input_1_validation_options(hass, entry)
+
+    # Act - change both the Low action and Low threshold.
+    result = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {
+            CONF_ANALOGUE_INPUT_1_LOW_ACTION: "2",
+            CONF_ANALOGUE_INPUT_1_LOW_THRESHOLD: 1.6,
+            CONF_ANALOGUE_INPUT_1_HIGH_ACTION: "3",
+            CONF_ANALOGUE_INPUT_1_HIGH_THRESHOLD: 7.5,
+        },
+    )
+
+    # Assert - validation remains in the form without any coordinator write.
+    assert result["step_id"] == "analogue_input_1_validation"
+    assert result["errors"] == {"base": "analogue_input_1_validation_invalid"}
+    coordinator.async_set_analogue_input_1_validation.assert_not_awaited()
 
 
 @pytest.mark.asyncio
