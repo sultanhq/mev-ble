@@ -211,6 +211,8 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
             | BOOST_MINIMUM_FIELDS
             | COMFORT_MODE_FIELDS
             | DELAY_OVERRUN_FIELDS
+            | LS_ACTION_VALIDATION_FIELDS
+            | ANALOGUE_INPUT_1_VALIDATION_FIELDS
             | TEMPERATURE_VALIDATION_FIELDS
             | LOW_TEMPERATURE_PROTECTION_FIELDS
         ),
@@ -221,10 +223,10 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     ]
 
 
-def test_only_documented_fields_are_exact_identity_validation_candidates() -> None:
-    """LS and analogue-input 1 candidates stay exact-identity gated."""
+def test_proven_controls_leave_no_validation_candidates() -> None:
+    """RC10 and RC11 proof promotes LS and analogue-input 1 to writable fields."""
 
-    # Arrange - include the intended unit plus firmware, hardware, and model misses.
+    # Arrange - include the proven unit plus firmware, hardware, and model misses.
     identities = [
         (10, "2.03.08", "01.00"),
         (10, "2.03.09", "01.00"),
@@ -232,16 +234,15 @@ def test_only_documented_fields_are_exact_identity_validation_candidates() -> No
         (2, "2.03.08", "01.00"),
     ]
 
-    # Act - resolve the candidate matrix for the exact and near identities.
+    # Act - resolve the candidate matrix after both proven groups are promoted.
     resolved = [
         installer_validation_candidate_fields(*identity) for identity in identities
     ]
 
-    # Assert - only the exact identity exposes the guarded candidate field sets.
+    # Assert - no field remains in the prerelease validation-candidate set.
     assert resolved == [
-        LS_ACTION_VALIDATION_FIELDS | ANALOGUE_INPUT_1_VALIDATION_FIELDS,
+        frozenset(),
         frozenset(),
         frozenset(),
         frozenset(),
     ]
-    assert GlobalSettingField.DELAY_ENABLED not in resolved[0]
