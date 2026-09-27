@@ -1428,6 +1428,57 @@ def plan_ls_action_validation_update(
     return changed
 
 
+def validate_digital_input_profile(
+    digital_input_1_action: int,
+    digital_input_2_action: int,
+) -> None:
+    """Validate the actions documented for the two low-voltage digital inputs."""
+
+    known_actions = {int(action) for action in LS_ACTION_NAMES}
+    for name, value in {
+        "digital input 1 action": digital_input_1_action,
+        "digital input 2 action": digital_input_2_action,
+    }.items():
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ProtocolError(f"{name} requires an integer action code")
+        if value not in known_actions:
+            raise ProtocolError(f"{name} is not a documented digital-input action")
+
+
+def plan_digital_input_validation_update(
+    settings: GlobalSettings,
+    *,
+    digital_input_1_action: int,
+    digital_input_2_action: int,
+) -> tuple[GlobalSettingField, int]:
+    """Plan exactly one reversible digital-input action validation write."""
+
+    validate_digital_input_profile(
+        settings.digital_input_1_action,
+        settings.digital_input_2_action,
+    )
+    validate_digital_input_profile(
+        digital_input_1_action,
+        digital_input_2_action,
+    )
+    current = {
+        GlobalSettingField.DIGITAL_INPUT_1_ACTION: settings.digital_input_1_action,
+        GlobalSettingField.DIGITAL_INPUT_2_ACTION: settings.digital_input_2_action,
+    }
+    desired = {
+        GlobalSettingField.DIGITAL_INPUT_1_ACTION: digital_input_1_action,
+        GlobalSettingField.DIGITAL_INPUT_2_ACTION: digital_input_2_action,
+    }
+    changed = tuple(
+        (field, value) for field, value in desired.items() if current[field] != value
+    )
+    if len(changed) != 1:
+        raise ProtocolError(
+            "digital input validation requires exactly one changed field"
+        )
+    return changed[0]
+
+
 def validate_analogue_input_1_profile(
     low_action: int,
     high_action: int,
