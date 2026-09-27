@@ -144,6 +144,14 @@ class AnalogueInput1ValidationUnavailableError(HomeAssistantError):
     """Raised when no current record permits analogue-input 1 validation."""
 
 
+class AnalogueInput2ValidationNotSupportedError(HomeAssistantError):
+    """Raised when guarded analogue-input 2 validation is not enabled."""
+
+
+class AnalogueInput2ValidationUnavailableError(HomeAssistantError):
+    """Raised when no current record permits analogue-input 2 validation."""
+
+
 class TemperatureValidationNotSupportedError(HomeAssistantError):
     """Raised when guarded temperature validation is not enabled."""
 
@@ -745,6 +753,54 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             self.async_set_update_error(err)
             raise HomeAssistantError(
                 f"Unable to update Multihome analogue input 1 validation field: {err}"
+            ) from err
+        self.async_set_updated_data(replace(self.data, global_settings=settings))
+
+
+    async def async_set_analogue_input_2_validation(
+        self,
+        *,
+        low_action: int,
+        high_action: int,
+        low_threshold: int,
+        high_threshold: int,
+    ) -> None:
+        """Apply and publish one confirmed analogue-input 2 field change."""
+
+        if not self.device.supports_analogue_input_2_validation:
+            raise AnalogueInput2ValidationNotSupportedError(
+                "analogue input 2 validation is not enabled for this model, "
+                "firmware, and hardware"
+            )
+        if (
+            self.data is None
+            or not self.last_update_success
+            or not self.device.global_settings_write_ready
+        ):
+            raise AnalogueInput2ValidationUnavailableError(
+                "Current global settings are unavailable; wait for a successful poll"
+            )
+        try:
+            settings = await self.device.set_analogue_input_2_validation(
+                self._ble_device(),
+                low_action=low_action,
+                high_action=high_action,
+                low_threshold=low_threshold,
+                high_threshold=high_threshold,
+            )
+        except GlobalSettingsUnavailableError as err:
+            raise AnalogueInput2ValidationUnavailableError(str(err)) from err
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            await self.device.disconnect()
+            self.async_set_update_error(err)
+            raise HomeAssistantError(
+                f"Unable to update Multihome analogue input 2 validation field: {err}"
             ) from err
         self.async_set_updated_data(replace(self.data, global_settings=settings))
 
