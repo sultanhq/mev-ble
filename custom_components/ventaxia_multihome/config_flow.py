@@ -1716,7 +1716,9 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                             "validation: %s",
                             err,
                         )
-                        errors["base"] = "analogue_input_1_validation_update_failed"
+                        errors["base"] = (
+                            "analogue_input_1_validation_update_failed"
+                        )
                     else:
                         return await self.async_step_analogue_input_1_validation_result()
 
