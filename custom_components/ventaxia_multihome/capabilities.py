@@ -356,13 +356,21 @@ INSTALLER_FIELD_DEFINITIONS: Final = {
     ),
     GlobalSettingField.DIGITAL_INPUT_1_ACTION: _field(
         GlobalSettingField.DIGITAL_INPUT_1_ACTION,
-        dependencies=_INPUT_DEPENDENCY,
+        unit="action_code",
+        dependencies="low-voltage digital input 1; stored action only",
         risk=InstallerFieldRisk.WIRED_INPUT,
+        known_values=tuple(
+            (int(action), name) for action, name in LS_ACTION_NAMES.items()
+        ),
     ),
     GlobalSettingField.DIGITAL_INPUT_2_ACTION: _field(
         GlobalSettingField.DIGITAL_INPUT_2_ACTION,
-        dependencies=_INPUT_DEPENDENCY,
+        unit="action_code",
+        dependencies="low-voltage digital input 2; stored action only",
         risk=InstallerFieldRisk.WIRED_INPUT,
+        known_values=tuple(
+            (int(action), name) for action, name in LS_ACTION_NAMES.items()
+        ),
     ),
 }
 
@@ -452,6 +460,13 @@ ANALOGUE_INPUT_2_VALIDATION_FIELDS: Final = frozenset(
     }
 )
 
+DIGITAL_INPUT_VALIDATION_FIELDS: Final = frozenset(
+    {
+        GlobalSettingField.DIGITAL_INPUT_1_ACTION,
+        GlobalSettingField.DIGITAL_INPUT_2_ACTION,
+    }
+)
+
 TEMPERATURE_VALIDATION_FIELDS: Final = frozenset(
     {
         GlobalSettingField.LOW_THRESHOLD_ACTION,
@@ -506,7 +521,19 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
     ),
 )
 
-VALIDATION_CANDIDATE_WRITE_PROFILES: Final = ()
+VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
+    InstallerWriteProfile(
+        model_number=10,
+        firmware="2.03.08",
+        hardware="01.00",
+        fields=DIGITAL_INPUT_VALIDATION_FIELDS,
+        evidence=(
+            "official packet-136 enum maps digital inputs 1/2 to fields 31/32; "
+            "packet-137 offsets are 34/35; the manual permits Low, Boost and "
+            "Purge actions; awaiting independent reversible storage validation"
+        ),
+    ),
+)
 
 
 def model_capability(model_number: int | None) -> ModelCapability | None:
