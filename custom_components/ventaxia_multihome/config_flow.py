@@ -51,6 +51,8 @@ from .coordinator import (
     AirflowConfigurationUnavailableError,
     AnalogueInput1ValidationNotSupportedError,
     AnalogueInput1ValidationUnavailableError,
+    AnalogueInput2ValidationNotSupportedError,
+    AnalogueInput2ValidationUnavailableError,
     BoostMinimumConfigurationNotSupportedError,
     BoostMinimumConfigurationUnavailableError,
     CalibrationCommandNotSentError,
@@ -106,6 +108,7 @@ from .protocol import (
     encode_silent_hour,
     ls_action_name,
     plan_analogue_input_1_validation_update,
+    plan_analogue_input_2_validation_update,
     plan_delay_overrun_updates,
     plan_low_temperature_protection_validation_update,
     plan_ls_action_validation_update,
@@ -113,6 +116,7 @@ from .protocol import (
     temperature_threshold_action_name,
     validate_airflow_profile,
     validate_analogue_input_1_profile,
+    validate_analogue_input_2_profile,
     validate_ls_action_profile,
     validate_sensor_thresholds,
     validate_temperature_threshold_profile,
@@ -153,6 +157,11 @@ CONF_ANALOGUE_INPUT_1_HIGH_ACTION = "analogue_input_1_high_action"
 CONF_ANALOGUE_INPUT_1_LOW_THRESHOLD = "analogue_input_1_low_threshold"
 CONF_ANALOGUE_INPUT_1_HIGH_THRESHOLD = "analogue_input_1_high_threshold"
 CONF_CONFIRM_ANALOGUE_INPUT_1_VALIDATION = "confirm_analogue_input_1_validation"
+CONF_ANALOGUE_INPUT_2_LOW_ACTION = "analogue_input_2_low_action"
+CONF_ANALOGUE_INPUT_2_HIGH_ACTION = "analogue_input_2_high_action"
+CONF_ANALOGUE_INPUT_2_LOW_THRESHOLD = "analogue_input_2_low_threshold"
+CONF_ANALOGUE_INPUT_2_HIGH_THRESHOLD = "analogue_input_2_high_threshold"
+CONF_CONFIRM_ANALOGUE_INPUT_2_VALIDATION = "confirm_analogue_input_2_validation"
 CONF_LOW_TEMPERATURE_ACTION = "low_temperature_action"
 CONF_HIGH_TEMPERATURE_ACTION = "high_temperature_action"
 CONF_LOW_TEMPERATURE_THRESHOLD = "low_temperature_threshold"
@@ -448,6 +457,8 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._ls_action_validation_baseline_raw: bytes | None = None
         self._analogue_input_1_validation: tuple[int, int, int, int] | None = None
         self._analogue_input_1_validation_baseline_raw: bytes | None = None
+        self._analogue_input_2_validation: tuple[int, int, int, int] | None = None
+        self._analogue_input_2_validation_baseline_raw: bytes | None = None
         self._temperature_validation: tuple[int, int, int, int] | None = None
         self._temperature_validation_baseline_raw: bytes | None = None
         self._low_temperature_protection: bool | None = None
@@ -515,6 +526,11 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             and self._current_analogue_input_1_validation_settings() is not None
         ):
             menu_options.append("analogue_input_1_validation")
+        if (
+            coordinator.device.supports_analogue_input_2_validation
+            and self._current_analogue_input_2_validation_settings() is not None
+        ):
+            menu_options.append("analogue_input_2_validation")
         if (
             coordinator.device.supports_low_temperature_protection_validation
             and self._current_low_temperature_protection_settings() is not None
@@ -1771,6 +1787,182 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             },
         )
 
+    async def async_step_analogue_input_2_validation(
+        self,
+        user_input: dict[str, Any] | None = None,
+        *,
+        errors: dict[str, str] | None = None,
+    ) -> ConfigFlowResult:
+        """Collect exactly one analogue-input 2 validation change."""
+
+        coordinator = self.config_entry.runtime_data
+        if not coordinator.device.supports_analogue_input_2_validation:
+            return self.async_abort(reason="analogue_input_2_validation_not_supported")
+        settings = self._current_analogue_input_2_validation_settings()
+        if settings is None:
+            return self.async_abort(reason="analogue_input_2_validation_unavailable")
+
+        if user_input is not None:
+            try:
+                profile = (
+                    int(user_input[CONF_ANALOGUE_INPUT_2_LOW_ACTION]),
+                    int(user_input[CONF_ANALOGUE_INPUT_2_HIGH_ACTION]),
+                    self._analogue_voltage_to_raw(
+                        user_input[CONF_ANALOGUE_INPUT_2_LOW_THRESHOLD]
+                    ),
+                    self._analogue_voltage_to_raw(
+                        user_input[CONF_ANALOGUE_INPUT_2_HIGH_THRESHOLD]
+                    ),
+                )
+                validate_analogue_input_2_profile(*profile)
+                plan_analogue_input_2_validation_update(
+                    settings,
+                    low_action=profile[0],
+                    high_action=profile[1],
+                    low_threshold=profile[2],
+                    high_threshold=profile[3],
+                )
+            except (KeyError, ProtocolError, TypeError, ValueError):
+                errors = {"base": "analogue_input_2_validation_invalid"}
+            else:
+                self._analogue_input_2_validation = profile
+                self._analogue_input_2_validation_baseline_raw = settings.raw_record
+                return await self.async_step_analogue_input_2_validation_confirm()
+
+        return self.async_show_form(
+            step_id="analogue_input_2_validation",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_ANALOGUE_INPUT_2_LOW_ACTION,
+                        default=str(settings.analogue_input_2_low_action),
+                    ): self._analogue_action_selector(),
+                    vol.Required(
+                        CONF_ANALOGUE_INPUT_2_LOW_THRESHOLD,
+                        default=settings.analogue_input_2_low_value / 10,
+                    ): self._analogue_voltage_selector(),
+                    vol.Required(
+                        CONF_ANALOGUE_INPUT_2_HIGH_ACTION,
+                        default=str(settings.analogue_input_2_high_action),
+                    ): self._analogue_action_selector(),
+                    vol.Required(
+                        CONF_ANALOGUE_INPUT_2_HIGH_THRESHOLD,
+                        default=settings.analogue_input_2_high_value / 10,
+                    ): self._analogue_voltage_selector(),
+                }
+            ),
+            errors=errors or {},
+            description_placeholders={
+                "current_profile": self._format_analogue_input_2_profile(
+                    *self._analogue_input_2_profile(settings)
+                )
+            },
+        )
+
+    async def async_step_analogue_input_2_validation_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Recheck the full record before one analogue-input 2 field write."""
+
+        assert self._analogue_input_2_validation is not None
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input[CONF_CONFIRM_ANALOGUE_INPUT_2_VALIDATION]:
+                errors["base"] = "analogue_input_2_validation_confirmation_required"
+            else:
+                settings = self._current_analogue_input_2_validation_settings()
+                if settings is None:
+                    errors["base"] = "analogue_input_2_validation_unavailable"
+                elif (
+                    settings.raw_record
+                    != self._analogue_input_2_validation_baseline_raw
+                ):
+                    self._analogue_input_2_validation = None
+                    self._analogue_input_2_validation_baseline_raw = None
+                    return await self.async_step_analogue_input_2_validation(
+                        errors={
+                            "base": "analogue_input_2_validation_settings_changed"
+                        }
+                    )
+                else:
+                    low_action, high_action, low_threshold, high_threshold = (
+                        self._analogue_input_2_validation
+                    )
+                    try:
+                        coordinator = self.config_entry.runtime_data
+                        await coordinator.async_set_analogue_input_2_validation(
+                            low_action=low_action,
+                            high_action=high_action,
+                            low_threshold=low_threshold,
+                            high_threshold=high_threshold,
+                        )
+                    except AnalogueInput2ValidationNotSupportedError:
+                        return self.async_abort(
+                            reason="analogue_input_2_validation_not_supported"
+                        )
+                    except AnalogueInput2ValidationUnavailableError:
+                        errors["base"] = "analogue_input_2_validation_unavailable"
+                    except HomeAssistantError as err:
+                        _LOGGER.warning(
+                            "Unable to update Multihome analogue input 1 "
+                            "validation: %s",
+                            err,
+                        )
+                        errors["base"] = (
+                            "analogue_input_2_validation_update_failed"
+                        )
+                    else:
+                        return await (
+                            self.async_step_analogue_input_2_validation_result()
+                        )
+
+        settings = self._current_analogue_input_2_validation_settings()
+        current = (
+            self._format_analogue_input_2_profile(
+                *self._analogue_input_2_profile(settings)
+            )
+            if settings is not None
+            else "Unavailable"
+        )
+        return self.async_show_form(
+            step_id="analogue_input_2_validation_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONFIRM_ANALOGUE_INPUT_2_VALIDATION, default=False
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "device": self.config_entry.title,
+                "current_profile": current,
+                "new_profile": self._format_analogue_input_2_profile(
+                    *self._analogue_input_2_validation
+                ),
+            },
+        )
+
+    async def async_step_analogue_input_2_validation_result(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report one analogue-input 2 field confirmed through exact readback."""
+
+        assert self._analogue_input_2_validation is not None
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        return self.async_show_form(
+            step_id="analogue_input_2_validation_result",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "new_profile": self._format_analogue_input_2_profile(
+                    *self._analogue_input_2_validation
+                )
+            },
+        )
+
     async def async_step_temperature_validation(
         self,
         user_input: dict[str, Any] | None = None,
@@ -2203,6 +2395,22 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             return None
         return settings
 
+    def _current_analogue_input_2_validation_settings(
+        self,
+    ) -> GlobalSettings | None:
+        """Return a current analogue-input 2 profile with documented values."""
+
+        settings = self._current_sensor_threshold_settings()
+        if settings is None:
+            return None
+        try:
+            validate_analogue_input_2_profile(
+                *self._analogue_input_2_profile(settings)
+            )
+        except ProtocolError:
+            return None
+        return settings
+
     def _current_temperature_validation_settings(self) -> GlobalSettings | None:
         """Return a disabled, fully decoded temperature validation snapshot."""
 
@@ -2255,6 +2463,19 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         )
 
     @staticmethod
+    def _analogue_input_2_profile(
+        settings: GlobalSettings,
+    ) -> tuple[int, int, int, int]:
+        """Return analogue-input 2 fields in low/high UI order."""
+
+        return (
+            settings.analogue_input_2_low_action,
+            settings.analogue_input_2_high_action,
+            settings.analogue_input_2_low_value,
+            settings.analogue_input_2_high_value,
+        )
+
+    @staticmethod
     def _analogue_action_selector() -> selector.SelectSelector:
         """Return documented analogue-input actions as a dropdown."""
 
@@ -2304,6 +2525,22 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         high_threshold: int,
     ) -> str:
         """Return an unambiguous analogue-input 1 review string."""
+
+        return (
+            f"Low action {analogue_action_name(low_action).title()} · "
+            f"Low {low_threshold / 10:.1f} V · "
+            f"High action {analogue_action_name(high_action).title()} · "
+            f"High {high_threshold / 10:.1f} V"
+        )
+
+    @staticmethod
+    def _format_analogue_input_2_profile(
+        low_action: int,
+        high_action: int,
+        low_threshold: int,
+        high_threshold: int,
+    ) -> str:
+        """Return an unambiguous analogue-input 2 review string."""
 
         return (
             f"Low action {analogue_action_name(low_action).title()} · "
