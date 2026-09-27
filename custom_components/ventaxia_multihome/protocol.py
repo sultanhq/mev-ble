@@ -35,6 +35,8 @@ MIN_LOW_TEMPERATURE_THRESHOLD: Final = 0
 MAX_LOW_TEMPERATURE_THRESHOLD: Final = 30
 MIN_HIGH_TEMPERATURE_THRESHOLD: Final = 15
 MAX_HIGH_TEMPERATURE_THRESHOLD: Final = 40
+MIN_ANALOGUE_INPUT_THRESHOLD: Final = 1
+MAX_ANALOGUE_INPUT_THRESHOLD: Final = 99
 SILENT_HOUR_SLOT_COUNT: Final = 6
 SILENT_HOUR_RECORD_SIZE: Final = 9
 SILENT_HOUR_TABLE_ITEM_SIZE: Final = 13
@@ -170,6 +172,22 @@ LS_ACTION_NAMES: Final = {
     AirflowPreset.BOOST: "boost",
     AirflowPreset.PURGE: "purge",
 }
+
+ANALOGUE_ACTION_NAMES: Final = {
+    AirflowPreset.LOW: "low",
+    AirflowPreset.NORMAL: "normal",
+    AirflowPreset.BOOST: "boost",
+    AirflowPreset.PURGE: "purge",
+}
+
+
+def analogue_action_name(action: int) -> str:
+    """Return a documented analogue-input action without hiding unknown codes."""
+
+    try:
+        return ANALOGUE_ACTION_NAMES[AirflowPreset(action)]
+    except (KeyError, ValueError):
+        return f"unknown_{action}"
 
 
 def ls_action_name(action: int) -> str:
@@ -980,10 +998,16 @@ GLOBAL_SETTING_FIELD_SPECS: Final = {
         "analogue_input_1_high_action", 29, 0, 0xFF
     ),
     GlobalSettingField.ANALOGUE_INPUT_1_LOW_VALUE: GlobalSettingFieldSpec(
-        "analogue_input_1_low_value", 26, 0, 100
+        "analogue_input_1_low_value",
+        26,
+        MIN_ANALOGUE_INPUT_THRESHOLD,
+        MAX_ANALOGUE_INPUT_THRESHOLD,
     ),
     GlobalSettingField.ANALOGUE_INPUT_1_HIGH_VALUE: GlobalSettingFieldSpec(
-        "analogue_input_1_high_value", 27, 0, 100
+        "analogue_input_1_high_value",
+        27,
+        MIN_ANALOGUE_INPUT_THRESHOLD,
+        MAX_ANALOGUE_INPUT_THRESHOLD,
     ),
     GlobalSettingField.ANALOGUE_INPUT_2_LOW_ACTION: GlobalSettingFieldSpec(
         "analogue_input_2_low_action", 32, 0, 0xFF
@@ -1395,6 +1419,91 @@ def plan_ls_action_validation_update(
     )
     if len(changed) != 1:
         raise ProtocolError("LS action validation requires exactly one changed field")
+    return changed[0]
+
+
+def validate_analogue_input_1_profile(
+    low_action: int,
+    high_action: int,
+    low_threshold: int,
+    high_threshold: int,
+) -> None:
+    """Validate analogue-input 1 actions and raw tenths-of-a-volt thresholds."""
+
+    known_actions = {int(action) for action in ANALOGUE_ACTION_NAMES}
+    for name, value in {
+        "analogue input 1 low action": low_action,
+        "analogue input 1 high action": high_action,
+    }.items():
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ProtocolError(f"{name} requires an integer action code")
+        if value not in known_actions:
+            raise ProtocolError(f"{name} is not a documented analogue action")
+
+    for field, value in {
+        GlobalSettingField.ANALOGUE_INPUT_1_LOW_VALUE: low_threshold,
+        GlobalSettingField.ANALOGUE_INPUT_1_HIGH_VALUE: high_threshold,
+    }.items():
+        spec = GLOBAL_SETTING_FIELD_SPECS[field]
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ProtocolError(f"{spec.attribute} requires an integer")
+        if not spec.minimum <= value <= spec.maximum:
+            raise ProtocolError(
+                f"{spec.attribute} must be {spec.minimum}..{spec.maximum}"
+            )
+    if low_threshold >= high_threshold:
+        raise ProtocolError("analogue input 1 thresholds must satisfy Low < High")
+
+
+def plan_analogue_input_1_validation_update(
+    settings: GlobalSettings,
+    *,
+    low_action: int,
+    high_action: int,
+    low_threshold: int,
+    high_threshold: int,
+) -> tuple[GlobalSettingField, int]:
+    """Plan exactly one reversible analogue-input 1 validation write."""
+
+    validate_analogue_input_1_profile(
+        settings.analogue_input_1_low_action,
+        settings.analogue_input_1_high_action,
+        settings.analogue_input_1_low_value,
+        settings.analogue_input_1_high_value,
+    )
+    validate_analogue_input_1_profile(
+        low_action,
+        high_action,
+        low_threshold,
+        high_threshold,
+    )
+    current = {
+        GlobalSettingField.ANALOGUE_INPUT_1_LOW_ACTION: (
+            settings.analogue_input_1_low_action
+        ),
+        GlobalSettingField.ANALOGUE_INPUT_1_HIGH_ACTION: (
+            settings.analogue_input_1_high_action
+        ),
+        GlobalSettingField.ANALOGUE_INPUT_1_LOW_VALUE: (
+            settings.analogue_input_1_low_value
+        ),
+        GlobalSettingField.ANALOGUE_INPUT_1_HIGH_VALUE: (
+            settings.analogue_input_1_high_value
+        ),
+    }
+    desired = {
+        GlobalSettingField.ANALOGUE_INPUT_1_LOW_ACTION: low_action,
+        GlobalSettingField.ANALOGUE_INPUT_1_HIGH_ACTION: high_action,
+        GlobalSettingField.ANALOGUE_INPUT_1_LOW_VALUE: low_threshold,
+        GlobalSettingField.ANALOGUE_INPUT_1_HIGH_VALUE: high_threshold,
+    }
+    changed = tuple(
+        (field, value) for field, value in desired.items() if current[field] != value
+    )
+    if len(changed) != 1:
+        raise ProtocolError(
+            "analogue input 1 validation requires exactly one changed field"
+        )
     return changed[0]
 
 
