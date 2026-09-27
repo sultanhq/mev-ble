@@ -1395,8 +1395,8 @@ def plan_ls_action_validation_update(
     ls1_action: int,
     ls2_action: int,
     ls3_action: int,
-) -> tuple[GlobalSettingField, int]:
-    """Plan exactly one reversible switched-live action validation write."""
+) -> tuple[tuple[GlobalSettingField, int], ...]:
+    """Plan changed switched-live actions in deterministic LS1-to-LS3 order."""
 
     validate_ls_action_profile(
         settings.ls1_action,
@@ -1417,10 +1417,9 @@ def plan_ls_action_validation_update(
     changed = tuple(
         (field, value) for field, value in desired.items() if current[field] != value
     )
-    if len(changed) != 1:
-        raise ProtocolError("LS action validation requires exactly one changed field")
-    return changed[0]
-
+    if not changed:
+        raise ProtocolError("LS action profile is unchanged")
+    return changed
 
 def validate_analogue_input_1_profile(
     low_action: int,
