@@ -1720,7 +1720,9 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                             "analogue_input_1_validation_update_failed"
                         )
                     else:
-                        return await self.async_step_analogue_input_1_validation_result()
+                        return await (
+                            self.async_step_analogue_input_1_validation_result()
+                        )
 
         settings = self._current_analogue_input_1_validation_settings()
         current = (
