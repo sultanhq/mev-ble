@@ -214,6 +214,7 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
             | DELAY_OVERRUN_FIELDS
             | LS_ACTION_VALIDATION_FIELDS
             | ANALOGUE_INPUT_1_VALIDATION_FIELDS
+            | ANALOGUE_INPUT_2_VALIDATION_FIELDS
             | TEMPERATURE_VALIDATION_FIELDS
             | LOW_TEMPERATURE_PROTECTION_FIELDS
         ),
@@ -224,10 +225,10 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     ]
 
 
-def test_only_analogue_input_2_is_exact_identity_validation_candidate() -> None:
-    """RC12 exposes only analogue-input 2 as an exact-identity candidate."""
+def test_proven_analogue_input_2_leaves_no_validation_candidates() -> None:
+    """RC12 proof promotes analogue-input 2 to the validated write matrix."""
 
-    # Arrange - include the target unit plus firmware, hardware, and model misses.
+    # Arrange - include the proven unit plus firmware, hardware, and model misses.
     identities = [
         (10, "2.03.08", "01.00"),
         (10, "2.03.09", "01.00"),
@@ -235,22 +236,23 @@ def test_only_analogue_input_2_is_exact_identity_validation_candidate() -> None:
         (2, "2.03.08", "01.00"),
     ]
 
-    # Act - resolve candidate fields for the exact and near identities.
+    # Act - resolve candidate fields after Input 2 promotion.
     resolved = [
         installer_validation_candidate_fields(*identity) for identity in identities
     ]
 
-    # Assert - only the exact identity exposes analogue-input 2 fields 27..30.
+    # Assert - no prerelease validation candidates remain in this batch.
     assert resolved == [
-        ANALOGUE_INPUT_2_VALIDATION_FIELDS,
+        frozenset(),
         frozenset(),
         frozenset(),
         frozenset(),
     ]
 
 
+
 def test_analogue_input_2_metadata_matches_recovered_app_ranges() -> None:
-    """The candidate metadata retains documented actions and 0.1 V scaling."""
+    """Validated Input 2 metadata retains documented actions and 0.1 V scaling."""
 
     # Arrange - select the four analogue-input 2 installer definitions.
     fields = (
