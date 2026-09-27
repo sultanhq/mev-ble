@@ -161,8 +161,8 @@ are proven.
 | 21–22 | `co2_boost_threshold`, `co2_purge_threshold` | 22, 24 | UInt16LE value ÷ 10, ppm | 0–2000, step 10 | CO₂ model; `boost < purge` | Sensor control | Physical; exact validated identity only |
 | 23–24 | analogue input 1 low/high actions | 28–29 | UInt8 action code | Low=1, Normal=2, Boost=3, Purge=4 | 0–10 V input; paired thresholds | Wired input | Physical storage/readback; exact validated identity only |
 | 25–26 | analogue input 1 low/high values | 26–27 | UInt8 tenths of a volt | raw 1–99 = 0.1–9.9 V, step 0.1 V | Low < High; paired actions | Wired input | Physical storage/readback; exact validated identity only |
-| 27–28 | analogue input 2 low/high actions | 32–33 | UInt8 action code | Low=1, Normal=2, Boost=3, Purge=4 | 0–10 V input; paired thresholds | Wired input | RC12 exact-identity validation candidate |
-| 29–30 | analogue input 2 low/high values | 30–31 | UInt8 tenths of a volt | raw 1–99 = 0.1–9.9 V, step 0.1 V | Low < High; paired actions | Wired input | RC12 exact-identity validation candidate |
+| 27–28 | analogue input 2 low/high actions | 32–33 | UInt8 action code | Low=1, Normal=2, Boost=3, Purge=4 | 0–10 V input; paired thresholds | Wired input | Physical storage/readback; exact validated identity only |
+| 29–30 | analogue input 2 low/high values | 30–31 | UInt8 tenths of a volt | raw 1–99 = 0.1–9.9 V, step 0.1 V | Low < High; paired actions | Wired input | Physical storage/readback; exact validated identity only |
 | 31–32 | digital input 1/2 actions | 34–35 | UInt8 action code | 0–255 | Installed wiring and action enum | Wired input | Static; read-only |
 
 Packet-137 byte 16 decodes as `purge_low_mode`, but no corresponding packet-136
