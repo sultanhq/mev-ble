@@ -7,6 +7,7 @@ from enum import StrEnum
 from typing import Final
 
 from .protocol import (
+    ANALOGUE_ACTION_NAMES,
     GLOBAL_SETTING_FIELD_SPECS,
     LS_ACTION_NAMES,
     TEMPERATURE_THRESHOLD_ACTION_NAMES,
@@ -295,22 +296,32 @@ INSTALLER_FIELD_DEFINITIONS: Final = {
     ),
     GlobalSettingField.ANALOGUE_INPUT_1_LOW_ACTION: _field(
         GlobalSettingField.ANALOGUE_INPUT_1_LOW_ACTION,
-        dependencies=_INPUT_DEPENDENCY,
+        unit="action_code",
+        dependencies="0–10 V analogue input 1; paired with low threshold",
         risk=InstallerFieldRisk.WIRED_INPUT,
+        known_values=tuple(
+            (int(action), name) for action, name in ANALOGUE_ACTION_NAMES.items()
+        ),
     ),
     GlobalSettingField.ANALOGUE_INPUT_1_HIGH_ACTION: _field(
         GlobalSettingField.ANALOGUE_INPUT_1_HIGH_ACTION,
-        dependencies=_INPUT_DEPENDENCY,
+        unit="action_code",
+        dependencies="0–10 V analogue input 1; paired with high threshold",
         risk=InstallerFieldRisk.WIRED_INPUT,
+        known_values=tuple(
+            (int(action), name) for action, name in ANALOGUE_ACTION_NAMES.items()
+        ),
     ),
     GlobalSettingField.ANALOGUE_INPUT_1_LOW_VALUE: _field(
         GlobalSettingField.ANALOGUE_INPUT_1_LOW_VALUE,
-        dependencies="analogue-input scaling and paired action are unvalidated",
+        unit="tenths_volt",
+        dependencies="raw 1–99 = 0.1–9.9 V; low threshold < high threshold",
         risk=InstallerFieldRisk.WIRED_INPUT,
     ),
     GlobalSettingField.ANALOGUE_INPUT_1_HIGH_VALUE: _field(
         GlobalSettingField.ANALOGUE_INPUT_1_HIGH_VALUE,
-        dependencies="analogue-input scaling and paired action are unvalidated",
+        unit="tenths_volt",
+        dependencies="raw 1–99 = 0.1–9.9 V; low threshold < high threshold",
         risk=InstallerFieldRisk.WIRED_INPUT,
     ),
     GlobalSettingField.ANALOGUE_INPUT_2_LOW_ACTION: _field(
@@ -413,6 +424,15 @@ LS_ACTION_VALIDATION_FIELDS: Final = frozenset(
     }
 )
 
+ANALOGUE_INPUT_1_VALIDATION_FIELDS: Final = frozenset(
+    {
+        GlobalSettingField.ANALOGUE_INPUT_1_LOW_ACTION,
+        GlobalSettingField.ANALOGUE_INPUT_1_HIGH_ACTION,
+        GlobalSettingField.ANALOGUE_INPUT_1_LOW_VALUE,
+        GlobalSettingField.ANALOGUE_INPUT_1_HIGH_VALUE,
+    }
+)
+
 TEMPERATURE_VALIDATION_FIELDS: Final = frozenset(
     {
         GlobalSettingField.LOW_THRESHOLD_ACTION,
@@ -463,11 +483,13 @@ VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
         model_number=10,
         firmware="2.03.08",
         hardware="01.00",
-        fields=LS_ACTION_VALIDATION_FIELDS,
+        fields=LS_ACTION_VALIDATION_FIELDS | ANALOGUE_INPUT_1_VALIDATION_FIELDS,
         evidence=(
-            "official packet-136 enum maps LS1/LS2/LS3 to fields 11/12/13; "
-            "packet-137 offsets are 19/20/21; manual choices are Low, Boost "
-            "and Purge; awaiting independent reversible storage validation"
+            "official packet-136 enum maps LS1/LS2/LS3 to fields 11/12/13 and "
+            "analogue input 1 to fields 23..26; packet-137 offsets are 19..21 "
+            "and 26..29; manual choices for analogue actions are Low, Normal, "
+            "Boost and Purge with raw thresholds 1..99 representing 0.1..9.9 V; "
+            "awaiting independent reversible storage validation"
         ),
     ),
 )
