@@ -830,8 +830,8 @@ async def test_global_setting_write_rejects_unvalidated_field_before_io() -> Non
     with pytest.raises(DeviceError) as error:
         await device.set_global_setting(
             object(),
-            GlobalSettingField.ANALOGUE_INPUT_2_LOW_ACTION,
-            True,
+            GlobalSettingField.DIGITAL_INPUT_1_ACTION,
+            1,
         )
 
     # Assert - the identity-aware field guard rejects it before Bluetooth I/O.
