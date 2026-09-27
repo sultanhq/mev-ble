@@ -159,8 +159,8 @@ are proven.
 | 19 | `low_temperature_threshold` | 14 | UInt8, °C | 0–30, step 1 | Integration conservatively requires `low < high` | Sensor control | Physical storage/readback; exact validated identity only while ID 16 is off |
 | 20 | `high_temperature_threshold` | 15 | UInt8, °C | 15–40, step 1 | Integration conservatively requires `low < high` | Sensor control | Physical storage/readback; exact validated identity only while ID 16 is off |
 | 21–22 | `co2_boost_threshold`, `co2_purge_threshold` | 22, 24 | UInt16LE value ÷ 10, ppm | 0–2000, step 10 | CO₂ model; `boost < purge` | Sensor control | Physical; exact validated identity only |
-| 23–24 | analogue input 1 low/high actions | 28–29 | UInt8 action code | 0–255 | Installed wiring and action enum | Wired input | Static; read-only |
-| 25–26 | analogue input 1 low/high values | 26–27 | UInt8, scaling unknown | 0–100 | Scaling and paired actions | Wired input | Static; read-only |
+| 23–24 | analogue input 1 low/high actions | 28–29 | UInt8 action code | Low=1, Normal=2, Boost=3, Purge=4 | 0–10 V input; paired thresholds | Wired input | RC11 exact-identity validation candidate |
+| 25–26 | analogue input 1 low/high values | 26–27 | UInt8 tenths of a volt | raw 1–99 = 0.1–9.9 V, step 0.1 V | Low < High; paired actions | Wired input | RC11 exact-identity validation candidate |
 | 27–28 | analogue input 2 low/high actions | 32–33 | UInt8 action code | 0–255 | Installed wiring and action enum | Wired input | Static; read-only |
 | 29–30 | analogue input 2 low/high values | 30–31 | UInt8, scaling unknown | 0–100 | Scaling and paired actions | Wired input | Static; read-only |
 | 31–32 | digital input 1/2 actions | 34–35 | UInt8 action code | 0–255 | Installed wiring and action enum | Wired input | Static; read-only |
@@ -276,3 +276,22 @@ exact full-record readback. Unknown stored action codes remain visible in
 diagnostics but block the flow rather than being rewritten. Physical promotion
 requires independent change/readback/restore evidence for all three fields;
 live switched-input behavior is a separate test.
+
+
+### Analogue input 1 evidence and validation
+
+Fields 23–26 map analogue input 1 to packet-137 offsets 28, 29, 26 and 27.
+The recovered app and installer manual identify Low, Normal, Boost and Purge as
+action codes 1–4 and use integer tenths of a volt for the two thresholds; for
+example raw 52 is displayed as 5.2 V. The documented usable range is raw 1–99
+(0.1–9.9 V), and the integration requires Low < High.
+
+RC11 exposes these four fields only to the exact model 10 / firmware 2.03.08 /
+hardware 01.00 identity as guarded validation candidates. Home Assistant shows
+the actions as dropdowns and the thresholds as 0.1 V sliders, but the protocol
+remains integer packet-136 writes. Exactly one field may change per validation
+operation, followed by a fresh complete packet-137 readback. Unknown stored
+action codes remain visible in diagnostics and block the write flow rather than
+being coerced to a named choice. Physical promotion requires independent
+change/readback/restore evidence for all four fields; live 0–10 V electrical
+response remains a separate test.
