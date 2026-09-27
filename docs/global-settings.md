@@ -299,9 +299,10 @@ named choice. Live 0–10 V electrical response remains a separate test.
 Fields 27–30 map analogue input 2 to packet-137 offsets 32, 33, 30 and 31. The
 recovered app and installer manual use the same Low, Normal, Boost and Purge
 action codes 1–4 and raw 1–99 tenths-of-a-volt thresholds as analogue input 1.
-RC12 exposes these fields only to the exact tested identity as guarded validation
-candidates. Exactly one field may change per operation, a fresh unchanged
-36-byte baseline is required, and success requires exact complete packet-137
-readback. Unknown action codes remain read-only. Promotion requires independent
-change/readback/restore evidence for all four fields; live 0–10 V response is
-separate.
+RC12 installed-unit testing completed successfully on model 10 / firmware
+2.03.08 / hardware 01.00, so these fields are now normal exact-identity guarded
+installer controls. Each Home Assistant submission still changes only one field,
+requires a fresh unchanged 36-byte baseline, and accepts success only after exact
+complete packet-137 readback. Unknown action codes remain read-only. Live
+0–10 V electrical/runtime response remains separate from the proven stored
+read/write behaviour.
