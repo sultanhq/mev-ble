@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.6.3-rc.13] - 2026-09-27
+
+### Added
+
+- Add exact-identity digital input 1/2 validation for packet-136 fields 31–32.
+- Present both digital input actions as Low, Boost, and Purge dropdowns.
+
+### Changed
+
+- Promote the physically proven analogue input 2 fields 27–30 to normal
+  exact-identity guarded installer controls.
+- Harden the generic global-setting setter so LS, analogue, and digital input
+  profiles cannot bypass their profile-specific validation paths.
+
+### Safety
+
+- Permit exactly one digital-input action change per RC13 validation operation.
+- Reject unknown/Normal action codes, stale complete settings records,
+  multi-field candidate changes, and unconfirmed reviews before write I/O.
+- Require exact fresh packet-137 readback after the isolated packet-136 write;
+  live low-voltage electrical input behaviour remains a separate validation task.
+
 ## [0.6.3-rc.12] - 2026-09-27
 
 ### Added
