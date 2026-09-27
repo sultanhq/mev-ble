@@ -1421,6 +1421,7 @@ def plan_ls_action_validation_update(
         raise ProtocolError("LS action profile is unchanged")
     return changed
 
+
 def validate_analogue_input_1_profile(
     low_action: int,
     high_action: int,
