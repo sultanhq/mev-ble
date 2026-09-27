@@ -49,11 +49,11 @@
           "silent_hours": "Manage silent hours",
           "calibrate_co2": "Calibrate internal CO₂ sensor",
           "delay_overrun": "Configure Delay On and Overrun",
-          "ls_action_validation": "Validate LS1–LS3 actions",
+          "ls_action_validation": "Configure LS1–LS3 actions",
           "boost_minimum": "Configure Boost minimum",
           "low_temperature_protection_validation": "Configure Low-temperature protection",
           "temperature_validation": "Configure temperature settings",
-          "analogue_input_1_validation": "Validate analogue input 1"
+          "analogue_input_1_validation": "Configure analogue input 1"
         }
       },
       "fan_options": {
@@ -225,8 +225,8 @@
         "description": "The installed unit returned **{new_timers}** through exact fresh packet-137 readback. Delay On remained unchanged; runtime LS-input timing remains a separate test."
       },
       "ls_action_validation": {
-        "title": "Validate LS1–LS3 actions",
-        "description": "Current profile: **{current_profile}**\n\nThe recovered app maps LS1, LS2 and combined LS1+LS2 to packet-136 fields 11–13. The installer manual permits only Low, Boost and Purge. Change exactly one selector, leave all switched-live inputs inactive, and restore it after the first successful readback.",
+        "title": "Configure LS1–LS3 actions",
+        "description": "Current profile: **{current_profile}**\n\nLS1, LS2 and combined LS1+LS2 map to packet-136 fields 11–13 and permit Low, Boost and Purge. All three fields have passed independent reversible storage validation on model 10 / firmware 2.03.08 / hardware 01.00. You may change one or more selectors in this review. Home Assistant applies changed fields in LS1 → LS2 → LS3 order, one field per packet, with exact fresh packet-137 readback after each write. Live mains switched-input behaviour remains separately untested.",
         "data": {
           "ls1_action": "LS1 action",
           "ls2_action": "LS2 action",
@@ -234,15 +234,15 @@
         }
       },
       "ls_action_validation_confirm": {
-        "title": "Confirm one LS action change",
-        "description": "Device: **{device}**\n\nCurrent profile: **{current_profile}**\n\nProposed profile: **{new_profile}**\n\nHome Assistant will send exactly one packet-136 field and accept success only after the complete fresh packet-137 record matches. This proves stored configuration, not live switched-input behaviour.",
+        "title": "Confirm LS action changes",
+        "description": "Device: **{device}**\n\nCurrent profile: **{current_profile}**\n\nProposed profile: **{new_profile}**\n\nHome Assistant will serialize changed fields in LS1 → LS2 → LS3 order. Each packet-136 write must be confirmed by a complete fresh packet-137 record before the next field is sent. If a later write fails, earlier confirmed changes remain applied and are not automatically rolled back.",
         "data": {
-          "confirm_ls_action_validation": "I recorded the current profile and want to test this one LS action"
+          "confirm_ls_action_validation": "I have reviewed the current and proposed profiles and want to apply these LS action changes"
         }
       },
       "ls_action_validation_result": {
-        "title": "LS action confirmed",
-        "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. Restore the original value through this same flow before testing the next LS field."
+        "title": "LS actions confirmed",
+        "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback after every changed field. This confirms stored configuration; live switched-input behaviour is separate."
       },
       "boost_minimum": {
         "title": "Configure Boost minimum",
@@ -302,8 +302,8 @@
         "description": "The installed unit returned Low-temperature protection **{new_protection}** through exact fresh packet-137 readback."
       },
       "analogue_input_1_validation": {
-        "title": "Validate analogue input 1",
-        "description": "Current profile: **{current_profile}**\n\nChoose the Low/High actions and voltage thresholds for analogue input 1. The action selectors use the documented Low, Normal, Boost and Purge choices. The voltage controls use 0.1 V steps from 0.1 V to 9.9 V and must keep Low below High.\n\nFor this prerelease validation, change exactly one field at a time. Keep the physical 0–10 V input inactive while proving stored configuration.",
+        "title": "Configure analogue input 1",
+        "description": "Current profile: **{current_profile}**\n\nChoose the Low/High actions and voltage thresholds for analogue input 1. The action selectors use Low, Normal, Boost and Purge. Voltage thresholds use 0.1 V steps from 0.1 V to 9.9 V and must keep Low below High. All four stored fields have passed independent reversible change/readback/restore validation on model 10 / firmware 2.03.08 / hardware 01.00. This flow continues to apply one field per submission; live 0–10 V electrical response remains separately untested.",
         "data": {
           "analogue_input_1_low_action": "Low action",
           "analogue_input_1_low_threshold": "Low threshold",
@@ -313,14 +313,14 @@
       },
       "analogue_input_1_validation_confirm": {
         "title": "Confirm analogue input 1 change",
-        "description": "Device: **{device}**\n\nCurrent profile: **{current_profile}**\n\nNew profile: **{new_profile}**\n\nHome Assistant will write exactly one packet-136 field, then require a fresh complete packet-137 readback matching only that intended change. Live 0–10 V response is not part of this storage test.",
+        "description": "Device: **{device}**\n\nCurrent profile: **{current_profile}**\n\nNew profile: **{new_profile}**\n\nHome Assistant will write exactly one packet-136 field, then require a fresh complete packet-137 readback matching only that intended change. This confirms stored configuration, not live 0–10 V behaviour.",
         "data": {
-          "confirm_analogue_input_1_validation": "I have recorded the current profile and want to apply this one-field validation change"
+          "confirm_analogue_input_1_validation": "I have reviewed the current and proposed profiles and want to apply this analogue input 1 change"
         }
       },
       "analogue_input_1_validation_result": {
-        "title": "Analogue input 1 field confirmed",
-        "description": "The installed unit returned **{new_profile}** through exact fresh settings readback. Restore the changed field to its original value before validating the next field."
+        "title": "Analogue input 1 change confirmed",
+        "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. This confirms the stored field value; live 0–10 V response is separate."
       }
     },
     "progress": {

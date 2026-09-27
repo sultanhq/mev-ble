@@ -6,7 +6,7 @@ import asyncio
 import struct
 from collections import deque
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, call
 
 import pytest
 
@@ -2472,13 +2472,13 @@ def test_ls_action_validation_requires_exact_identity(
     # Act - resolve the device-level guard used by coordinator and options flow.
     result = device.supports_ls_action_validation
 
-    # Assert - only model 10 / 2.03.08 / 01.00 exposes the candidate.
+    # Assert - only model 10 / 2.03.08 / 01.00 exposes the validated selectors.
     assert result is supported
 
 
 @pytest.mark.asyncio
 async def test_ls_action_validation_writes_one_field_with_exact_readback() -> None:
-    """A candidate LS selector preserves every unrelated packet-137 byte."""
+    """A validated LS selector preserves every unrelated packet-137 byte."""
 
     # Arrange - prepare the exact identity, fresh baseline, and field-11 result.
     device = MultihomeDevice("AA", "MEV", 1234)
@@ -2521,8 +2521,118 @@ async def test_ls_action_validation_writes_one_field_with_exact_readback() -> No
 
 
 @pytest.mark.asyncio
+async def test_ls_actions_serialize_multiple_changes_with_exact_readback() -> None:
+    """A multi-field profile remains one packet-136 write per confirmed field."""
+
+    # Arrange - build the expected LS1, then LS2, then LS3 full-record states.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    confirmed = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    expected_ls1 = global_settings_after_update(
+        confirmed, GlobalSettingField.LS1_ACTION, 3
+    )
+    expected_ls2 = global_settings_after_update(
+        expected_ls1, GlobalSettingField.LS2_ACTION, 4
+    )
+    expected_ls3 = global_settings_after_update(
+        expected_ls2, GlobalSettingField.LS3_ACTION, 1
+    )
+    device._confirmed_global_settings = confirmed
+    device._global_settings_write_ready = True
+    device.connect = AsyncMock()
+    device._send = AsyncMock()
+    device._request = AsyncMock(
+        side_effect=[
+            SimpleNamespace(payload=confirmed.raw_record),
+            SimpleNamespace(payload=expected_ls1.raw_record),
+            SimpleNamespace(payload=expected_ls2.raw_record),
+            SimpleNamespace(payload=expected_ls3.raw_record),
+        ]
+    )
+
+    # Act - submit three LS changes in one reviewed configuration profile.
+    result = await device.set_ls_action_validation(
+        object(), ls1_action=3, ls2_action=4, ls3_action=1
+    )
+
+    # Assert - writes are field 11 -> 12 -> 13 with fresh readback after each.
+    assert device._send.await_args_list == [
+        call(
+            PacketType.GLOBAL_DATA_FIELD,
+            Operation.UPDATE,
+            encode_global_setting_update(GlobalSettingField.LS1_ACTION, 3),
+            target=0,
+        ),
+        call(
+            PacketType.GLOBAL_DATA_FIELD,
+            Operation.UPDATE,
+            encode_global_setting_update(GlobalSettingField.LS2_ACTION, 4),
+            target=0,
+        ),
+        call(
+            PacketType.GLOBAL_DATA_FIELD,
+            Operation.UPDATE,
+            encode_global_setting_update(GlobalSettingField.LS3_ACTION, 1),
+            target=0,
+        ),
+    ]
+    assert result.raw_record == expected_ls3.raw_record
+    assert (result.ls1_action, result.ls2_action, result.ls3_action) == (3, 4, 1)
+
+
+@pytest.mark.asyncio
+async def test_ls_actions_stop_after_mismatch_and_report_confirmed_fields() -> None:
+    """A later mismatch retains earlier confirmed writes without rollback."""
+
+    # Arrange - let LS1 confirm, then return an unchanged record for the LS2 write.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    confirmed = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    expected_ls1 = global_settings_after_update(
+        confirmed, GlobalSettingField.LS1_ACTION, 3
+    )
+    device._confirmed_global_settings = confirmed
+    device._global_settings_write_ready = True
+    device.connect = AsyncMock()
+    device._send = AsyncMock()
+    device._request = AsyncMock(
+        side_effect=[
+            SimpleNamespace(payload=confirmed.raw_record),
+            SimpleNamespace(payload=expected_ls1.raw_record),
+            SimpleNamespace(payload=expected_ls1.raw_record),
+        ]
+    )
+
+    # Act - request LS1 and LS2 changes, with the second exact readback mismatching.
+    with pytest.raises(
+        GlobalSettingUpdateError, match="earlier LS fields already confirmed: 11"
+    ):
+        await device.set_ls_action_validation(
+            object(), ls1_action=3, ls2_action=4, ls3_action=4
+        )
+
+    # Assert - LS3 is never sent and the last confirmed snapshot remains LS1.
+    assert device._send.await_count == 2
+    assert device._confirmed_global_settings is not None
+    assert device._confirmed_global_settings.raw_record == expected_ls1.raw_record
+    assert device._global_settings_write_ready is False
+
+
+@pytest.mark.asyncio
 async def test_analogue_input_1_write_has_exact_readback() -> None:
-    """A candidate voltage write preserves every unrelated settings byte."""
+    """A validated voltage write preserves every unrelated settings byte."""
 
     # Arrange - prepare the exact identity and a 1.5 V -> 1.6 V expected record.
     device = MultihomeDevice("AA", "MEV", 1234)

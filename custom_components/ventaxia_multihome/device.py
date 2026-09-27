@@ -312,18 +312,15 @@ class MultihomeDevice:
 
     @property
     def supports_ls_action_validation(self) -> bool:
-        """Return whether guarded LS action candidates are enabled."""
+        """Return whether physically validated LS action writes are enabled."""
 
-        return LS_ACTION_VALIDATION_FIELDS <= self.validation_candidate_installer_fields
+        return LS_ACTION_VALIDATION_FIELDS <= self.writable_installer_fields
 
     @property
     def supports_analogue_input_1_validation(self) -> bool:
-        """Return whether guarded analogue-input 1 candidates are enabled."""
+        """Return whether physically validated analogue-input 1 writes are enabled."""
 
-        return (
-            ANALOGUE_INPUT_1_VALIDATION_FIELDS
-            <= self.validation_candidate_installer_fields
-        )
+        return ANALOGUE_INPUT_1_VALIDATION_FIELDS <= self.writable_installer_fields
 
     @property
     def supports_temperature_threshold_validation(self) -> bool:
@@ -839,11 +836,11 @@ class MultihomeDevice:
         ls2_action: int,
         ls3_action: int,
     ) -> GlobalSettings:
-        """Apply one guarded switched-live action validation write."""
+        """Apply guarded switched-live actions with exact per-field readback."""
 
         if not self.supports_ls_action_validation:
             raise DeviceError(
-                "LS action validation is not enabled for this model, firmware, "
+                "LS action configuration is not enabled for this model, firmware, "
                 "and hardware"
             )
         confirmed = self._confirmed_global_settings
@@ -875,17 +872,33 @@ class MultihomeDevice:
             if fresh.raw_record != confirmed.raw_record:
                 self._global_settings_write_ready = False
                 raise GlobalSettingUpdateError(
-                    "global settings changed before the LS action validation "
-                    "write; no update was sent and the last confirmed snapshot "
-                    "was retained"
+                    "global settings changed before the LS action write; no update "
+                    "was sent and the last confirmed snapshot was retained"
                 )
-            field, value = plan_ls_action_validation_update(
+            plan = plan_ls_action_validation_update(
                 fresh,
                 ls1_action=ls1_action,
                 ls2_action=ls2_action,
                 ls3_action=ls3_action,
             )
-            return await self._set_global_setting_locked(field, value)
+            result = fresh
+            confirmed_fields: list[GlobalSettingField] = []
+            for field, value in plan:
+                try:
+                    result = await self._set_global_setting_locked(field, value)
+                except GlobalSettingUpdateError as err:
+                    if confirmed_fields:
+                        confirmed_ids = ", ".join(
+                            str(int(confirmed_field))
+                            for confirmed_field in confirmed_fields
+                        )
+                        raise GlobalSettingUpdateError(
+                            f"{err}; earlier LS fields already confirmed: "
+                            f"{confirmed_ids}"
+                        ) from err
+                    raise
+                confirmed_fields.append(field)
+            return result
 
     async def set_analogue_input_1_validation(
         self,
