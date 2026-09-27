@@ -22,6 +22,8 @@ from custom_components.ventaxia_multihome.const import (
 from custom_components.ventaxia_multihome.coordinator import (
     AirflowConfigurationNotSupportedError,
     AirflowConfigurationUnavailableError,
+    AnalogueInput1ValidationNotSupportedError,
+    AnalogueInput1ValidationUnavailableError,
     CalibrationCommandNotSentError,
     CalibrationDeliveryUncertainError,
     CalibrationNotSupportedError,
@@ -905,6 +907,103 @@ async def test_ls_action_validation_publishes_only_confirmed_settings() -> None:
     published = coordinator.async_set_updated_data.call_args.args[0]
     assert published.global_settings is confirmed
     assert published.zone is current.zone
+
+
+@pytest.mark.asyncio
+async def test_analogue_input_1_validation_publishes_only_confirmed_settings() -> None:
+    """A successful analogue-input write publishes only exact device readback."""
+
+    # Arrange - retain telemetry and return a distinct confirmed settings object.
+    current = MultihomeData(
+        zone=object(),
+        system=object(),
+        global_settings=_settings(),
+        last_successful_update=datetime.now(UTC),
+    )
+    confirmed = decode_global_settings(bytes(36))
+    ble_device = object()
+    device = SimpleNamespace(
+        supports_analogue_input_1_validation=True,
+        global_settings_write_ready=True,
+        set_analogue_input_1_validation=AsyncMock(return_value=confirmed),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=current,
+        last_update_success=True,
+        _ble_device=lambda: ble_device,
+        async_set_updated_data=Mock(),
+        async_set_update_error=Mock(),
+    )
+
+    # Act - apply one reviewed 1.5 V -> 1.6 V threshold change.
+    await VentaxiaMultihomeCoordinator.async_set_analogue_input_1_validation(
+        coordinator,
+        low_action=1,
+        high_action=3,
+        low_threshold=16,
+        high_threshold=75,
+    )
+
+    # Assert - the exact confirmed settings snapshot replaces only settings state.
+    device.set_analogue_input_1_validation.assert_awaited_once_with(
+        ble_device,
+        low_action=1,
+        high_action=3,
+        low_threshold=16,
+        high_threshold=75,
+    )
+    published = coordinator.async_set_updated_data.call_args.args[0]
+    assert published.global_settings is confirmed
+    assert published.zone is current.zone
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("supported", "data", "last_success", "write_ready", "error"),
+    [
+        (
+            False,
+            object(),
+            True,
+            True,
+            AnalogueInput1ValidationNotSupportedError,
+        ),
+        (True, None, True, True, AnalogueInput1ValidationUnavailableError),
+        (True, object(), False, True, AnalogueInput1ValidationUnavailableError),
+        (True, object(), True, False, AnalogueInput1ValidationUnavailableError),
+    ],
+)
+async def test_analogue_input_1_validation_rejects_stale_state_before_io(
+    supported, data, last_success, write_ready, error
+) -> None:
+    """Analogue-input identity and snapshot guards run before Bluetooth lookup."""
+
+    # Arrange - vary each prerequisite for one guarded field validation.
+    device = SimpleNamespace(
+        supports_analogue_input_1_validation=supported,
+        global_settings_write_ready=write_ready,
+        set_analogue_input_1_validation=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=data,
+        last_update_success=last_success,
+        _ble_device=Mock(),
+    )
+
+    # Act / Assert - reject without resolving or using a Bluetooth path.
+    with pytest.raises(error):
+        await VentaxiaMultihomeCoordinator.async_set_analogue_input_1_validation(
+            coordinator,
+            low_action=1,
+            high_action=3,
+            low_threshold=16,
+            high_threshold=75,
+        )
+    coordinator._ble_device.assert_not_called()
+    device.set_analogue_input_1_validation.assert_not_awaited()
 
 
 @pytest.mark.asyncio
