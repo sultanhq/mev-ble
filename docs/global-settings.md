@@ -161,8 +161,8 @@ are proven.
 | 21–22 | `co2_boost_threshold`, `co2_purge_threshold` | 22, 24 | UInt16LE value ÷ 10, ppm | 0–2000, step 10 | CO₂ model; `boost < purge` | Sensor control | Physical; exact validated identity only |
 | 23–24 | analogue input 1 low/high actions | 28–29 | UInt8 action code | Low=1, Normal=2, Boost=3, Purge=4 | 0–10 V input; paired thresholds | Wired input | Physical storage/readback; exact validated identity only |
 | 25–26 | analogue input 1 low/high values | 26–27 | UInt8 tenths of a volt | raw 1–99 = 0.1–9.9 V, step 0.1 V | Low < High; paired actions | Wired input | Physical storage/readback; exact validated identity only |
-| 27–28 | analogue input 2 low/high actions | 32–33 | UInt8 action code | Low=1, Normal=2, Boost=3, Purge=4 | 0–10 V input; paired thresholds | Wired input | RC12 exact-identity validation candidate |
-| 29–30 | analogue input 2 low/high values | 30–31 | UInt8 tenths of a volt | raw 1–99 = 0.1–9.9 V, step 0.1 V | Low < High; paired actions | Wired input | RC12 exact-identity validation candidate |
+| 27–28 | analogue input 2 low/high actions | 32–33 | UInt8 action code | Low=1, Normal=2, Boost=3, Purge=4 | 0–10 V input; paired thresholds | Wired input | Physical storage/readback; exact validated identity only |
+| 29–30 | analogue input 2 low/high values | 30–31 | UInt8 tenths of a volt | raw 1–99 = 0.1–9.9 V, step 0.1 V | Low < High; paired actions | Wired input | Physical storage/readback; exact validated identity only |
 | 31–32 | digital input 1/2 actions | 34–35 | UInt8 action code | 0–255 | Installed wiring and action enum | Wired input | Static; read-only |
 
 Packet-137 byte 16 decodes as `purge_low_mode`, but no corresponding packet-136
@@ -299,9 +299,10 @@ named choice. Live 0–10 V electrical response remains a separate test.
 Fields 27–30 map analogue input 2 to packet-137 offsets 32, 33, 30 and 31. The
 recovered app and installer manual use the same Low, Normal, Boost and Purge
 action codes 1–4 and raw 1–99 tenths-of-a-volt thresholds as analogue input 1.
-RC12 exposes these fields only to the exact tested identity as guarded validation
-candidates. Exactly one field may change per operation, a fresh unchanged
-36-byte baseline is required, and success requires exact complete packet-137
-readback. Unknown action codes remain read-only. Promotion requires independent
-change/readback/restore evidence for all four fields; live 0–10 V response is
-separate.
+RC12 installed-unit testing completed successfully on model 10 / firmware
+2.03.08 / hardware 01.00, so these fields are now normal exact-identity guarded
+installer controls. Each Home Assistant submission still changes only one field,
+requires a fresh unchanged 36-byte baseline, and accepts success only after exact
+complete packet-137 readback. Unknown action codes remain read-only. Live
+0–10 V electrical/runtime response remains separate from the proven stored
+read/write behaviour.

@@ -154,13 +154,13 @@ actions use Low, Normal, Boost and Purge dropdowns; thresholds use 0.1–9.9 V
 sliders in 0.1 V steps. The flow retains one-field-per-submission writes and
 exact full-record readback. Live 0–10 V electrical response remains separate.
 
-Version 0.6.3 RC12 adds **Configure → Validate analogue input 2** on the exact
-model 10 / firmware 2.03.08 / hardware 01.00 identity. It mirrors analogue
-input 1's documented actions and integer tenths-of-a-volt thresholds. During
-RC12 validation, change and restore Low action, High action, Low threshold and
-High threshold independently. Each review may change exactly one field, rejects
-a stale 36-byte baseline, and requires exact fresh packet-137 readback. Keep the
-physical 0–10 V input inactive while proving stored configuration.
+Version 0.6.3 RC12 introduced analogue input 2 validation on the same exact
+identity. Installed-unit testing has since passed, so the four fields are now
+exposed as **Configure → Configure analogue input 2**. Low and High actions use
+Low, Normal, Boost and Purge dropdowns; thresholds use 0.1–9.9 V sliders in
+0.1 V steps. The flow retains one-field-per-submission writes, rejects stale
+36-byte baselines, and requires exact fresh packet-137 readback. Live 0–10 V
+electrical response remains separate from the proven stored R/W behaviour.
 
 Version 0.6.3 RC4 adds **Configure → Configure Boost minimum** on the same exact
 identity. It accepts the recovered one-byte 0–100% wire range, displays current

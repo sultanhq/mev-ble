@@ -840,6 +840,29 @@ async def test_global_setting_write_rejects_unvalidated_field_before_io() -> Non
 
 
 @pytest.mark.asyncio
+async def test_global_setting_write_rejects_guarded_input_profile_field() -> None:
+    """Validated input fields still require their profile-specific safety setter."""
+
+    # Arrange - use the exact identity where analogue input 2 is physically validated.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._client_factory = AsyncMock(side_effect=AssertionError("no I/O expected"))
+
+    # Act - try to bypass the guarded Input 2 planner through the generic setter.
+    with pytest.raises(DeviceError, match="guarded installer profile setter"):
+        await device.set_global_setting(
+            object(),
+            GlobalSettingField.ANALOGUE_INPUT_2_LOW_ACTION,
+            255,
+        )
+
+    # Assert - the invalid action never reaches Bluetooth.
+    device._client_factory.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_global_setting_write_uses_target_zero_and_exact_readback() -> None:
     """A valid field update is committed only after exact packet 137 readback."""
 
@@ -2680,7 +2703,7 @@ async def test_analogue_input_1_write_has_exact_readback() -> None:
     assert result.analogue_input_1_low_value == 16
 @pytest.mark.asyncio
 async def test_analogue_input_2_write_has_exact_readback() -> None:
-    """A candidate voltage write preserves every unrelated settings byte."""
+    """A guarded Input 2 voltage write preserves every unrelated settings byte."""
 
     # Arrange - prepare the exact identity and a 1.5 V -> 1.6 V expected record.
     device = MultihomeDevice("AA", "MEV", 1234)

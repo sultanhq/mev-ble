@@ -326,12 +326,9 @@ class MultihomeDevice:
 
     @property
     def supports_analogue_input_2_validation(self) -> bool:
-        """Return whether guarded analogue-input 2 candidates are enabled."""
+        """Return whether physically validated analogue-input 2 writes are enabled."""
 
-        return (
-            ANALOGUE_INPUT_2_VALIDATION_FIELDS
-            <= self.validation_candidate_installer_fields
-        )
+        return ANALOGUE_INPUT_2_VALIDATION_FIELDS <= self.writable_installer_fields
 
     @property
     def supports_temperature_threshold_validation(self) -> bool:
@@ -569,19 +566,29 @@ class MultihomeDevice:
         field: GlobalSettingField | int,
         value: int | bool,
     ) -> GlobalSettings:
-        """Update one validated field and accept only an exact fresh readback."""
+        """Update one independent validated field with exact fresh readback."""
 
         if (
             isinstance(field, bool)
             or not isinstance(field, int)
-            or field not in self.configurable_installer_fields
+            or field not in self.writable_installer_fields
         ):
             raise DeviceError(
                 "global setting is not validated for this model, firmware, and hardware"
             )
+        normalized_field = GlobalSettingField(field)
+        guarded_input_fields = (
+            LS_ACTION_VALIDATION_FIELDS
+            | ANALOGUE_INPUT_1_VALIDATION_FIELDS
+            | ANALOGUE_INPUT_2_VALIDATION_FIELDS
+        )
+        if normalized_field in guarded_input_fields:
+            raise DeviceError(
+                "global setting requires its guarded installer profile setter"
+            )
         async with self._operation_lock:
             await self.connect(ble_device)
-            return await self._set_global_setting_locked(field, value)
+            return await self._set_global_setting_locked(normalized_field, value)
 
     async def set_sensor_thresholds(
         self,

@@ -54,7 +54,7 @@
           "low_temperature_protection_validation": "Configure Low-temperature protection",
           "temperature_validation": "Configure temperature settings",
           "analogue_input_1_validation": "Configure analogue input 1",
-          "analogue_input_2_validation": "Validate analogue input 2"
+          "analogue_input_2_validation": "Configure analogue input 2"
         }
       },
       "fan_options": {
@@ -324,8 +324,8 @@
         "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. This confirms the stored field value; live 0–10 V response is separate."
       },
       "analogue_input_2_validation": {
-        "title": "Validate analogue input 2",
-        "description": "Current profile: **{current_profile}**\n\nChoose the Low/High actions and voltage thresholds for analogue input 2. The action selectors use Low, Normal, Boost and Purge. Voltage thresholds use 0.1 V steps from 0.1 V to 9.9 V and must keep Low below High. For this prerelease validation, change exactly one field at a time. Keep the physical 0–10 V input inactive while proving stored configuration.",
+        "title": "Configure analogue input 2",
+        "description": "Current profile: **{current_profile}**\n\nChoose the Low/High actions and voltage thresholds for analogue input 2. The action selectors use Low, Normal, Boost and Purge. Voltage thresholds use 0.1 V steps from 0.1 V to 9.9 V and must keep Low below High. All four stored fields have passed installed-unit RC12 validation on model 10 / firmware 2.03.08 / hardware 01.00. This flow continues to change exactly one field per submission and confirms it with a fresh complete packet-137 readback. Live 0–10 V electrical response remains separate.",
         "data": {
           "analogue_input_2_low_action": "Low action",
           "analogue_input_2_low_threshold": "Low threshold",
@@ -334,15 +334,15 @@
         }
       },
       "analogue_input_2_validation_confirm": {
-        "title": "Confirm one analogue input 2 validation change",
-        "description": "Device: **{device}**\n\nCurrent profile: **{current_profile}**\n\nNew profile: **{new_profile}**\n\nHome Assistant will write exactly one packet-136 field, then require a fresh complete packet-137 readback matching only that intended change. This proves stored configuration only; live 0–10 V electrical response is not part of this test.",
+        "title": "Confirm analogue input 2 change",
+        "description": "Device: **{device}**\n\nCurrent profile: **{current_profile}**\n\nNew profile: **{new_profile}**\n\nHome Assistant will write exactly one packet-136 field, then require a fresh complete packet-137 readback matching only that intended change. This confirms stored configuration; live 0–10 V electrical response remains separate.",
         "data": {
-          "confirm_analogue_input_2_validation": "I have recorded the current profile and want to apply this one-field validation change"
+          "confirm_analogue_input_2_validation": "I have reviewed the current profile and want to apply this analogue input 2 change"
         }
       },
       "analogue_input_2_validation_result": {
         "title": "Analogue input 2 field confirmed",
-        "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. Restore the changed field to its original value before validating the next field."
+        "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. This confirms the stored field value; live 0–10 V response is separate."
       }
     },
     "progress": {
