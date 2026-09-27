@@ -50,6 +50,7 @@ from custom_components.ventaxia_multihome.protocol import (
     plan_analogue_input_2_validation_update,
     plan_comfort_mode_update,
     plan_delay_overrun_updates,
+    plan_digital_input_validation_update,
     plan_humidity_response_updates,
     plan_low_temperature_protection_validation_update,
     plan_ls_action_validation_update,
@@ -60,6 +61,7 @@ from custom_components.ventaxia_multihome.protocol import (
     validate_airflow_profile,
     validate_analogue_input_1_profile,
     validate_analogue_input_2_profile,
+    validate_digital_input_profile,
     validate_sensor_thresholds,
 )
 
@@ -690,6 +692,57 @@ def test_ls_action_validation_rejects_unknown_or_unchanged_profiles(
             ls1_action=ls1_action,
             ls2_action=ls2_action,
             ls3_action=ls3_action,
+        )
+
+
+def test_digital_input_validation_plans_one_documented_change() -> None:
+    """One digital-input selector maps to its exact packet-136 field."""
+
+    # Arrange - decode the installed Low / Boost baseline.
+    settings = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+
+    # Act - change only Digital input 1 from Low to Boost.
+    update = plan_digital_input_validation_update(
+        settings,
+        digital_input_1_action=3,
+        digital_input_2_action=3,
+    )
+
+    # Assert - only field 31 is planned.
+    assert update == (GlobalSettingField.DIGITAL_INPUT_1_ACTION, 3)
+
+
+@pytest.mark.parametrize(
+    ("input_1", "input_2", "message"),
+    [
+        (2, 3, "not a documented digital-input action"),
+        (1, 3, "exactly one changed field"),
+        (3, 4, "exactly one changed field"),
+    ],
+)
+def test_digital_input_validation_rejects_invalid_or_non_single_changes(
+    input_1: int, input_2: int, message: str
+) -> None:
+    """Unknown, unchanged, and multi-field candidate submissions are blocked."""
+
+    # Arrange - use the installed Low / Boost baseline.
+    settings = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+
+    # Act / Assert - only one documented action may change.
+    with pytest.raises(ProtocolError, match=message):
+        validate_digital_input_profile(input_1, input_2)
+        plan_digital_input_validation_update(
+            settings,
+            digital_input_1_action=input_1,
+            digital_input_2_action=input_2,
         )
 
 
