@@ -1904,7 +1904,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                         errors["base"] = "analogue_input_2_validation_unavailable"
                     except HomeAssistantError as err:
                         _LOGGER.warning(
-                            "Unable to update Multihome analogue input 1 "
+                            "Unable to update Multihome analogue input 2 "
                             "validation: %s",
                             err,
                         )
