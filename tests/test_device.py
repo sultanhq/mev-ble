@@ -2522,7 +2522,7 @@ async def test_ls_action_validation_writes_one_field_with_exact_readback() -> No
 
 @pytest.mark.asyncio
 async def test_analogue_input_1_validation_writes_one_field_with_exact_readback() -> None:
-    """A candidate voltage slider write preserves every unrelated settings byte."""
+    """A candidate voltage write preserves every unrelated settings byte."""
 
     # Arrange - prepare the exact identity and a 1.5 V -> 1.6 V expected record.
     device = MultihomeDevice("AA", "MEV", 1234)
