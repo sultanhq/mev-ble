@@ -479,6 +479,7 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
             | DELAY_OVERRUN_FIELDS
             | LS_ACTION_VALIDATION_FIELDS
             | ANALOGUE_INPUT_1_VALIDATION_FIELDS
+            | ANALOGUE_INPUT_2_VALIDATION_FIELDS
             | TEMPERATURE_VALIDATION_FIELDS
             | LOW_TEMPERATURE_PROTECTION_FIELDS
         ),
@@ -498,26 +499,14 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
             "LS1, LS2 and LS3 fields 11..13 each changed/read back/restored "
             "independently with exact full-record readback; "
             "analogue input 1 fields 23..26 each changed/read back/restored "
-            "independently with exact full-record readback"
+            "independently with exact full-record readback; "
+            "analogue input 2 fields 27..30 passed installed-unit RC12 "
+            "change/readback validation with expected results"
         ),
     ),
 )
 
-VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
-    InstallerWriteProfile(
-        model_number=10,
-        firmware="2.03.08",
-        hardware="01.00",
-        fields=ANALOGUE_INPUT_2_VALIDATION_FIELDS,
-        evidence=(
-            "official packet-136 enum maps analogue input 2 to fields 27..30; "
-            "packet-137 offsets are 32, 33, 30 and 31; recovered app and manual "
-            "define Low, Normal, Boost and Purge actions with raw thresholds "
-            "1..99 representing 0.1..9.9 V; awaiting independent reversible "
-            "storage validation"
-        ),
-    ),
-)
+VALIDATION_CANDIDATE_WRITE_PROFILES: Final = ()
 
 
 def model_capability(model_number: int | None) -> ModelCapability | None:
