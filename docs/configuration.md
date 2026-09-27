@@ -140,28 +140,27 @@ before packet-136 I/O. The field can be reconsidered only if the official app
 changes it on this exact unit or a capture proves an additional prerequisite.
 Runtime electrical timing remains a separate test.
 
-Version 0.6.3 RC10 adds **Configure → Validate LS1–LS3 actions** on the same
-exact identity. The flow exposes only the manual's Low, Boost and Purge choices
-for LS1, LS2 and combined LS1+LS2. It requires all switched-live inputs to stay
-inactive, accepts exactly one selector change at a time, rereads the complete
-36-byte baseline immediately before the write, and requires exact packet-137
-readback. Each field must be changed and restored independently before it can
-be promoted from validation candidate to normal installer control. This proves
-stored configuration only; no mains input needs to be exercised during the
-storage test.
+Version 0.6.3 RC10 introduced LS1–LS3 validation on the exact tested
+identity. All three fields have since passed independent change/readback/restore
+testing and are now exposed as **Configure → Configure LS1–LS3 actions**. The
+flow exposes only Low, Boost and Purge. Multiple reviewed changes are serialized
+as LS1 → LS2 → LS3, one packet-136 field at a time, with exact packet-137
+readback before the next field. Live switched-input behaviour remains separate.
 
-Version 0.6.3 RC11 adds **Configure → Validate analogue input 1** on the same
-exact identity. Low and High actions use dropdowns containing Low, Normal, Boost
-and Purge. Low and High thresholds use sliders from 0.1 V to 9.9 V in 0.1 V
-steps; Home Assistant converts each displayed voltage to the protocol's integer
-tenths-of-a-volt value. Low must remain below High.
+Version 0.6.3 RC11 introduced analogue input 1 validation on the same identity.
+All four fields have since passed independent reversible storage validation and
+are now exposed as **Configure → Configure analogue input 1**. Low and High
+actions use Low, Normal, Boost and Purge dropdowns; thresholds use 0.1–9.9 V
+sliders in 0.1 V steps. The flow retains one-field-per-submission writes and
+exact full-record readback. Live 0–10 V electrical response remains separate.
 
-During RC11 validation, change exactly one of the four fields at a time. The
-flow rereads the complete 36-byte baseline immediately before the write and
-requires exact packet-137 readback afterwards. Change and restore Low action,
-High action, Low threshold and High threshold independently before promotion.
-Keep the physical 0–10 V input inactive for this storage test; live electrical
-response is separate.
+Version 0.6.3 RC12 adds **Configure → Validate analogue input 2** on the exact
+model 10 / firmware 2.03.08 / hardware 01.00 identity. It mirrors analogue
+input 1's documented actions and integer tenths-of-a-volt thresholds. During
+RC12 validation, change and restore Low action, High action, Low threshold and
+High threshold independently. Each review may change exactly one field, rejects
+a stale 36-byte baseline, and requires exact fresh packet-137 readback. Keep the
+physical 0–10 V input inactive while proving stored configuration.
 
 Version 0.6.3 RC4 adds **Configure → Configure Boost minimum** on the same exact
 identity. It accepts the recovered one-byte 0–100% wire range, displays current
