@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from custom_components.ventaxia_multihome.capabilities import (
     AIRFLOW_FIELDS,
+    ANALOGUE_INPUT_1_VALIDATION_FIELDS,
     BOOST_MINIMUM_FIELDS,
     COMFORT_MODE_FIELDS,
     DELAY_OVERRUN_FIELDS,
@@ -117,6 +118,41 @@ def test_field_matrix_separates_wire_bounds_from_physical_write_evidence() -> No
     assert "runtime meaning" in boost_minimum.dependencies
 
 
+def test_analogue_input_1_metadata_matches_manual_scaling_and_actions() -> None:
+    """Analogue-input diagnostics expose 0.1 V scaling and four documented actions."""
+
+    # Arrange - select the four fields used by the guarded analogue-input 1 flow.
+    low_action = INSTALLER_FIELD_DEFINITIONS[
+        GlobalSettingField.ANALOGUE_INPUT_1_LOW_ACTION
+    ]
+    high_action = INSTALLER_FIELD_DEFINITIONS[
+        GlobalSettingField.ANALOGUE_INPUT_1_HIGH_ACTION
+    ]
+    low_value = INSTALLER_FIELD_DEFINITIONS[
+        GlobalSettingField.ANALOGUE_INPUT_1_LOW_VALUE
+    ]
+    high_value = INSTALLER_FIELD_DEFINITIONS[
+        GlobalSettingField.ANALOGUE_INPUT_1_HIGH_VALUE
+    ]
+
+    # Act - collect the definitions surfaced in diagnostics and UI safety logic.
+    actions = dict(low_action.known_values)
+
+    # Assert - choices and raw ranges match the recovered app/manual evidence.
+    assert actions == {1: "low", 2: "normal", 3: "boost", 4: "purge"}
+    assert dict(high_action.known_values) == actions
+    assert (low_value.minimum, low_value.maximum, low_value.unit) == (
+        1,
+        99,
+        "tenths_volt",
+    )
+    assert (high_value.minimum, high_value.maximum, high_value.unit) == (
+        1,
+        99,
+        "tenths_volt",
+    )
+
+
 def test_temperature_metadata_matches_the_recovered_multihome_screen() -> None:
     """Temperature diagnostics use only limits and actions shown by the MEV app."""
 
@@ -185,8 +221,8 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     ]
 
 
-def test_only_ls_actions_are_exact_identity_validation_candidates() -> None:
-    """Fields 11–13 replace the physically rejected field-7 candidate."""
+def test_only_documented_fields_are_exact_identity_validation_candidates() -> None:
+    """LS and analogue-input 1 candidates stay exact-identity gated."""
 
     # Arrange - include the intended unit plus firmware, hardware, and model misses.
     identities = [
@@ -201,9 +237,9 @@ def test_only_ls_actions_are_exact_identity_validation_candidates() -> None:
         installer_validation_candidate_fields(*identity) for identity in identities
     ]
 
-    # Assert - only the exact identity exposes LS fields and field 7 stays absent.
+    # Assert - only the exact identity exposes the guarded candidate field sets.
     assert resolved == [
-        LS_ACTION_VALIDATION_FIELDS,
+        LS_ACTION_VALIDATION_FIELDS | ANALOGUE_INPUT_1_VALIDATION_FIELDS,
         frozenset(),
         frozenset(),
         frozenset(),
