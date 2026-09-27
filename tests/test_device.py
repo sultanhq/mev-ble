@@ -830,8 +830,8 @@ async def test_global_setting_write_rejects_unvalidated_field_before_io() -> Non
     with pytest.raises(DeviceError) as error:
         await device.set_global_setting(
             object(),
-            GlobalSettingField.ANALOGUE_INPUT_2_LOW_ACTION,
-            True,
+            GlobalSettingField.DIGITAL_INPUT_1_ACTION,
+            1,
         )
 
     # Assert - the identity-aware field guard rejects it before Bluetooth I/O.
@@ -2678,6 +2678,54 @@ async def test_analogue_input_1_write_has_exact_readback() -> None:
     )
     assert result.raw_record == expected.raw_record
     assert result.analogue_input_1_low_value == 16
+@pytest.mark.asyncio
+async def test_analogue_input_2_write_has_exact_readback() -> None:
+    """A candidate voltage write preserves every unrelated settings byte."""
+
+    # Arrange - prepare the exact identity and a 1.5 V -> 1.6 V expected record.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    confirmed = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    expected = global_settings_after_update(
+        confirmed, GlobalSettingField.ANALOGUE_INPUT_2_LOW_VALUE, 16
+    )
+    device._confirmed_global_settings = confirmed
+    device._global_settings_write_ready = True
+    device.connect = AsyncMock()
+    device._send = AsyncMock()
+    device._request = AsyncMock(
+        side_effect=[
+            SimpleNamespace(payload=confirmed.raw_record),
+            SimpleNamespace(payload=expected.raw_record),
+        ]
+    )
+
+    # Act - change only analogue-input 2 Low threshold from 1.5 V to 1.6 V.
+    result = await device.set_analogue_input_2_validation(
+        object(),
+        low_action=1,
+        high_action=3,
+        low_threshold=16,
+        high_threshold=75,
+    )
+
+    # Assert - only field 29 is sent and exact full-record readback is published.
+    device._send.assert_awaited_once_with(
+        PacketType.GLOBAL_DATA_FIELD,
+        Operation.UPDATE,
+        encode_global_setting_update(
+            GlobalSettingField.ANALOGUE_INPUT_2_LOW_VALUE, 16
+        ),
+        target=0,
+    )
+    assert result.raw_record == expected.raw_record
+    assert result.analogue_input_2_low_value == 16
 
 
 @pytest.mark.asyncio

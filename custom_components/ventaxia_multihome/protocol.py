@@ -1016,10 +1016,16 @@ GLOBAL_SETTING_FIELD_SPECS: Final = {
         "analogue_input_2_high_action", 33, 0, 0xFF
     ),
     GlobalSettingField.ANALOGUE_INPUT_2_LOW_VALUE: GlobalSettingFieldSpec(
-        "analogue_input_2_low_value", 30, 0, 100
+        "analogue_input_2_low_value",
+        30,
+        MIN_ANALOGUE_INPUT_THRESHOLD,
+        MAX_ANALOGUE_INPUT_THRESHOLD,
     ),
     GlobalSettingField.ANALOGUE_INPUT_2_HIGH_VALUE: GlobalSettingFieldSpec(
-        "analogue_input_2_high_value", 31, 0, 100
+        "analogue_input_2_high_value",
+        31,
+        MIN_ANALOGUE_INPUT_THRESHOLD,
+        MAX_ANALOGUE_INPUT_THRESHOLD,
     ),
     GlobalSettingField.DIGITAL_INPUT_1_ACTION: GlobalSettingFieldSpec(
         "digital_input_1_action", 34, 0, 0xFF
@@ -1503,6 +1509,92 @@ def plan_analogue_input_1_validation_update(
     if len(changed) != 1:
         raise ProtocolError(
             "analogue input 1 validation requires exactly one changed field"
+        )
+    return changed[0]
+
+
+
+def validate_analogue_input_2_profile(
+    low_action: int,
+    high_action: int,
+    low_threshold: int,
+    high_threshold: int,
+) -> None:
+    """Validate analogue-input 2 actions and raw tenths-of-a-volt thresholds."""
+
+    known_actions = {int(action) for action in ANALOGUE_ACTION_NAMES}
+    for name, value in {
+        "analogue input 2 low action": low_action,
+        "analogue input 2 high action": high_action,
+    }.items():
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ProtocolError(f"{name} requires an integer action code")
+        if value not in known_actions:
+            raise ProtocolError(f"{name} is not a documented analogue action")
+
+    for field, value in {
+        GlobalSettingField.ANALOGUE_INPUT_2_LOW_VALUE: low_threshold,
+        GlobalSettingField.ANALOGUE_INPUT_2_HIGH_VALUE: high_threshold,
+    }.items():
+        spec = GLOBAL_SETTING_FIELD_SPECS[field]
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise ProtocolError(f"{spec.attribute} requires an integer")
+        if not spec.minimum <= value <= spec.maximum:
+            raise ProtocolError(
+                f"{spec.attribute} must be {spec.minimum}..{spec.maximum}"
+            )
+    if low_threshold >= high_threshold:
+        raise ProtocolError("analogue input 2 thresholds must satisfy Low < High")
+
+
+def plan_analogue_input_2_validation_update(
+    settings: GlobalSettings,
+    *,
+    low_action: int,
+    high_action: int,
+    low_threshold: int,
+    high_threshold: int,
+) -> tuple[GlobalSettingField, int]:
+    """Plan exactly one reversible analogue-input 2 validation write."""
+
+    validate_analogue_input_2_profile(
+        settings.analogue_input_2_low_action,
+        settings.analogue_input_2_high_action,
+        settings.analogue_input_2_low_value,
+        settings.analogue_input_2_high_value,
+    )
+    validate_analogue_input_2_profile(
+        low_action,
+        high_action,
+        low_threshold,
+        high_threshold,
+    )
+    current = {
+        GlobalSettingField.ANALOGUE_INPUT_2_LOW_ACTION: (
+            settings.analogue_input_2_low_action
+        ),
+        GlobalSettingField.ANALOGUE_INPUT_2_HIGH_ACTION: (
+            settings.analogue_input_2_high_action
+        ),
+        GlobalSettingField.ANALOGUE_INPUT_2_LOW_VALUE: (
+            settings.analogue_input_2_low_value
+        ),
+        GlobalSettingField.ANALOGUE_INPUT_2_HIGH_VALUE: (
+            settings.analogue_input_2_high_value
+        ),
+    }
+    desired = {
+        GlobalSettingField.ANALOGUE_INPUT_2_LOW_ACTION: low_action,
+        GlobalSettingField.ANALOGUE_INPUT_2_HIGH_ACTION: high_action,
+        GlobalSettingField.ANALOGUE_INPUT_2_LOW_VALUE: low_threshold,
+        GlobalSettingField.ANALOGUE_INPUT_2_HIGH_VALUE: high_threshold,
+    }
+    changed = tuple(
+        (field, value) for field, value in desired.items() if current[field] != value
+    )
+    if len(changed) != 1:
+        raise ProtocolError(
+            "analogue input 2 validation requires exactly one changed field"
         )
     return changed[0]
 

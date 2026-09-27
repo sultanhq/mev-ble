@@ -22,6 +22,7 @@ from .bluetooth import (
 from .capabilities import (
     AIRFLOW_FIELDS,
     ANALOGUE_INPUT_1_VALIDATION_FIELDS,
+    ANALOGUE_INPUT_2_VALIDATION_FIELDS,
     BOOST_MINIMUM_FIELDS,
     COMFORT_MODE_FIELDS,
     DELAY_OVERRUN_FIELDS,
@@ -79,6 +80,7 @@ from .protocol import (
     global_settings_after_update,
     plan_airflow_profile_updates,
     plan_analogue_input_1_validation_update,
+    plan_analogue_input_2_validation_update,
     plan_comfort_mode_update,
     plan_delay_overrun_updates,
     plan_humidity_response_updates,
@@ -321,6 +323,15 @@ class MultihomeDevice:
         """Return whether physically validated analogue-input 1 writes are enabled."""
 
         return ANALOGUE_INPUT_1_VALIDATION_FIELDS <= self.writable_installer_fields
+
+    @property
+    def supports_analogue_input_2_validation(self) -> bool:
+        """Return whether guarded analogue-input 2 candidates are enabled."""
+
+        return (
+            ANALOGUE_INPUT_2_VALIDATION_FIELDS
+            <= self.validation_candidate_installer_fields
+        )
 
     @property
     def supports_temperature_threshold_validation(self) -> bool:
@@ -951,6 +962,66 @@ class MultihomeDevice:
                     "snapshot was retained"
                 )
             field, value = plan_analogue_input_1_validation_update(
+                fresh,
+                low_action=low_action,
+                high_action=high_action,
+                low_threshold=low_threshold,
+                high_threshold=high_threshold,
+            )
+            return await self._set_global_setting_locked(field, value)
+
+
+    async def set_analogue_input_2_validation(
+        self,
+        ble_device: BLEDevice,
+        *,
+        low_action: int,
+        high_action: int,
+        low_threshold: int,
+        high_threshold: int,
+    ) -> GlobalSettings:
+        """Apply one guarded analogue-input 2 validation write."""
+
+        if not self.supports_analogue_input_2_validation:
+            raise DeviceError(
+                "analogue input 2 validation is not enabled for this model, "
+                "firmware, and hardware"
+            )
+        confirmed = self._confirmed_global_settings
+        if confirmed is None or not self._global_settings_write_ready:
+            raise GlobalSettingsUnavailableError(
+                "global settings must be read successfully before an update"
+            )
+        plan_analogue_input_2_validation_update(
+            confirmed,
+            low_action=low_action,
+            high_action=high_action,
+            low_threshold=low_threshold,
+            high_threshold=high_threshold,
+        )
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            confirmed = self._confirmed_global_settings
+            if confirmed is None or not self._global_settings_write_ready:
+                raise GlobalSettingsUnavailableError(
+                    "global settings must be read successfully before an update"
+                )
+            fresh = decode_global_settings(
+                (
+                    await self._request(
+                        PacketType.GLOBAL_DATA,
+                        Operation.DATA_REQUEST,
+                    )
+                ).payload
+            )
+            if fresh.raw_record != confirmed.raw_record:
+                self._global_settings_write_ready = False
+                raise GlobalSettingUpdateError(
+                    "global settings changed before the analogue input 2 "
+                    "validation write; no update was sent and the last confirmed "
+                    "snapshot was retained"
+                )
+            field, value = plan_analogue_input_2_validation_update(
                 fresh,
                 low_action=low_action,
                 high_action=high_action,

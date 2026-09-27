@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.6.3-rc.12] - 2026-09-27
+
+### Added
+
+- Add exact-identity analogue input 2 validation for packet-136 fields 27–30.
+- Present Low/High actions as Low, Normal, Boost, and Purge dropdowns.
+- Present Low/High 0–10 V thresholds as 0.1–9.9 V sliders in 0.1 V steps while
+  preserving integer tenths-of-a-volt encoding.
+
+### Changed
+
+- Promote the physically proven LS1–LS3 and analogue input 1 fields to normal
+  exact-identity guarded installer controls.
+
+### Safety
+
+- Permit exactly one analogue-input 2 field change per validation operation
+  until all four fields have independent change/readback/restore evidence.
+- Reject unknown action codes, raw thresholds outside 1–99, Low >= High,
+  stale complete settings records, and unconfirmed reviews before write I/O.
+- Require exact fresh packet-137 readback after the isolated packet-136 write;
+  live 0–10 V electrical response remains a separate validation task.
+
 ## [0.6.3-rc.11] - 2026-09-27
 
 ### Added

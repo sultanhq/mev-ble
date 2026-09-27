@@ -53,7 +53,8 @@
           "boost_minimum": "Configure Boost minimum",
           "low_temperature_protection_validation": "Configure Low-temperature protection",
           "temperature_validation": "Configure temperature settings",
-          "analogue_input_1_validation": "Configure analogue input 1"
+          "analogue_input_1_validation": "Configure analogue input 1",
+          "analogue_input_2_validation": "Validate analogue input 2"
         }
       },
       "fan_options": {
@@ -321,6 +322,27 @@
       "analogue_input_1_validation_result": {
         "title": "Analogue input 1 change confirmed",
         "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. This confirms the stored field value; live 0–10 V response is separate."
+      },
+      "analogue_input_2_validation": {
+        "title": "Validate analogue input 2",
+        "description": "Current profile: **{current_profile}**\n\nChoose the Low/High actions and voltage thresholds for analogue input 2. The action selectors use Low, Normal, Boost and Purge. Voltage thresholds use 0.1 V steps from 0.1 V to 9.9 V and must keep Low below High. For this prerelease validation, change exactly one field at a time. Keep the physical 0–10 V input inactive while proving stored configuration.",
+        "data": {
+          "analogue_input_2_low_action": "Low action",
+          "analogue_input_2_low_threshold": "Low threshold",
+          "analogue_input_2_high_action": "High action",
+          "analogue_input_2_high_threshold": "High threshold"
+        }
+      },
+      "analogue_input_2_validation_confirm": {
+        "title": "Confirm one analogue input 2 validation change",
+        "description": "Device: **{device}**\n\nCurrent profile: **{current_profile}**\n\nNew profile: **{new_profile}**\n\nHome Assistant will write exactly one packet-136 field, then require a fresh complete packet-137 readback matching only that intended change. This proves stored configuration only; live 0–10 V electrical response is not part of this test.",
+        "data": {
+          "confirm_analogue_input_2_validation": "I have recorded the current profile and want to apply this one-field validation change"
+        }
+      },
+      "analogue_input_2_validation_result": {
+        "title": "Analogue input 2 field confirmed",
+        "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. Restore the changed field to its original value before validating the next field."
       }
     },
     "progress": {
@@ -396,7 +418,12 @@
       "analogue_input_1_validation_confirmation_required": "Review the complete analogue input 1 profile and enable the acknowledgement before continuing.",
       "analogue_input_1_validation_settings_changed": "The global settings changed after review. Recheck all four analogue input 1 values before continuing.",
       "analogue_input_1_validation_unavailable": "Analogue input 1 validation requires a fresh record containing recognised actions and valid ordered thresholds. No setting was changed.",
-      "analogue_input_1_validation_update_failed": "The one-field analogue input 1 update or its exact readback failed. Reopen the flow and inspect all four current values."
+      "analogue_input_1_validation_update_failed": "The one-field analogue input 1 update or its exact readback failed. Reopen the flow and inspect all four current values.",
+      "analogue_input_2_validation_invalid": "Use Low, Normal, Boost or Purge actions, keep both thresholds from 0.1 V to 9.9 V with Low below High, and change exactly one field.",
+      "analogue_input_2_validation_confirmation_required": "Review the complete analogue input 2 profile and enable the acknowledgement before continuing.",
+      "analogue_input_2_validation_settings_changed": "The global settings changed after review. Recheck all four analogue input 2 values before continuing.",
+      "analogue_input_2_validation_unavailable": "Analogue input 2 validation requires a fresh record containing recognised actions and valid ordered thresholds. No setting was changed.",
+      "analogue_input_2_validation_update_failed": "The one-field analogue input 2 update or its exact readback failed. Reopen the flow and inspect all four current values."
     },
     "abort": {
       "airflow_not_supported": "Airflow configuration is not validated for this model, firmware, and hardware. No setting was changed.",
@@ -418,7 +445,9 @@
       "low_temperature_protection_validation_not_supported": "Low-temperature protection configuration is unavailable for this model, firmware, or hardware. No setting was changed.",
       "low_temperature_protection_validation_unavailable": "Low-temperature protection configuration requires a fresh settings record and a recognised complete temperature profile. No setting was changed.",
       "analogue_input_1_validation_not_supported": "Analogue input 1 validation is unavailable for this model, firmware, or hardware. No setting was changed.",
-      "analogue_input_1_validation_unavailable": "Analogue input 1 validation requires recognised current values and a fresh settings record. No setting was changed."
+      "analogue_input_1_validation_unavailable": "Analogue input 1 validation requires recognised current values and a fresh settings record. No setting was changed.",
+      "analogue_input_2_validation_not_supported": "Analogue input 2 validation is unavailable for this model, firmware, or hardware. No setting was changed.",
+      "analogue_input_2_validation_unavailable": "Analogue input 2 validation requires recognised current values and a fresh settings record. No setting was changed."
     }
   },
   "selector": {

@@ -47,6 +47,7 @@ from custom_components.ventaxia_multihome.protocol import (
     global_settings_after_update,
     plan_airflow_profile_updates,
     plan_analogue_input_1_validation_update,
+    plan_analogue_input_2_validation_update,
     plan_comfort_mode_update,
     plan_delay_overrun_updates,
     plan_humidity_response_updates,
@@ -58,6 +59,7 @@ from custom_components.ventaxia_multihome.protocol import (
     temperature_threshold_action_name,
     validate_airflow_profile,
     validate_analogue_input_1_profile,
+    validate_analogue_input_2_profile,
     validate_sensor_thresholds,
 )
 
@@ -739,6 +741,61 @@ def test_analogue_input_1_validation_rejects_invalid_profiles(
     with pytest.raises(ProtocolError, match=message):
         validate_analogue_input_1_profile(*profile)
         plan_analogue_input_1_validation_update(
+            settings,
+            low_action=profile[0],
+            high_action=profile[1],
+            low_threshold=profile[2],
+            high_threshold=profile[3],
+        )
+
+def test_analogue_input_2_validation_plans_one_threshold_change() -> None:
+    """One 0.1 V slider step maps to the exact packet-136 threshold field."""
+
+    # Arrange - decode the installed 1.5 V / 7.5 V, Low / Boost baseline.
+    settings = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+
+    # Act - move only the low threshold from raw 15 (1.5 V) to 16 (1.6 V).
+    update = plan_analogue_input_2_validation_update(
+        settings,
+        low_action=1,
+        high_action=3,
+        low_threshold=16,
+        high_threshold=75,
+    )
+
+    # Assert - only field 29 is planned and the wire value remains integer tenths.
+    assert update == (GlobalSettingField.ANALOGUE_INPUT_2_LOW_VALUE, 16)
+
+
+@pytest.mark.parametrize(
+    ("profile", "message"),
+    [
+        ((5, 3, 15, 75), "not a documented analogue action"),
+        ((1, 3, 0, 75), "must be 1..99"),
+        ((1, 3, 75, 75), "Low < High"),
+        ((2, 4, 15, 75), "exactly one changed field"),
+    ],
+)
+def test_analogue_input_2_validation_rejects_invalid_profiles(
+    profile: tuple[int, int, int, int], message: str
+) -> None:
+    """Unknown actions, unsafe thresholds, and multi-field validation are blocked."""
+
+    # Arrange - retain the valid installed analogue-input 2 baseline.
+    settings = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+
+    # Act / Assert - no packet-136 validation write is planned for invalid input.
+    with pytest.raises(ProtocolError, match=message):
+        validate_analogue_input_2_profile(*profile)
+        plan_analogue_input_2_validation_update(
             settings,
             low_action=profile[0],
             high_action=profile[1],

@@ -5,6 +5,7 @@ from __future__ import annotations
 from custom_components.ventaxia_multihome.capabilities import (
     AIRFLOW_FIELDS,
     ANALOGUE_INPUT_1_VALIDATION_FIELDS,
+    ANALOGUE_INPUT_2_VALIDATION_FIELDS,
     BOOST_MINIMUM_FIELDS,
     COMFORT_MODE_FIELDS,
     DELAY_OVERRUN_FIELDS,
@@ -223,10 +224,10 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     ]
 
 
-def test_proven_controls_leave_no_validation_candidates() -> None:
-    """RC10 and RC11 proof promotes LS and analogue-input 1 to writable fields."""
+def test_only_analogue_input_2_is_exact_identity_validation_candidate() -> None:
+    """RC12 exposes only analogue-input 2 as an exact-identity candidate."""
 
-    # Arrange - include the proven unit plus firmware, hardware, and model misses.
+    # Arrange - include the target unit plus firmware, hardware, and model misses.
     identities = [
         (10, "2.03.08", "01.00"),
         (10, "2.03.09", "01.00"),
@@ -234,15 +235,48 @@ def test_proven_controls_leave_no_validation_candidates() -> None:
         (2, "2.03.08", "01.00"),
     ]
 
-    # Act - resolve the candidate matrix after both proven groups are promoted.
+    # Act - resolve candidate fields for the exact and near identities.
     resolved = [
         installer_validation_candidate_fields(*identity) for identity in identities
     ]
 
-    # Assert - no field remains in the prerelease validation-candidate set.
+    # Assert - only the exact identity exposes analogue-input 2 fields 27..30.
     assert resolved == [
-        frozenset(),
+        ANALOGUE_INPUT_2_VALIDATION_FIELDS,
         frozenset(),
         frozenset(),
         frozenset(),
     ]
+
+
+def test_analogue_input_2_metadata_matches_recovered_app_ranges() -> None:
+    """The candidate metadata retains documented actions and 0.1 V scaling."""
+
+    # Arrange - select the four analogue-input 2 installer definitions.
+    fields = (
+        GlobalSettingField.ANALOGUE_INPUT_2_LOW_ACTION,
+        GlobalSettingField.ANALOGUE_INPUT_2_HIGH_ACTION,
+        GlobalSettingField.ANALOGUE_INPUT_2_LOW_VALUE,
+        GlobalSettingField.ANALOGUE_INPUT_2_HIGH_VALUE,
+    )
+
+    # Act - resolve their production definitions.
+    definitions = [INSTALLER_FIELD_DEFINITIONS[field] for field in fields]
+
+    # Assert - action codes remain labelled and thresholds use raw 1..99 tenths.
+    assert [definition.unit for definition in definitions] == [
+        "action_code",
+        "action_code",
+        "tenths_volt",
+        "tenths_volt",
+    ]
+    assert definitions[0].known_values == (
+        (1, "low"),
+        (2, "normal"),
+        (3, "boost"),
+        (4, "purge"),
+    )
+    assert definitions[2].minimum == 1
+    assert definitions[2].maximum == 99
+    assert definitions[3].minimum == 1
+    assert definitions[3].maximum == 99
