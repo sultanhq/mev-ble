@@ -9,6 +9,7 @@ from custom_components.ventaxia_multihome.capabilities import (
     BOOST_MINIMUM_FIELDS,
     COMFORT_MODE_FIELDS,
     DELAY_OVERRUN_FIELDS,
+    DEFERRED_INSTALLER_WRITE_FIELDS,
     DIGITAL_INPUT_VALIDATION_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
     INSTALLER_FIELD_DEFINITIONS,
@@ -82,6 +83,29 @@ def test_every_packet_136_field_has_one_documented_definition() -> None:
     assert profile_fields <= documented_fields
     assert candidate_fields <= documented_fields
     assert len(documented_fields) == 33
+
+
+def test_every_packet_136_field_has_an_explicit_release_gate_state() -> None:
+    """Every authoritative packet-136 field is validated, candidate, or deferred."""
+
+    # Arrange - collect the release-gate buckets used by the production matrix.
+    validated = set().union(
+        *(profile.fields for profile in VALIDATED_INSTALLER_WRITE_PROFILES)
+    )
+    candidates = set().union(
+        *(profile.fields for profile in VALIDATION_CANDIDATE_WRITE_PROFILES)
+    )
+    deferred = set(DEFERRED_INSTALLER_WRITE_FIELDS)
+
+    # Act - combine the mutually exclusive states.
+    classified = validated | candidates | deferred
+
+    # Assert - no authoritative field is omitted or assigned to two states.
+    assert classified == set(GlobalSettingField)
+    assert validated.isdisjoint(candidates)
+    assert validated.isdisjoint(deferred)
+    assert candidates.isdisjoint(deferred)
+    assert deferred == {GlobalSettingField.DELAY_ENABLED}
 
 
 def test_field_matrix_separates_wire_bounds_from_physical_write_evidence() -> None:
