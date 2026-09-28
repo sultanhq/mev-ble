@@ -587,7 +587,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             )
             or (
                 self._hard_reset_baseline_silent_hours is not None
-                and tuple(data.silent_hours)
+                and tuple(localized.silent_hours)
                 != self._hard_reset_baseline_silent_hours
             )
         )
