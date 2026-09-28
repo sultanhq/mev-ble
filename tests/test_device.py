@@ -585,10 +585,10 @@ async def test_cancel_clears_estimated_countdown(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_internal_hard_reset_dispatches_exact_command_and_invalidates_state() -> None:
+async def test_internal_hard_reset_dispatches_and_invalidates_state() -> None:
     """The private reset primitive sends packet 61 then distrusts every cached state."""
 
-    # Arrange - prepare the exact designated identity with deliberately populated caches.
+    # Arrange - prepare the exact identity with deliberately populated caches.
     sent: list[bytes] = []
 
     class ResetTransport:
@@ -649,7 +649,7 @@ async def test_internal_hard_reset_dispatches_exact_command_and_invalidates_stat
 
 
 @pytest.mark.asyncio
-async def test_internal_hard_reset_rejects_non_designated_identity_before_write() -> None:
+async def test_internal_hard_reset_rejects_other_identity() -> None:
     """An otherwise connected device cannot receive reset outside the exact identity."""
 
     # Arrange - connect a different model to a transport that must never be called.
@@ -679,7 +679,7 @@ async def test_internal_hard_reset_rejects_non_designated_identity_before_write(
 
 @pytest.mark.asyncio
 async def test_internal_hard_reset_reports_reboot_before_ack_as_uncertain() -> None:
-    """A post-write transport failure is uncertain because reset can reboot immediately."""
+    """A post-write failure is uncertain because reset can reboot immediately."""
 
     # Arrange - simulate a fragmented-style acknowledgement disappearing after write.
     attempts: list[bytes] = []
@@ -715,7 +715,7 @@ async def test_internal_hard_reset_reports_reboot_before_ack_as_uncertain() -> N
     ):
         await device._dispatch_hard_reset(object())
 
-    # Assert - an exact reset packet was attempted and all mutable caches are invalidated.
+    # Assert - the exact reset was attempted and mutable caches are invalidated.
     assert len(attempts) == 1
     assert decode_packet(attempts[0]).packet_type == PacketType.HARD_RESET
     assert device._transport is None
