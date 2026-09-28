@@ -18,6 +18,7 @@ from custom_components.ventaxia_multihome import coordinator as coordinator_modu
 from custom_components.ventaxia_multihome.bluetooth import TransactionTimeoutError
 from custom_components.ventaxia_multihome.const import (
     CONF_LAST_CO2_CALIBRATION_ATTEMPT,
+    HARD_RESET_RECOVERY_TIMEOUT,
     STARTUP_ADVERTISEMENT_TIMEOUT,
 )
 from custom_components.ventaxia_multihome.coordinator import (
@@ -39,6 +40,7 @@ from custom_components.ventaxia_multihome.coordinator import (
     DigitalInputValidationUnavailableError,
     HardResetDeliveryUncertainError,
     HardResetNotSupportedError,
+    HardResetRecoveryResult,
     HardResetUnavailableError,
     HumidityResponseConfigurationNotSupportedError,
     HumidityResponseConfigurationUnavailableError,
@@ -60,6 +62,7 @@ from custom_components.ventaxia_multihome.device import (
     HardResetDispatchResult,
     HardResetDispatchUncertainError,
     MultihomeData,
+    SetupCodeRejectedError,
 )
 from custom_components.ventaxia_multihome.protocol import (
     AirflowPreset,
@@ -87,6 +90,11 @@ def _coordinator() -> VentaxiaMultihomeCoordinator:
     coordinator.hass = object()
     coordinator.config_entry = SimpleNamespace(data={CONF_ADDRESS: "AA:BB"})
     coordinator._last_ble_device = None
+    coordinator._hard_reset_recovery_mode = False
+    coordinator._hard_reset_recovery_task = None
+    coordinator._hard_reset_baseline_global_settings = None
+    coordinator._hard_reset_baseline_silent_hours = None
+    coordinator.last_hard_reset_recovery_result = None
     return coordinator
 
 
@@ -391,6 +399,18 @@ def _settings(raw: str = "06082532"):
     return decode_global_settings(bytes.fromhex(raw + suffix))
 
 
+def _reset_data(raw: str = "06082532") -> MultihomeData:
+    """Return one complete snapshot suitable for hard-reset tests."""
+
+    return MultihomeData(
+        zone=object(),
+        system=object(),
+        global_settings=_settings(raw),
+        last_successful_update=datetime.now(UTC),
+        silent_hours=_silent_hours(),
+    )
+
+
 @pytest.mark.asyncio
 async def test_hard_reset_options_dispatch_delegates_once_when_fresh() -> None:
     """The options-only coordinator path delegates one guarded packet-61 dispatch."""
@@ -405,10 +425,11 @@ async def test_hard_reset_options_dispatch_delegates_once_when_fresh() -> None:
     )
     coordinator = SimpleNamespace(
         device=device,
-        data=object(),
+        data=_reset_data(),
         last_update_success=True,
         _hard_reset_dispatch_claimed=False,
         _ble_device=lambda: ble_device,
+        _begin_hard_reset_recovery=AsyncMock(),
     )
 
     # Act - invoke the production options-only coordinator method.
@@ -419,6 +440,9 @@ async def test_hard_reset_options_dispatch_delegates_once_when_fresh() -> None:
     # Assert - one dispatch is made and its response-free contract returns.
     assert result is expected
     device._dispatch_hard_reset.assert_awaited_once_with(ble_device)
+    coordinator._begin_hard_reset_recovery.assert_awaited_once_with(
+        delivery_uncertain=False
+    )
     device.disconnect.assert_not_awaited()
 
 
@@ -505,10 +529,11 @@ async def test_hard_reset_options_rejects_concurrent_sibling_flow() -> None:
     )
     coordinator = SimpleNamespace(
         device=device,
-        data=object(),
+        data=_reset_data(),
         last_update_success=True,
         _hard_reset_dispatch_claimed=False,
         _ble_device=lambda: ble_device,
+        _begin_hard_reset_recovery=AsyncMock(),
     )
 
     # Act - start one flow, then submit a sibling flow while the first is in flight.
@@ -547,10 +572,11 @@ async def test_hard_reset_claim_remains_consumed_after_uncertain_delivery() -> N
     )
     coordinator = SimpleNamespace(
         device=device,
-        data=object(),
+        data=_reset_data(),
         last_update_success=True,
         _hard_reset_dispatch_claimed=False,
         _ble_device=lambda: ble_device,
+        _begin_hard_reset_recovery=AsyncMock(),
     )
 
     # Act - record uncertainty, then attempt a second Configure-flow dispatch.
@@ -566,6 +592,9 @@ async def test_hard_reset_claim_remains_consumed_after_uncertain_delivery() -> N
     # Assert - uncertainty never permits an automatic or sibling retry.
     assert coordinator._hard_reset_dispatch_claimed is True
     device._dispatch_hard_reset.assert_awaited_once_with(ble_device)
+    coordinator._begin_hard_reset_recovery.assert_awaited_once_with(
+        delivery_uncertain=True
+    )
     device.disconnect.assert_not_awaited()
 
 
@@ -585,10 +614,11 @@ async def test_hard_reset_claim_releases_after_definite_pre_dispatch_failure() -
     )
     coordinator = SimpleNamespace(
         device=device,
-        data=object(),
+        data=_reset_data(),
         last_update_success=True,
         _hard_reset_dispatch_claimed=False,
         _ble_device=lambda: ble_device,
+        _begin_hard_reset_recovery=AsyncMock(),
     )
 
     # Act - the first flow fails definitely, then a later fresh flow retries.
@@ -610,6 +640,9 @@ async def test_hard_reset_claim_releases_after_definite_pre_dispatch_failure() -
         call(ble_device),
         call(ble_device),
     ]
+    coordinator._begin_hard_reset_recovery.assert_awaited_once_with(
+        delivery_uncertain=False
+    )
     device.disconnect.assert_awaited_once_with()
 
 
@@ -628,10 +661,11 @@ async def test_hard_reset_options_preserves_uncertain_delivery() -> None:
     )
     coordinator = SimpleNamespace(
         device=device,
-        data=object(),
+        data=_reset_data(),
         last_update_success=True,
         _hard_reset_dispatch_claimed=False,
         _ble_device=lambda: ble_device,
+        _begin_hard_reset_recovery=AsyncMock(),
     )
 
     # Act / Assert - uncertainty is translated without pretending reset was not sent.
@@ -640,6 +674,9 @@ async def test_hard_reset_options_preserves_uncertain_delivery() -> None:
             coordinator
         )
     device._dispatch_hard_reset.assert_awaited_once_with(ble_device)
+    coordinator._begin_hard_reset_recovery.assert_awaited_once_with(
+        delivery_uncertain=True
+    )
     device.disconnect.assert_not_awaited()
 
 
