@@ -233,6 +233,7 @@ class MultihomeDevice:
         self.last_global_setting_write_attempt: GlobalSettingWriteAttempt | None = None
         self._confirmed_silent_hours: tuple[SilentHourSlot, ...] | None = None
         self._silent_hours_write_ready = False
+        self._hard_reset_recovery_pending = False
         self.device_info = MultihomeDeviceInfo()
 
     @property
@@ -407,10 +408,19 @@ class MultihomeDevice:
 
         return self._silent_hours_write_ready
 
-    async def connect(self, ble_device: BLEDevice) -> None:
+    async def connect(
+        self,
+        ble_device: BLEDevice,
+        *,
+        allow_hard_reset_recovery: bool = False,
+    ) -> None:
         """Connect, authenticate, select a transport, and read device info."""
 
         async with self._connection_lock:
+            if self._hard_reset_recovery_pending and not allow_hard_reset_recovery:
+                raise DeviceError(
+                    "hard reset recovery requires a fresh advertisement before reconnect"
+                )
             if self.connected and self._authenticated and self._transport:
                 return
             await self._disconnect_unlocked()
@@ -604,6 +614,7 @@ class MultihomeDevice:
     def _invalidate_after_hard_reset_dispatch(self) -> None:
         """Discard every cached state that cannot be trusted across a reset."""
 
+        self._hard_reset_recovery_pending = True
         self._transport = None
         self._authenticated = False
         self._clear_local_override()
@@ -616,6 +627,17 @@ class MultihomeDevice:
         self._confirmed_silent_hours = None
         self._silent_hours_write_ready = False
         self.device_info = MultihomeDeviceInfo()
+
+    async def recover_after_hard_reset(
+        self, ble_device: BLEDevice
+    ) -> MultihomeData:
+        """Reconnect once through the coordinator-approved fresh BLE route."""
+
+        async with self._operation_lock:
+            await self.connect(ble_device, allow_hard_reset_recovery=True)
+            data = self._reconcile_override_remaining(await self._read_data())
+            self._hard_reset_recovery_pending = False
+            return data
 
     async def calibrate_internal_co2(
         self,
