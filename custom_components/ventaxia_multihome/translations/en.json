@@ -55,7 +55,7 @@
           "temperature_validation": "Configure temperature settings",
           "analogue_input_1_validation": "Configure analogue input 1",
           "analogue_input_2_validation": "Configure analogue input 2",
-          "digital_input_validation": "Validate digital input actions"
+          "digital_input_validation": "Configure digital input actions"
         }
       },
       "fan_options": {
@@ -346,23 +346,23 @@
         "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. This confirms the stored field value; live 0–10 V response is separate."
       },
       "digital_input_validation": {
-        "title": "Validate digital input actions",
-        "description": "Current profile: **{current_profile}**\n\nDigital inputs 1 and 2 map to packet-136 fields 31 and 32. The installer manual permits Low, Boost and Purge. For RC13, change exactly one selector at a time and keep the physical low-voltage inputs inactive while proving stored configuration.",
+        "title": "Configure digital input actions",
+        "description": "Current profile: **{current_profile}**\n\nDigital inputs 1 and 2 map to packet-136 fields 31 and 32 and use Low, Boost and Purge. Both stored fields passed independent RC13 change/readback/restore validation on model 10 / firmware 2.03.08 / hardware 01.00. The guarded flow continues to change exactly one selector per submission and requires exact fresh packet-137 readback. Live electrical input behaviour remains separate.",
         "data": {
           "digital_input_1_action": "Digital input 1 action",
           "digital_input_2_action": "Digital input 2 action"
         }
       },
       "digital_input_validation_confirm": {
-        "title": "Confirm one digital input change",
+        "title": "Confirm digital input change",
         "description": "Device: **{device}**\n\nCurrent profile: **{current_profile}**\n\nProposed profile: **{new_profile}**\n\nHome Assistant will send exactly one packet-136 field and accept success only after the complete fresh packet-137 record matches. This proves stored configuration, not live electrical input behaviour.",
         "data": {
-          "confirm_digital_input_validation": "I recorded the current profile and want to test this one digital input action"
+          "confirm_digital_input_validation": "I have reviewed the current profile and want to apply this digital input action"
         }
       },
       "digital_input_validation_result": {
         "title": "Digital input action confirmed",
-        "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. Restore the original action before validating the other digital input."
+        "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. This confirms the stored field value; live electrical input behaviour is separate."
       }
     },
     "progress": {

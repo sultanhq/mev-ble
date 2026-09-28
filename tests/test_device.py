@@ -819,18 +819,18 @@ async def test_global_setting_write_requires_a_current_confirmed_record() -> Non
 async def test_global_setting_write_rejects_unvalidated_field_before_io() -> None:
     """A decoded but unvalidated field cannot reach packet 136."""
 
-    # Arrange - use the validated identity but select a static-analysis-only field.
+    # Arrange - use the validated identity but select explicitly deferred field 7.
     device = MultihomeDevice("AA", "MEV", 1234)
     device.device_info = MultihomeDeviceInfo(
         model="10", firmware="2.03.08", hardware="01.00"
     )
     device._client_factory = AsyncMock(side_effect=AssertionError("no I/O expected"))
 
-    # Act - attempt a write whose wire format is known but physically unvalidated.
+    # Act - attempt a generic write whose wire mapping is known but not validated.
     with pytest.raises(DeviceError) as error:
         await device.set_global_setting(
             object(),
-            GlobalSettingField.DIGITAL_INPUT_1_ACTION,
+            GlobalSettingField.DELAY_ENABLED,
             1,
         )
 
@@ -2753,7 +2753,7 @@ async def test_analogue_input_2_write_has_exact_readback() -> None:
 
 @pytest.mark.asyncio
 async def test_digital_input_validation_writes_one_field_with_exact_readback() -> None:
-    """A candidate digital action preserves all 35 unrelated settings bytes."""
+    """A guarded digital action preserves all 35 unrelated settings bytes."""
 
     # Arrange - prepare the exact identity, current profile, and field-31 result.
     device = MultihomeDevice("AA", "MEV", 1234)

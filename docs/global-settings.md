@@ -163,7 +163,7 @@ are proven.
 | 25–26 | analogue input 1 low/high values | 26–27 | UInt8 tenths of a volt | raw 1–99 = 0.1–9.9 V, step 0.1 V | Low < High; paired actions | Wired input | Physical storage/readback; exact validated identity only |
 | 27–28 | analogue input 2 low/high actions | 32–33 | UInt8 action code | Low=1, Normal=2, Boost=3, Purge=4 | 0–10 V input; paired thresholds | Wired input | Physical storage/readback; exact validated identity only |
 | 29–30 | analogue input 2 low/high values | 30–31 | UInt8 tenths of a volt | raw 1–99 = 0.1–9.9 V, step 0.1 V | Low < High; paired actions | Wired input | Physical storage/readback; exact validated identity only |
-| 31–32 | digital input 1/2 actions | 34–35 | UInt8 action code | Low=1, Boost=3, Purge=4 | Low-voltage inputs; Normal excluded | Wired input | RC13 exact-identity validation candidate |
+| 31–32 | digital input 1/2 actions | 34–35 | UInt8 action code | Low=1, Boost=3, Purge=4 | Low-voltage inputs; Normal excluded | Wired input | Physical storage/readback; exact validated identity only |
 
 Packet-137 byte 16 decodes as `purge_low_mode`, but no corresponding packet-136
 field ID was recovered. It is retained losslessly and is never written. Restore
@@ -312,13 +312,35 @@ read/write behaviour.
 Fields 31–32 map digital inputs 1 and 2 to packet-137 offsets 34 and 35.
 The recovered field IDs and installer manual agree that each stored action is
 selectable from Low=`1`, Boost=`3`, and Purge=`4`; Normal is deliberately
-excluded. RC13 exposes these fields only on model 10 / firmware 2.03.08 /
-hardware 01.00 as guarded validation candidates.
+excluded. RC13 installed-unit testing independently changed, read back and
+restored both fields on model 10 / firmware 2.03.08 / hardware 01.00, so they
+are now normal exact-identity guarded installer controls.
 
 Each review may change exactly one digital input action. Home Assistant rejects
 unknown action codes and a stale 36-byte settings baseline before packet-136
 I/O, then requires exact complete packet-137 readback after the write. Unknown
 stored codes remain visible in diagnostics and block the write flow rather than
-being coerced. Promotion requires independent change/readback/restore evidence
-for both fields. Live low-voltage electrical input behaviour remains separate
-from stored configuration validation.
+being coerced. Live low-voltage electrical input behaviour remains separate
+from the proven stored read/write behaviour.
+
+
+### v0.6.3 release-gate audit
+
+The packet-136 enum has 33 authoritative field IDs (0–32). For the exact model
+10 / firmware 2.03.08 / hardware 01.00 identity, the release gate now classifies
+every one of them explicitly: 32 fields are physically validated normal writes,
+and field 7 (`Delay On enabled`) is explicitly deferred after the RC8 installed-unit test
+ignored both reversible write attempts. Field 7 remains a documented protocol
+mapping rather than being labelled permanently read-only; a future official-app
+capture or newly identified prerequisite can reopen validation.
+
+Packet-137 byte 16 (`purge_low_mode`) is a separate evidence-recovery item. It
+has no authoritative packet-136 field ID in the recovered enum, so the
+integration does not infer a write ID from its record offset. Issue #56 remains
+open until an official write path, computed-source setting, or reserved/model-
+specific meaning is demonstrated.
+
+The RC13 reversible storage gate for digital inputs is complete. Live
+electrical/runtime tests remain separate from stored R/W proof. Stable v0.6.3
+can proceed with field 7 explicitly deferred and issue #56 retained as the
+separate evidence-recovery dependency for packet-137 byte 16.
