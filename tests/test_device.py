@@ -728,6 +728,53 @@ async def test_internal_hard_reset_reports_reboot_before_ack_as_uncertain() -> N
 
 
 @pytest.mark.asyncio
+async def test_internal_hard_reset_cancellation_invalidates_then_propagates() -> None:
+    """Cancellation after reset write invalidates state without hiding cancellation."""
+
+    # Arrange - simulate cancellation while fragmented transport awaits reset ACK.
+    attempts: list[bytes] = []
+
+    class CancelledResetTransport:
+        name = "fragmented"
+
+        async def send(self, packet: bytes) -> None:
+            attempts.append(packet)
+            raise asyncio.CancelledError
+
+        async def request(self, packet: bytes) -> bytes:
+            raise AssertionError("hard reset must not request a protocol response")
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device._client = DeviceClient([])
+    device._transport = CancelledResetTransport()
+    device._authenticated = True
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._confirmed_global_settings = decode_global_settings(
+        decode_packet(_responses()[2]).payload
+    )
+    device._global_settings_write_ready = True
+    device._confirmed_silent_hours = _silent_slots()
+    device._silent_hours_write_ready = True
+
+    # Act - cancel after the transport has accepted the reset packet for sending.
+    with pytest.raises(asyncio.CancelledError):
+        await device._dispatch_hard_reset(object())
+
+    # Assert - cancellation survives, but no pre-reset state remains trusted.
+    assert len(attempts) == 1
+    assert decode_packet(attempts[0]).packet_type == PacketType.HARD_RESET
+    assert device._transport is None
+    assert device._authenticated is False
+    assert device._confirmed_global_settings is None
+    assert device._global_settings_write_ready is False
+    assert device._confirmed_silent_hours is None
+    assert device._silent_hours_write_ready is False
+    assert device.device_info == MultihomeDeviceInfo()
+
+
+@pytest.mark.asyncio
 async def test_setup_code_rejected() -> None:
     """A zero confirmation is surfaced as a specific setup error."""
 
