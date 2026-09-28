@@ -548,7 +548,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
 
         self._last_ble_device = ble_device
         try:
-            data = await self.device.update(ble_device)
+            data = await self.device.recover_after_hard_reset(ble_device)
         except SetupCodeRejectedError:
             await self.device.disconnect()
             return self._finish_hard_reset_recovery_failure(
