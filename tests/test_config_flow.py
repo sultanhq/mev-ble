@@ -53,6 +53,7 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_CONFIRM_COMFORT_MODE,
     CONF_CONFIRM_DELAY_OVERRUN,
     CONF_CONFIRM_DIGITAL_INPUT_VALIDATION,
+    CONF_CONFIRM_HARD_RESET_WARNING,
     CONF_CONFIRM_HUMIDITY_RESPONSE,
     CONF_CONFIRM_LOW_TEMPERATURE_PROTECTION,
     CONF_CONFIRM_LS_ACTION_VALIDATION,
@@ -64,6 +65,7 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_DIGITAL_INPUT_2_ACTION,
     CONF_HIGH_TEMPERATURE_ACTION,
     CONF_HIGH_TEMPERATURE_THRESHOLD,
+    CONF_HARD_RESET_PHRASE,
     CONF_HUMIDITY_THRESHOLD,
     CONF_LOW_TEMPERATURE_ACTION,
     CONF_LOW_TEMPERATURE_PROTECTION,
@@ -94,6 +96,7 @@ from custom_components.ventaxia_multihome.coordinator import (
     CalibrationCommandNotSentError,
     CalibrationDeliveryUncertainError,
     CalibrationRateLimitedError,
+    HardResetDeliveryUncertainError,
     SensorThresholdConfigurationUnavailableError,
 )
 from custom_components.ventaxia_multihome.device import SetupCodeRejectedError
@@ -135,6 +138,7 @@ def _options_entry(
     supports_digital_inputs: bool = False,
     supports_temperature_validation: bool = False,
     supports_low_temperature_protection: bool = False,
+    supports_hard_reset: bool = False,
     airflow_available: bool = True,
     supports_schedules: bool = False,
     schedules_available: bool = True,
@@ -153,6 +157,7 @@ def _options_entry(
     coordinator = SimpleNamespace(
         device=SimpleNamespace(
             supports_internal_co2_calibration=supports_calibration,
+            supports_guarded_hard_reset=supports_hard_reset,
             supports_global_airflow_configuration=supports_airflow,
             supports_boost_minimum_configuration=supports_boost_minimum,
             supports_sensor_threshold_configuration=supports_thresholds,
@@ -182,6 +187,7 @@ def _options_entry(
         ),
         last_update_success=airflow_available and schedules_available,
         async_calibrate_internal_co2=AsyncMock(),
+        async_dispatch_hard_reset_from_options=AsyncMock(),
         async_set_airflow_profile=AsyncMock(),
         async_set_boost_minimum=AsyncMock(),
         async_set_sensor_thresholds=AsyncMock(),
@@ -220,6 +226,17 @@ async def _open_airflow_options(hass, entry):
     assert initial["step_id"] == "init"
     return await hass.config_entries.options.async_configure(
         initial["flow_id"], {"next_step_id": "airflow_profile"}
+    )
+
+
+async def _open_hard_reset_options(hass, entry):
+    """Open the destructive hard-reset warning from the options menu."""
+
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    assert initial["type"] is data_entry_flow.FlowResultType.MENU
+    assert initial["step_id"] == "init"
+    return await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "hard_reset"}
     )
 
 
