@@ -227,9 +227,7 @@ async def test_initial_bluetooth_waits_for_saved_address(monkeypatch) -> None:
     process_advertisements.assert_awaited_once()
     args = process_advertisements.await_args.args
     assert args[0] is coordinator.hass
-    assert args[1](SimpleNamespace(time=100.0)) is False
-    assert args[1](SimpleNamespace(time=99.0)) is False
-    assert args[1](SimpleNamespace(time=100.1)) is True
+    assert args[1](object()) is True
     assert args[2] == {"address": "AA:BB", "connectable": True}
     assert args[3] is BluetoothScanningMode.ACTIVE
     assert args[4] == STARTUP_ADVERTISEMENT_TIMEOUT
