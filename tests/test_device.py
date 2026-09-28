@@ -27,6 +27,7 @@ from custom_components.ventaxia_multihome.device import (
     DeviceError,
     GlobalSettingsUnavailableError,
     GlobalSettingUpdateError,
+    HardResetDispatchUncertainError,
     MultihomeDevice,
     MultihomeDeviceInfo,
     SetupCodeRejectedError,
@@ -49,6 +50,7 @@ from custom_components.ventaxia_multihome.protocol import (
     encode_co2_calibration,
     encode_data_object_array,
     encode_global_setting_update,
+    encode_hard_reset,
     encode_packet,
     encode_silent_hour,
     encode_silent_hour_request,
@@ -580,6 +582,149 @@ async def test_cancel_clears_estimated_countdown(monkeypatch) -> None:
     assert started.system.override_remaining_source == "estimated"
     assert cancelled.system.override_remaining == 0
     assert cancelled.system.override_remaining_source == "device"
+
+
+@pytest.mark.asyncio
+async def test_internal_hard_reset_dispatches_exact_command_and_invalidates_state() -> None:
+    """The private reset primitive sends packet 61 then distrusts every cached state."""
+
+    # Arrange - prepare the exact designated identity with deliberately populated caches.
+    sent: list[bytes] = []
+
+    class ResetTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            sent.append(packet)
+
+        async def request(self, packet: bytes) -> bytes:
+            raise AssertionError("hard reset must not wait for a protocol response")
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device._client = DeviceClient([])
+    device._transport = ResetTransport()
+    device._authenticated = True
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._confirmed_global_settings = decode_global_settings(
+        decode_packet(_responses()[2]).payload
+    )
+    device._global_settings_write_ready = True
+    device.last_global_setting_write_attempt = SimpleNamespace(outcome="confirmed")
+    device._confirmed_silent_hours = _silent_slots()
+    device._silent_hours_write_ready = True
+    device._override_deadline = 123.0
+    device._override_preset = AirflowPreset.BOOST
+    device.last_calibration_target = 7
+    device.last_calibration_target_scan = [(7, 6, 1)]
+    device.last_calibration_device_table_version = 6
+
+    # Act - dispatch the internal-only hard reset.
+    result = await device._dispatch_hard_reset(object())
+
+    # Assert - the packet is exact and no cached protocol/settings state survives.
+    assert len(sent) == 1
+    command = decode_packet(sent[0])
+    assert command.packet_type == PacketType.HARD_RESET
+    assert command.operation == Operation.NONE
+    assert command.target == 0
+    assert command.payload == encode_hard_reset()
+    assert result.transport == "test"
+    assert result.protocol_response_expected is False
+    assert "may reboot or disconnect" in result.note
+    assert device._transport is None
+    assert device._authenticated is False
+    assert device._confirmed_global_settings is None
+    assert device._global_settings_write_ready is False
+    assert device.last_global_setting_write_attempt is None
+    assert device._confirmed_silent_hours is None
+    assert device._silent_hours_write_ready is False
+    assert device._override_deadline is None
+    assert device._override_preset is None
+    assert device.last_calibration_target is None
+    assert device.last_calibration_target_scan == []
+    assert device.last_calibration_device_table_version is None
+    assert device.device_info == MultihomeDeviceInfo()
+
+
+@pytest.mark.asyncio
+async def test_internal_hard_reset_rejects_non_designated_identity_before_write() -> None:
+    """An otherwise connected device cannot receive reset outside the exact identity."""
+
+    # Arrange - connect a different model to a transport that must never be called.
+    class NoResetTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            raise AssertionError("no reset write expected")
+
+        async def request(self, packet: bytes) -> bytes:
+            raise AssertionError("no reset request expected")
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device._client = DeviceClient([])
+    device._transport = NoResetTransport()
+    device._authenticated = True
+    device.device_info = MultihomeDeviceInfo(
+        model="11", firmware="2.03.08", hardware="01.00"
+    )
+
+    # Act / Assert - identity gating fails before packet 61 can reach transport.
+    with pytest.raises(DeviceError, match="designated model 10"):
+        await device._dispatch_hard_reset(object())
+    assert device._transport is not None
+    assert device._authenticated is True
+
+
+@pytest.mark.asyncio
+async def test_internal_hard_reset_reports_reboot_before_ack_as_uncertain() -> None:
+    """A post-write transport failure is uncertain because reset can reboot immediately."""
+
+    # Arrange - simulate a fragmented-style acknowledgement disappearing after write.
+    attempts: list[bytes] = []
+
+    class RebootingTransport:
+        name = "fragmented"
+
+        async def send(self, packet: bytes) -> None:
+            attempts.append(packet)
+            raise ConnectionError("device rebooted before acknowledgement")
+
+        async def request(self, packet: bytes) -> bytes:
+            raise AssertionError("hard reset must not request a protocol response")
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device._client = DeviceClient([])
+    device._transport = RebootingTransport()
+    device._authenticated = True
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._confirmed_global_settings = decode_global_settings(
+        decode_packet(_responses()[2]).payload
+    )
+    device._global_settings_write_ready = True
+    device._confirmed_silent_hours = _silent_slots()
+    device._silent_hours_write_ready = True
+
+    # Act - dispatch while the simulated unit disappears before transport ACK.
+    with pytest.raises(
+        HardResetDispatchUncertainError,
+        match="may have rebooted before transport acknowledgement",
+    ):
+        await device._dispatch_hard_reset(object())
+
+    # Assert - an exact reset packet was attempted and all mutable caches are invalidated.
+    assert len(attempts) == 1
+    assert decode_packet(attempts[0]).packet_type == PacketType.HARD_RESET
+    assert device._transport is None
+    assert device._authenticated is False
+    assert device._confirmed_global_settings is None
+    assert device._global_settings_write_ready is False
+    assert device._confirmed_silent_hours is None
+    assert device._silent_hours_write_ready is False
+    assert device.device_info == MultihomeDeviceInfo()
 
 
 @pytest.mark.asyncio
