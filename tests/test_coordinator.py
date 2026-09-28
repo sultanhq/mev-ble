@@ -37,6 +37,9 @@ from custom_components.ventaxia_multihome.coordinator import (
     DigitalInputValidationNotSupportedError,
     DigitalInputValidationUnavailableError,
     HumidityResponseConfigurationNotSupportedError,
+    HardResetDeliveryUncertainError,
+    HardResetNotSupportedError,
+    HardResetUnavailableError,
     HumidityResponseConfigurationUnavailableError,
     LowTemperatureProtectionValidationNotSupportedError,
     LowTemperatureProtectionValidationUnavailableError,
@@ -52,6 +55,8 @@ from custom_components.ventaxia_multihome.device import (
     CalibrationTargetDiscoveryError,
     CalibrationWriteUncertainError,
     GlobalSettingsUnavailableError,
+    HardResetDispatchResult,
+    HardResetDispatchUncertainError,
     MultihomeData,
 )
 from custom_components.ventaxia_multihome.protocol import (
@@ -382,6 +387,124 @@ def _settings(raw: str = "06082532"):
 
     suffix = "005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
     return decode_global_settings(bytes.fromhex(raw + suffix))
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_options_dispatch_delegates_once_when_fresh() -> None:
+    """The options-only coordinator path delegates one guarded packet-61 dispatch."""
+
+    # Arrange - expose one supported, fresh device and deterministic BLE route.
+    ble_device = object()
+    expected = HardResetDispatchResult(transport="test")
+    device = SimpleNamespace(
+        supports_guarded_hard_reset=True,
+        _dispatch_hard_reset=AsyncMock(return_value=expected),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=object(),
+        last_update_success=True,
+        _ble_device=lambda: ble_device,
+    )
+
+    # Act - invoke the production options-only coordinator method.
+    result = await VentaxiaMultihomeCoordinator.async_dispatch_hard_reset_from_options(
+        coordinator
+    )
+
+    # Assert - exactly one device dispatch is made and its response-free contract returns.
+    assert result is expected
+    device._dispatch_hard_reset.assert_awaited_once_with(ble_device)
+    device.disconnect.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_options_rejects_unsupported_identity_before_bluetooth() -> None:
+    """Unsupported identities cannot resolve a BLE route for hard reset."""
+
+    # Arrange - expose fresh data but no reset capability.
+    device = SimpleNamespace(
+        supports_guarded_hard_reset=False,
+        _dispatch_hard_reset=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=object(),
+        last_update_success=True,
+        _ble_device=Mock(),
+    )
+
+    # Act / Assert - identity gating happens before any Bluetooth lookup.
+    with pytest.raises(HardResetNotSupportedError):
+        await VentaxiaMultihomeCoordinator.async_dispatch_hard_reset_from_options(
+            coordinator
+        )
+    coordinator._ble_device.assert_not_called()
+    device._dispatch_hard_reset.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("data", "last_success"),
+    [
+        (None, True),
+        (object(), False),
+    ],
+)
+async def test_hard_reset_options_requires_fresh_coordinator_state(
+    data, last_success
+) -> None:
+    """Missing or stale coordinator data cannot reach the reset transport."""
+
+    # Arrange - vary the two freshness conditions independently.
+    device = SimpleNamespace(
+        supports_guarded_hard_reset=True,
+        _dispatch_hard_reset=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=data,
+        last_update_success=last_success,
+        _ble_device=Mock(),
+    )
+
+    # Act / Assert - stale state is rejected before resolving a BLE route.
+    with pytest.raises(HardResetUnavailableError):
+        await VentaxiaMultihomeCoordinator.async_dispatch_hard_reset_from_options(
+            coordinator
+        )
+    coordinator._ble_device.assert_not_called()
+    device._dispatch_hard_reset.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_options_preserves_uncertain_delivery() -> None:
+    """A possible reboot before acknowledgement remains explicitly uncertain."""
+
+    # Arrange - make the internal reset primitive report uncertain dispatch.
+    ble_device = object()
+    device = SimpleNamespace(
+        supports_guarded_hard_reset=True,
+        _dispatch_hard_reset=AsyncMock(
+            side_effect=HardResetDispatchUncertainError("may have rebooted")
+        ),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=object(),
+        last_update_success=True,
+        _ble_device=lambda: ble_device,
+    )
+
+    # Act / Assert - uncertainty is translated without pretending reset was not sent.
+    with pytest.raises(HardResetDeliveryUncertainError, match="may have rebooted"):
+        await VentaxiaMultihomeCoordinator.async_dispatch_hard_reset_from_options(
+            coordinator
+        )
+    device._dispatch_hard_reset.assert_awaited_once_with(ble_device)
+    device.disconnect.assert_not_awaited()
 
 
 @pytest.mark.asyncio
