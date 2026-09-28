@@ -55,7 +55,8 @@
           "temperature_validation": "Configure temperature settings",
           "analogue_input_1_validation": "Configure analogue input 1",
           "analogue_input_2_validation": "Configure analogue input 2",
-          "digital_input_validation": "Configure digital input actions"
+          "digital_input_validation": "Configure digital input actions",
+          "hard_reset": "Hard reset ventilation unit"
         }
       },
       "fan_options": {
@@ -363,6 +364,28 @@
       "digital_input_validation_result": {
         "title": "Digital input action confirmed",
         "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. This confirms the stored field value; live electrical input behaviour is separate."
+      },
+      "hard_reset": {
+        "title": "Hard reset ventilation unit",
+        "description": "Device: **{device}**\nAddress suffix: **{address_suffix}**\n\nThis is a destructive, advanced operation using the separately recovered packet-61 HardReset command. It is **not** packet 62 RestoreDefaults. The unit may reboot and disconnect immediately. The exact configuration retained or lost by this command has not yet been physically validated, so installer settings, schedules, pairing/application access, or attached-device state may require recovery or reconfiguration.\n\nDo not continue unless you are prepared to restore the ventilation configuration and re-pair the unit if required.",
+        "data": {
+          "confirm_hard_reset_warning": "I understand that this reset is destructive and that recovery or re-pairing may be required"
+        }
+      },
+      "hard_reset_confirm": {
+        "title": "Type the one-time hard reset phrase",
+        "description": "Device: **{device}**\nAddress suffix: **{address_suffix}**\n\nType this phrase exactly:\n\n**{confirmation_phrase}**\n\nThe phrase is unique to this Configure session and is consumed when an exact submission is made. Packet 61 may make the unit reboot before Home Assistant receives transport acknowledgement. Do not submit the phrase unless you intend to reset this specific device.",
+        "data": {
+          "hard_reset_phrase": "Confirmation phrase"
+        }
+      },
+      "hard_reset_sent": {
+        "title": "Hard reset dispatched",
+        "description": "Home Assistant dispatched packet 61 to **{device}** without waiting for a protocol response, as required by the recovered command. The unit may now reboot or disconnect. This screen confirms dispatch only; it does not yet prove reboot, rediscovery, pairing state, or configuration recovery. Do not repeat the reset."
+      },
+      "hard_reset_uncertain": {
+        "title": "Hard reset delivery uncertain",
+        "description": "The connection or transport acknowledgement was lost while packet 61 was being dispatched to **{device}**. The reset **may already have reached the unit and caused a reboot**. Do not retry from this flow. Treat the device as potentially reset and proceed with recovery/rediscovery checks."
       }
     },
     "progress": {
@@ -448,7 +471,9 @@
       "digital_input_validation_confirmation_required": "Review both digital input actions and enable the acknowledgement before continuing.",
       "digital_input_validation_settings_changed": "The global settings changed after review. Recheck both digital input actions before continuing.",
       "digital_input_validation_unavailable": "Digital input validation requires a fresh record containing recognised actions. No setting was changed.",
-      "digital_input_validation_update_failed": "The one-field digital input update or its exact readback failed. Reopen the flow and inspect both current actions."
+      "digital_input_validation_update_failed": "The one-field digital input update or its exact readback failed. Reopen the flow and inspect both current actions.",
+      "hard_reset_warning_required": "Acknowledge the destructive reset and recovery warning before continuing.",
+      "hard_reset_phrase_mismatch": "The confirmation phrase does not match exactly. No reset was sent."
     },
     "abort": {
       "airflow_not_supported": "Airflow configuration is not validated for this model, firmware, and hardware. No setting was changed.",
@@ -474,7 +499,10 @@
       "analogue_input_2_validation_not_supported": "Analogue input 2 validation is unavailable for this model, firmware, or hardware. No setting was changed.",
       "analogue_input_2_validation_unavailable": "Analogue input 2 validation requires recognised current values and a fresh settings record. No setting was changed.",
       "digital_input_validation_not_supported": "Digital input validation is unavailable for this model, firmware, or hardware. No setting was changed.",
-      "digital_input_validation_unavailable": "Digital input validation requires recognised current values and a fresh settings record. No setting was changed."
+      "digital_input_validation_unavailable": "Digital input validation requires recognised current values and a fresh settings record. No setting was changed.",
+      "hard_reset_not_supported": "Hard reset is not enabled for this exact model, firmware, and hardware. No reset was sent.",
+      "hard_reset_unavailable": "Current device state is unavailable or stale. No reset was sent. Wait for a successful update and start a new Configure flow.",
+      "hard_reset_confirmation_consumed": "This one-time reset confirmation has already been consumed. No additional reset was sent; start a new Configure flow only if another reset is genuinely required."
     }
   },
   "selector": {
