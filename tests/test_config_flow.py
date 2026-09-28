@@ -97,6 +97,7 @@ from custom_components.ventaxia_multihome.coordinator import (
     CalibrationDeliveryUncertainError,
     CalibrationRateLimitedError,
     HardResetDeliveryUncertainError,
+    HardResetRecoveryResult,
     SensorThresholdConfigurationUnavailableError,
 )
 from custom_components.ventaxia_multihome.device import SetupCodeRejectedError
@@ -188,6 +189,12 @@ def _options_entry(
         last_update_success=airflow_available and schedules_available,
         async_calibrate_internal_co2=AsyncMock(),
         async_dispatch_hard_reset_from_options=AsyncMock(),
+        async_wait_for_hard_reset_recovery=AsyncMock(
+            return_value=HardResetRecoveryResult(
+                outcome="recovered",
+                detail="Recovered after fresh advertisement.",
+            )
+        ),
         async_set_airflow_profile=AsyncMock(),
         async_set_boost_minimum=AsyncMock(),
         async_set_sensor_thresholds=AsyncMock(),
@@ -403,6 +410,18 @@ async def _complete_calibration_progress(hass, progress):
     return hass.config_entries.options.async_get(progress["flow_id"])
 
 
+async def _complete_hard_reset_recovery_progress(hass, progress):
+    """Wait for reset recovery and return the outcome form."""
+
+    assert progress["type"] is data_entry_flow.FlowResultType.SHOW_PROGRESS
+    assert progress["step_id"] == "hard_reset_recovery"
+    flow = hass.config_entries.options._progress[progress["flow_id"]]
+    if task := flow.async_get_progress_task():
+        await task
+    await hass.async_block_till_done()
+    return hass.config_entries.options.async_get(progress["flow_id"])
+
+
 @pytest.mark.asyncio
 async def test_hard_reset_menu_requires_supported_fresh_device(hass) -> None:
     """Reset appears only for the designated identity with current coordinator data."""
@@ -462,14 +481,20 @@ async def test_hard_reset_requires_warning_and_exact_typed_phrase(
     assert mismatch["errors"] == {"base": "hard_reset_phrase_mismatch"}
     coordinator.async_dispatch_hard_reset_from_options.assert_not_awaited()
 
-    # Act - enter the exact one-time phrase.
-    sent = await hass.config_entries.options.async_configure(
+    # Act - enter the exact one-time phrase and complete simulated recovery.
+    progress = await hass.config_entries.options.async_configure(
         mismatch["flow_id"], {CONF_HARD_RESET_PHRASE: "RESET 6878D0 A1B2"}
     )
+    result = await _complete_hard_reset_recovery_progress(hass, progress)
 
-    # Assert - exactly one guarded coordinator dispatch is made.
-    assert sent["step_id"] == "hard_reset_sent"
+    # Assert - exactly one reset dispatch is followed by one recovery observer.
+    assert result["step_id"] == "hard_reset_recovery_result"
+    assert result["description_placeholders"]["outcome"] == "Recovered"
+    assert result["description_placeholders"]["delivery_status"].startswith(
+        "Packet 61 dispatch completed"
+    )
     coordinator.async_dispatch_hard_reset_from_options.assert_awaited_once_with()
+    coordinator.async_wait_for_hard_reset_recovery.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -492,10 +517,11 @@ async def test_hard_reset_stale_device_blocks_exact_phrase_without_write(
         confirm["flow_id"], {CONF_HARD_RESET_PHRASE: "RESET 6878D0 A1B2"}
     )
 
-    # Assert - the flow aborts and no reset call can occur.
+    # Assert - the flow aborts and no reset or recovery wait can occur.
     assert result["type"] is data_entry_flow.FlowResultType.ABORT
     assert result["reason"] == "hard_reset_unavailable"
     coordinator.async_dispatch_hard_reset_from_options.assert_not_awaited()
+    coordinator.async_wait_for_hard_reset_recovery.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -535,6 +561,7 @@ async def test_hard_reset_confirmation_phrase_cannot_be_reused(
     assert first_phrase != second_phrase
     assert mismatch["errors"] == {"base": "hard_reset_phrase_mismatch"}
     coordinator.async_dispatch_hard_reset_from_options.assert_not_awaited()
+    coordinator.async_wait_for_hard_reset_recovery.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -553,7 +580,7 @@ async def test_hard_reset_duplicate_submission_dispatches_only_once(
     phrase = confirm["description_placeholders"]["confirmation_phrase"]
 
     # Act - submit the exact phrase, then replay it against the same flow object.
-    sent = await hass.config_entries.options.async_configure(
+    progress = await hass.config_entries.options.async_configure(
         confirm["flow_id"], {CONF_HARD_RESET_PHRASE: phrase}
     )
     flow = hass.config_entries.options._progress[confirm["flow_id"]]
@@ -561,42 +588,88 @@ async def test_hard_reset_duplicate_submission_dispatches_only_once(
         {CONF_HARD_RESET_PHRASE: phrase}
     )
 
-    # Assert - the consumed confirmation aborts without a second reset dispatch.
-    assert sent["step_id"] == "hard_reset_sent"
+    # Assert - recovery starts once and the consumed phrase cannot dispatch again.
+    assert progress["step_id"] == "hard_reset_recovery"
     assert duplicate["type"] is data_entry_flow.FlowResultType.ABORT
     assert duplicate["reason"] == "hard_reset_confirmation_consumed"
     coordinator.async_dispatch_hard_reset_from_options.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
-async def test_hard_reset_uncertain_delivery_is_terminal_for_flow(
+async def test_hard_reset_uncertain_delivery_still_enters_bounded_recovery(
     hass, monkeypatch
 ) -> None:
-    """An uncertain reset cannot be retried using the consumed confirmation."""
+    """Uncertain delivery is retained while recovery waits for the rebooted unit."""
 
-    # Arrange - simulate packet 61 losing transport acknowledgement after dispatch.
+    # Arrange - simulate packet 61 losing acknowledgement but later recovering.
     monkeypatch.setattr(config_flow_module.secrets, "token_hex", lambda _size: "a1b2")
     entry, coordinator = _options_entry(hass, supports_hard_reset=True)
     coordinator.async_dispatch_hard_reset_from_options.side_effect = (
         HardResetDeliveryUncertainError("unit may have rebooted")
+    )
+    coordinator.async_wait_for_hard_reset_recovery.return_value = (
+        HardResetRecoveryResult(
+            outcome="recovered",
+            detail="Recovered after fresh advertisement.",
+            delivery_uncertain=True,
+        )
     )
     warning = await _open_hard_reset_options(hass, entry)
     confirm = await hass.config_entries.options.async_configure(
         warning["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: True}
     )
 
-    # Act - submit the exact phrase and then close the uncertain result.
-    uncertain = await hass.config_entries.options.async_configure(
+    # Act - submit the exact phrase and wait for coordinator-owned recovery.
+    progress = await hass.config_entries.options.async_configure(
         confirm["flow_id"], {CONF_HARD_RESET_PHRASE: "RESET 6878D0 A1B2"}
     )
+    result = await _complete_hard_reset_recovery_progress(hass, progress)
     completed = await hass.config_entries.options.async_configure(
-        uncertain["flow_id"], {}
+        result["flow_id"], {}
     )
 
-    # Assert - uncertain delivery is surfaced distinctly and never auto-retried.
-    assert uncertain["step_id"] == "hard_reset_uncertain"
+    # Assert - recovery succeeds without converting uncertainty into a reset retry.
+    assert result["step_id"] == "hard_reset_recovery_result"
+    assert result["description_placeholders"]["outcome"] == "Recovered"
+    assert result["description_placeholders"]["delivery_status"].startswith(
+        "Reset delivery was uncertain"
+    )
     assert completed["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
     coordinator.async_dispatch_hard_reset_from_options.assert_awaited_once_with()
+    coordinator.async_wait_for_hard_reset_recovery.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_recovery_result_guides_pairing_without_retry(
+    hass, monkeypatch
+) -> None:
+    """Pairing-required recovery gives actionable guidance and sends no second reset."""
+
+    # Arrange - make the post-reset reconnect reject the stored setup code.
+    monkeypatch.setattr(config_flow_module.secrets, "token_hex", lambda _size: "a1b2")
+    entry, coordinator = _options_entry(hass, supports_hard_reset=True)
+    coordinator.async_wait_for_hard_reset_recovery.return_value = (
+        HardResetRecoveryResult(
+            outcome="pairing_required",
+            detail="Put the unit into physical pairing mode and reload/re-authenticate.",
+        )
+    )
+    warning = await _open_hard_reset_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        warning["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: True}
+    )
+
+    # Act - authorize once and let the recovery observer return pairing-required.
+    progress = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_HARD_RESET_PHRASE: "RESET 6878D0 A1B2"}
+    )
+    result = await _complete_hard_reset_recovery_progress(hass, progress)
+
+    # Assert - the result is actionable and reset remains a one-shot operation.
+    assert result["description_placeholders"]["outcome"] == "Re-pairing required"
+    assert "physical pairing mode" in result["description_placeholders"]["detail"]
+    coordinator.async_dispatch_hard_reset_from_options.assert_awaited_once_with()
+    coordinator.async_wait_for_hard_reset_recovery.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
