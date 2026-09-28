@@ -2038,6 +2038,7 @@ async def test_calibration_uses_validated_device_and_reference(monkeypatch) -> N
             coordinator, "_last_calibration_attempt", value
         ),
         _ble_device=lambda: ble_device,
+        _hard_reset_recovery_mode=False,
     )
     monkeypatch.setattr(coordinator_module, "time", lambda: 100.0)
 
@@ -2196,6 +2197,7 @@ async def test_polling_recovers_after_failed_calibration(monkeypatch) -> None:
             coordinator, "_last_calibration_attempt", value
         ),
         _ble_device=lambda: ble_device,
+        _hard_reset_recovery_mode=False,
     )
     monkeypatch.setattr(coordinator_module, "time", lambda: 100.0)
 
