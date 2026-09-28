@@ -68,6 +68,7 @@ from .coordinator import (
     DigitalInputValidationUnavailableError,
     HardResetDeliveryUncertainError,
     HardResetNotSupportedError,
+    HardResetRecoveryResult,
     HardResetUnavailableError,
     HumidityResponseConfigurationNotSupportedError,
     HumidityResponseConfigurationUnavailableError,
@@ -486,6 +487,10 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._hard_reset_challenge: str | None = None
         self._hard_reset_confirmation_consumed = False
         self._hard_reset_operation_active = False
+        self._hard_reset_delivery_uncertain = False
+        self._hard_reset_recovery_progress_task: asyncio.Task[
+            HardResetRecoveryResult
+        ] | None = None
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -656,13 +661,15 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                     except HardResetUnavailableError:
                         return self.async_abort(reason="hard_reset_unavailable")
                     except HardResetDeliveryUncertainError:
-                        return await self.async_step_hard_reset_uncertain()
+                        self._hard_reset_delivery_uncertain = True
+                        return await self.async_step_hard_reset_recovery()
                     except HomeAssistantError as err:
                         _LOGGER.warning(
                             "Unable to dispatch Multihome hard reset: %s", err
                         )
                         return self.async_abort(reason="hard_reset_unavailable")
-                    return await self.async_step_hard_reset_sent()
+                    self._hard_reset_delivery_uncertain = False
+                    return await self.async_step_hard_reset_recovery()
                 finally:
                     self._hard_reset_operation_active = False
 
@@ -685,34 +692,79 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             },
         )
 
-    async def async_step_hard_reset_sent(
+    async def async_step_hard_reset_recovery(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Report dispatch without claiming reboot or recovery completion."""
+        """Observe coordinator-owned reboot/rediscovery recovery."""
 
-        if user_input is not None:
-            return self.async_create_entry(
-                title="", data=dict(self.config_entry.options)
+        if self._hard_reset_recovery_progress_task is None:
+            coordinator = self.config_entry.runtime_data
+            self._hard_reset_recovery_progress_task = self.hass.async_create_task(
+                coordinator.async_wait_for_hard_reset_recovery(),
+                "Observe Multihome hard-reset recovery",
             )
-        return self.async_show_form(
-            step_id="hard_reset_sent",
-            data_schema=vol.Schema({}),
-            description_placeholders={"device": self.config_entry.title},
+
+        if not self._hard_reset_recovery_progress_task.done():
+            return self.async_show_progress(
+                step_id="hard_reset_recovery",
+                progress_action="hard_reset_recovery",
+                progress_task=self._hard_reset_recovery_progress_task,
+                description_placeholders={"device": self.config_entry.title},
+            )
+        return self.async_show_progress_done(
+            next_step_id="hard_reset_recovery_result"
         )
 
-    async def async_step_hard_reset_uncertain(
+    async def async_step_hard_reset_recovery_result(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Report that reset may have reached a unit that disconnected early."""
+        """Report recovered, changed, pairing, timeout, or reconnect outcomes."""
 
         if user_input is not None:
             return self.async_create_entry(
                 title="", data=dict(self.config_entry.options)
             )
+
+        task = self._hard_reset_recovery_progress_task
+        if task is None or not task.done():
+            return await self.async_step_hard_reset_recovery()
+
+        try:
+            result = task.result()
+        except (HardResetUnavailableError, HomeAssistantError) as err:
+            _LOGGER.warning("Unable to observe Multihome reset recovery: %s", err)
+            result = HardResetRecoveryResult(
+                outcome="recovery_unavailable",
+                detail=(
+                    "Home Assistant could not observe the coordinator recovery task. "
+                    "Do not resend reset; reload the integration and inspect its state."
+                ),
+                delivery_uncertain=self._hard_reset_delivery_uncertain,
+            )
+
+        outcome_titles = {
+            "recovered": "Recovered",
+            "recovered_configuration_changed": "Recovered; configuration changed",
+            "pairing_required": "Re-pairing required",
+            "timed_out": "Device did not return before timeout",
+            "bluetooth_unavailable": "Bluetooth scanner unavailable",
+            "route_unavailable": "Bluetooth route unavailable",
+            "reconnect_failed": "Reconnect failed",
+            "recovery_unavailable": "Recovery state unavailable",
+        }
         return self.async_show_form(
-            step_id="hard_reset_uncertain",
+            step_id="hard_reset_recovery_result",
             data_schema=vol.Schema({}),
-            description_placeholders={"device": self.config_entry.title},
+            description_placeholders={
+                "device": self.config_entry.title,
+                "outcome": outcome_titles.get(result.outcome, result.outcome),
+                "detail": result.detail,
+                "delivery_status": (
+                    "Reset delivery was uncertain before recovery began."
+                    if result.delivery_uncertain
+                    else "Packet 61 dispatch completed before recovery began."
+                ),
+            },
         )
 
     def _hard_reset_address_suffix(self) -> str:
