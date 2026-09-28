@@ -799,6 +799,7 @@ async def test_dedicated_hard_reset_recovery_clears_barrier_after_fresh_read() -
 
     # Arrange - stand in for the coordinator-approved fresh-advertisement route.
     fresh_data = object()
+    ble_device = object()
     device = MultihomeDevice("AA", "MEV", 1234)
     device._hard_reset_recovery_pending = True
     device.connect = AsyncMock()
@@ -806,12 +807,12 @@ async def test_dedicated_hard_reset_recovery_clears_barrier_after_fresh_read() -
     device._reconcile_override_remaining = Mock(side_effect=lambda data: data)
 
     # Act - recover once through the dedicated reset path.
-    result = await device.recover_after_hard_reset(object())
+    result = await device.recover_after_hard_reset(ble_device)
 
     # Assert - recovery explicitly bypasses then clears the reconnect barrier.
     assert result is fresh_data
     device.connect.assert_awaited_once_with(
-        object(), allow_hard_reset_recovery=True
+        ble_device, allow_hard_reset_recovery=True
     )
     device._read_data.assert_awaited_once_with()
     assert device._hard_reset_recovery_pending is False
