@@ -53,6 +53,7 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_CONFIRM_COMFORT_MODE,
     CONF_CONFIRM_DELAY_OVERRUN,
     CONF_CONFIRM_DIGITAL_INPUT_VALIDATION,
+    CONF_CONFIRM_HARD_RESET_WARNING,
     CONF_CONFIRM_HUMIDITY_RESPONSE,
     CONF_CONFIRM_LOW_TEMPERATURE_PROTECTION,
     CONF_CONFIRM_LS_ACTION_VALIDATION,
@@ -62,6 +63,7 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_DELAY_TIMEOUT,
     CONF_DIGITAL_INPUT_1_ACTION,
     CONF_DIGITAL_INPUT_2_ACTION,
+    CONF_HARD_RESET_PHRASE,
     CONF_HIGH_TEMPERATURE_ACTION,
     CONF_HIGH_TEMPERATURE_THRESHOLD,
     CONF_HUMIDITY_THRESHOLD,
@@ -94,6 +96,7 @@ from custom_components.ventaxia_multihome.coordinator import (
     CalibrationCommandNotSentError,
     CalibrationDeliveryUncertainError,
     CalibrationRateLimitedError,
+    HardResetDeliveryUncertainError,
     SensorThresholdConfigurationUnavailableError,
 )
 from custom_components.ventaxia_multihome.device import SetupCodeRejectedError
@@ -135,6 +138,7 @@ def _options_entry(
     supports_digital_inputs: bool = False,
     supports_temperature_validation: bool = False,
     supports_low_temperature_protection: bool = False,
+    supports_hard_reset: bool = False,
     airflow_available: bool = True,
     supports_schedules: bool = False,
     schedules_available: bool = True,
@@ -153,6 +157,7 @@ def _options_entry(
     coordinator = SimpleNamespace(
         device=SimpleNamespace(
             supports_internal_co2_calibration=supports_calibration,
+            supports_guarded_hard_reset=supports_hard_reset,
             supports_global_airflow_configuration=supports_airflow,
             supports_boost_minimum_configuration=supports_boost_minimum,
             supports_sensor_threshold_configuration=supports_thresholds,
@@ -182,6 +187,7 @@ def _options_entry(
         ),
         last_update_success=airflow_available and schedules_available,
         async_calibrate_internal_co2=AsyncMock(),
+        async_dispatch_hard_reset_from_options=AsyncMock(),
         async_set_airflow_profile=AsyncMock(),
         async_set_boost_minimum=AsyncMock(),
         async_set_sensor_thresholds=AsyncMock(),
@@ -220,6 +226,17 @@ async def _open_airflow_options(hass, entry):
     assert initial["step_id"] == "init"
     return await hass.config_entries.options.async_configure(
         initial["flow_id"], {"next_step_id": "airflow_profile"}
+    )
+
+
+async def _open_hard_reset_options(hass, entry):
+    """Open the destructive hard-reset warning from the options menu."""
+
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    assert initial["type"] is data_entry_flow.FlowResultType.MENU
+    assert initial["step_id"] == "init"
+    return await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "hard_reset"}
     )
 
 
@@ -384,6 +401,202 @@ async def _complete_calibration_progress(hass, progress):
         await task
     await hass.async_block_till_done()
     return hass.config_entries.options.async_get(progress["flow_id"])
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_menu_requires_supported_fresh_device(hass) -> None:
+    """Reset appears only for the designated identity with current coordinator data."""
+
+    # Arrange - create supported, unsupported, and stale device entries.
+    supported, _ = _options_entry(hass, supports_hard_reset=True)
+    unsupported, _ = _options_entry(hass, supports_hard_reset=False)
+    stale, _ = _options_entry(
+        hass,
+        supports_hard_reset=True,
+        airflow_available=False,
+    )
+
+    # Act - open each top-level Configure menu.
+    supported_menu = await hass.config_entries.options.async_init(supported.entry_id)
+    unsupported_menu = await hass.config_entries.options.async_init(
+        unsupported.entry_id
+    )
+    stale_menu = await hass.config_entries.options.async_init(stale.entry_id)
+
+    # Assert - only the supported, freshly updated device exposes hard reset.
+    assert "hard_reset" in supported_menu["menu_options"]
+    assert "hard_reset" not in unsupported_menu["menu_options"]
+    assert "hard_reset" not in stale_menu["menu_options"]
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_requires_warning_and_exact_typed_phrase(
+    hass, monkeypatch
+) -> None:
+    """No reset reaches the coordinator before both destructive safeguards pass."""
+
+    # Arrange - make the one-time phrase deterministic for this flow.
+    monkeypatch.setattr(config_flow_module.secrets, "token_hex", lambda _size: "a1b2")
+    entry, coordinator = _options_entry(hass, supports_hard_reset=True)
+    warning = await _open_hard_reset_options(hass, entry)
+
+    # Act - decline the warning, then acknowledge it and enter a wrong phrase.
+    declined = await hass.config_entries.options.async_configure(
+        warning["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: False}
+    )
+    confirm = await hass.config_entries.options.async_configure(
+        declined["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: True}
+    )
+    mismatch = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_HARD_RESET_PHRASE: "RESET 6878D0 WRONG"}
+    )
+
+    # Assert - warning, suffix, and exact phrase are visible with zero writes.
+    assert warning["step_id"] == "hard_reset"
+    assert warning["description_placeholders"]["address_suffix"] == "6878D0"
+    assert declined["errors"] == {"base": "hard_reset_warning_required"}
+    assert confirm["step_id"] == "hard_reset_confirm"
+    assert confirm["description_placeholders"]["confirmation_phrase"] == (
+        "RESET 6878D0 A1B2"
+    )
+    assert mismatch["errors"] == {"base": "hard_reset_phrase_mismatch"}
+    coordinator.async_dispatch_hard_reset_from_options.assert_not_awaited()
+
+    # Act - enter the exact one-time phrase.
+    sent = await hass.config_entries.options.async_configure(
+        mismatch["flow_id"], {CONF_HARD_RESET_PHRASE: "RESET 6878D0 A1B2"}
+    )
+
+    # Assert - exactly one guarded coordinator dispatch is made.
+    assert sent["step_id"] == "hard_reset_sent"
+    coordinator.async_dispatch_hard_reset_from_options.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_stale_device_blocks_exact_phrase_without_write(
+    hass, monkeypatch
+) -> None:
+    """A device becoming stale after review consumes the phrase but sends nothing."""
+
+    # Arrange - reach the final step while coordinator state is fresh.
+    monkeypatch.setattr(config_flow_module.secrets, "token_hex", lambda _size: "a1b2")
+    entry, coordinator = _options_entry(hass, supports_hard_reset=True)
+    warning = await _open_hard_reset_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        warning["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: True}
+    )
+    coordinator.last_update_success = False
+
+    # Act - submit the exact phrase after the device becomes stale.
+    result = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_HARD_RESET_PHRASE: "RESET 6878D0 A1B2"}
+    )
+
+    # Assert - the flow aborts and no reset call can occur.
+    assert result["type"] is data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "hard_reset_unavailable"
+    coordinator.async_dispatch_hard_reset_from_options.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_confirmation_phrase_cannot_be_reused(
+    hass, monkeypatch
+) -> None:
+    """A phrase from one Configure flow is invalid in the next flow."""
+
+    # Arrange - give every flow challenge a deterministic unique nonce.
+    nonce_counter = iter(range(1, 1000))
+    monkeypatch.setattr(
+        config_flow_module.secrets,
+        "token_hex",
+        lambda _size: f"{next(nonce_counter):04x}",
+    )
+    entry, coordinator = _options_entry(hass, supports_hard_reset=True)
+
+    first_warning = await _open_hard_reset_options(hass, entry)
+    first_confirm = await hass.config_entries.options.async_configure(
+        first_warning["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: True}
+    )
+    first_phrase = first_confirm["description_placeholders"]["confirmation_phrase"]
+
+    # Act - abandon the first flow, open a new one, and submit the old phrase.
+    second_warning = await _open_hard_reset_options(hass, entry)
+    second_confirm = await hass.config_entries.options.async_configure(
+        second_warning["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: True}
+    )
+    second_phrase = second_confirm["description_placeholders"]["confirmation_phrase"]
+    mismatch = await hass.config_entries.options.async_configure(
+        second_confirm["flow_id"], {CONF_HARD_RESET_PHRASE: first_phrase}
+    )
+
+    # Assert - every new flow gets a new device-specific, non-reusable phrase.
+    assert first_phrase.startswith("RESET 6878D0 ")
+    assert second_phrase.startswith("RESET 6878D0 ")
+    assert first_phrase != second_phrase
+    assert mismatch["errors"] == {"base": "hard_reset_phrase_mismatch"}
+    coordinator.async_dispatch_hard_reset_from_options.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_duplicate_submission_dispatches_only_once(
+    hass, monkeypatch
+) -> None:
+    """Reusing the submitted flow after success cannot dispatch a second reset."""
+
+    # Arrange - reach the exact phrase for one supported device.
+    monkeypatch.setattr(config_flow_module.secrets, "token_hex", lambda _size: "a1b2")
+    entry, coordinator = _options_entry(hass, supports_hard_reset=True)
+    warning = await _open_hard_reset_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        warning["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: True}
+    )
+    phrase = confirm["description_placeholders"]["confirmation_phrase"]
+
+    # Act - submit the exact phrase, then replay it against the same flow object.
+    sent = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_HARD_RESET_PHRASE: phrase}
+    )
+    flow = hass.config_entries.options._progress[confirm["flow_id"]]
+    duplicate = await flow.async_step_hard_reset_confirm(
+        {CONF_HARD_RESET_PHRASE: phrase}
+    )
+
+    # Assert - the consumed confirmation aborts without a second reset dispatch.
+    assert sent["step_id"] == "hard_reset_sent"
+    assert duplicate["type"] is data_entry_flow.FlowResultType.ABORT
+    assert duplicate["reason"] == "hard_reset_confirmation_consumed"
+    coordinator.async_dispatch_hard_reset_from_options.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_uncertain_delivery_is_terminal_for_flow(
+    hass, monkeypatch
+) -> None:
+    """An uncertain reset cannot be retried using the consumed confirmation."""
+
+    # Arrange - simulate packet 61 losing transport acknowledgement after dispatch.
+    monkeypatch.setattr(config_flow_module.secrets, "token_hex", lambda _size: "a1b2")
+    entry, coordinator = _options_entry(hass, supports_hard_reset=True)
+    coordinator.async_dispatch_hard_reset_from_options.side_effect = (
+        HardResetDeliveryUncertainError("unit may have rebooted")
+    )
+    warning = await _open_hard_reset_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        warning["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: True}
+    )
+
+    # Act - submit the exact phrase and then close the uncertain result.
+    uncertain = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_HARD_RESET_PHRASE: "RESET 6878D0 A1B2"}
+    )
+    completed = await hass.config_entries.options.async_configure(
+        uncertain["flow_id"], {}
+    )
+
+    # Assert - uncertain delivery is surfaced distinctly and never auto-retried.
+    assert uncertain["step_id"] == "hard_reset_uncertain"
+    assert completed["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    coordinator.async_dispatch_hard_reset_from_options.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio

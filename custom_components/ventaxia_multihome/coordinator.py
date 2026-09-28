@@ -40,6 +40,8 @@ from .device import (
     CalibrationWriteUncertainError,
     DeviceError,
     GlobalSettingsUnavailableError,
+    HardResetDispatchResult,
+    HardResetDispatchUncertainError,
     MultihomeData,
     MultihomeDevice,
     SetupCodeRejectedError,
@@ -78,6 +80,18 @@ class CalibrationCommandNotSentError(HomeAssistantError):
 
 class CalibrationDeliveryUncertainError(HomeAssistantError):
     """Raised when the calibration write may have reached the unit."""
+
+
+class HardResetNotSupportedError(HomeAssistantError):
+    """Raised when hard reset is not enabled for the exact device identity."""
+
+
+class HardResetUnavailableError(HomeAssistantError):
+    """Raised when current device state is too stale to begin a hard reset."""
+
+
+class HardResetDeliveryUncertainError(HomeAssistantError):
+    """Raised when packet 61 may have reached a unit that disconnected."""
 
 
 class AirflowConfigurationNotSupportedError(HomeAssistantError):
@@ -207,6 +221,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         self._last_calibration_attempt = self._stored_calibration_attempt(entry)
         self.last_calibration_outcome: str | None = None
         self.last_calibration_error: str | None = None
+        self._hard_reset_dispatch_claimed = False
 
     @staticmethod
     def _stored_calibration_attempt(entry: ConfigEntry) -> float | None:
@@ -368,6 +383,55 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         self.async_set_updated_data(
             VentaxiaMultihomeCoordinator._localize_data(self, data)
         )
+
+    async def async_dispatch_hard_reset_from_options(
+        self,
+    ) -> HardResetDispatchResult:
+        """Dispatch the guarded hard reset only once per coordinator lifetime."""
+
+        if not self.device.supports_guarded_hard_reset:
+            raise HardResetNotSupportedError(
+                "Hard reset is not enabled for this model, firmware, and hardware"
+            )
+        if self.data is None or not self.last_update_success:
+            raise HardResetUnavailableError(
+                "Current device state is unavailable; wait for a successful poll"
+            )
+        if self._hard_reset_dispatch_claimed:
+            raise HardResetUnavailableError(
+                "A hard reset has already been claimed for this device session; "
+                "wait for recovery before starting another Configure flow"
+            )
+
+        try:
+            ble_device = self._ble_device()
+        except UpdateFailed as err:
+            raise HardResetUnavailableError(str(err)) from err
+
+        # Claim synchronously before the first await. Separate options-flow instances
+        # share this coordinator, so a sibling flow cannot queue a second packet 61
+        # while the first flow is dispatching or after its delivery becomes uncertain.
+        self._hard_reset_dispatch_claimed = True
+
+        try:
+            return await self.device._dispatch_hard_reset(ble_device)
+        except HardResetDispatchUncertainError as err:
+            raise HardResetDeliveryUncertainError(str(err)) from err
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            # These errors escape the device primitive only before packet 61 reaches
+            # its uncertain send phase. Release the coordinator claim so a later
+            # fresh Configure flow can retry after connectivity/authentication recovers.
+            self._hard_reset_dispatch_claimed = False
+            await self.device.disconnect()
+            raise HardResetUnavailableError(
+                f"Hard reset was not dispatched: {err}"
+            ) from err
 
     async def async_set_airflow_profile(
         self,

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import secrets
 from datetime import time as dt_time
 from statistics import fmean
 from typing import Any, override
@@ -65,6 +66,9 @@ from .coordinator import (
     DelayOverrunConfigurationUnavailableError,
     DigitalInputValidationNotSupportedError,
     DigitalInputValidationUnavailableError,
+    HardResetDeliveryUncertainError,
+    HardResetNotSupportedError,
+    HardResetUnavailableError,
     HumidityResponseConfigurationNotSupportedError,
     HumidityResponseConfigurationUnavailableError,
     LowTemperatureProtectionValidationNotSupportedError,
@@ -182,6 +186,9 @@ CONF_SILENT_HOUR_START = "silent_hour_start"
 CONF_SILENT_HOUR_END = "silent_hour_end"
 CONF_SILENT_HOUR_WEEKDAYS = "silent_hour_weekdays"
 CONF_CONFIRM_SILENT_HOUR_DELETE = "confirm_silent_hour_delete"
+
+CONF_CONFIRM_HARD_RESET_WARNING = "confirm_hard_reset_warning"
+CONF_HARD_RESET_PHRASE = "hard_reset_phrase"
 
 CALIBRATION_METHOD_FRESH_AIR = "fresh_air"
 CALIBRATION_METHOD_REFERENCE_SENSORS = "reference_sensors"
@@ -476,6 +483,9 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._silent_hours_baseline: tuple[tuple[int, bytes | None], ...] | None = None
         self._silent_hour_result = ""
         self._silent_hour_operation_active = False
+        self._hard_reset_challenge: str | None = None
+        self._hard_reset_confirmation_consumed = False
+        self._hard_reset_operation_active = False
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -555,6 +565,12 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             and self._current_temperature_validation_settings() is not None
         ):
             menu_options.append("temperature_validation")
+        if (
+            coordinator.device.supports_guarded_hard_reset
+            and coordinator.data is not None
+            and coordinator.last_update_success
+        ):
+            menu_options.append("hard_reset")
         if self.config_entry.runtime_data.device.supports_internal_co2_calibration:
             menu_options.append("calibrate_co2")
         if (
@@ -569,6 +585,150 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             step_id="init",
             menu_options=menu_options,
         )
+
+    async def async_step_hard_reset(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Explain destructive reset consequences before typed confirmation."""
+
+        coordinator = self.config_entry.runtime_data
+        if not coordinator.device.supports_guarded_hard_reset:
+            return self.async_abort(reason="hard_reset_not_supported")
+        if coordinator.data is None or not coordinator.last_update_success:
+            return self.async_abort(reason="hard_reset_unavailable")
+
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input[CONF_CONFIRM_HARD_RESET_WARNING]:
+                errors["base"] = "hard_reset_warning_required"
+            else:
+                self._hard_reset_confirmation_phrase()
+                return await self.async_step_hard_reset_confirm()
+
+        return self.async_show_form(
+            step_id="hard_reset",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONFIRM_HARD_RESET_WARNING, default=False
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "device": self.config_entry.title,
+                "address_suffix": self._hard_reset_address_suffix(),
+            },
+        )
+
+    async def async_step_hard_reset_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Require and consume one exact device-specific reset phrase."""
+
+        if self._hard_reset_confirmation_consumed:
+            return self.async_abort(reason="hard_reset_confirmation_consumed")
+
+        phrase = self._hard_reset_confirmation_phrase()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if user_input[CONF_HARD_RESET_PHRASE] != phrase:
+                errors["base"] = "hard_reset_phrase_mismatch"
+            else:
+                # Consume before any await so duplicate/replayed submissions cannot
+                # dispatch a second destructive packet.
+                self._hard_reset_confirmation_consumed = True
+                if self._hard_reset_operation_active:
+                    return self.async_abort(reason="hard_reset_confirmation_consumed")
+                self._hard_reset_operation_active = True
+                coordinator = self.config_entry.runtime_data
+                try:
+                    if (
+                        not coordinator.device.supports_guarded_hard_reset
+                        or coordinator.data is None
+                        or not coordinator.last_update_success
+                    ):
+                        return self.async_abort(reason="hard_reset_unavailable")
+                    try:
+                        await coordinator.async_dispatch_hard_reset_from_options()
+                    except HardResetNotSupportedError:
+                        return self.async_abort(reason="hard_reset_not_supported")
+                    except HardResetUnavailableError:
+                        return self.async_abort(reason="hard_reset_unavailable")
+                    except HardResetDeliveryUncertainError:
+                        return await self.async_step_hard_reset_uncertain()
+                    except HomeAssistantError as err:
+                        _LOGGER.warning(
+                            "Unable to dispatch Multihome hard reset: %s", err
+                        )
+                        return self.async_abort(reason="hard_reset_unavailable")
+                    return await self.async_step_hard_reset_sent()
+                finally:
+                    self._hard_reset_operation_active = False
+
+        return self.async_show_form(
+            step_id="hard_reset_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_HARD_RESET_PHRASE): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            type=selector.TextSelectorType.TEXT,
+                        )
+                    )
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "device": self.config_entry.title,
+                "address_suffix": self._hard_reset_address_suffix(),
+                "confirmation_phrase": phrase,
+            },
+        )
+
+    async def async_step_hard_reset_sent(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report dispatch without claiming reboot or recovery completion."""
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        return self.async_show_form(
+            step_id="hard_reset_sent",
+            data_schema=vol.Schema({}),
+            description_placeholders={"device": self.config_entry.title},
+        )
+
+    async def async_step_hard_reset_uncertain(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report that reset may have reached a unit that disconnected early."""
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        return self.async_show_form(
+            step_id="hard_reset_uncertain",
+            data_schema=vol.Schema({}),
+            description_placeholders={"device": self.config_entry.title},
+        )
+
+    def _hard_reset_address_suffix(self) -> str:
+        """Return the device-specific six-hex-character reset identifier."""
+
+        return format_identifier(self.config_entry.data[CONF_ADDRESS])[-6:].upper()
+
+    def _hard_reset_confirmation_phrase(self) -> str:
+        """Return one non-reusable confirmation phrase for this flow instance."""
+
+        if self._hard_reset_challenge is None:
+            nonce = secrets.token_hex(2).upper()
+            self._hard_reset_challenge = (
+                f"RESET {self._hard_reset_address_suffix()} {nonce}"
+            )
+        return self._hard_reset_challenge
 
     async def async_step_fan_options(
         self, user_input: dict[str, Any] | None = None

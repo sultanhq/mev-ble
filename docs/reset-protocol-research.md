@@ -139,10 +139,40 @@ The exact packet and legacy fragment bytes are covered by deterministic offline
 fixtures. This implementation is not physical reset validation; #30-#32 must
 complete before reset can become a guarded user-facing operation.
 
+## Typed destructive confirmation status
+
+Issue #30 adds the first Home Assistant path that can reach the internal packet-61
+primitive, but only through the integration's interactive Configure/options flow.
+
+The flow is intentionally not represented as an entity, button, service, action
+or other automation-callable surface. Its safeguards are:
+
+- the menu entry exists only for the designated model 10 / firmware 2.03.08 /
+  hardware 01.00 identity while coordinator data is fresh
+- a first screen explains that packet 61 is destructive, is distinct from the
+  blocked packet-62 RestoreDefaults command, and may require configuration
+  recovery or re-pairing
+- a second screen requires a device-specific phrase containing the Bluetooth
+  address suffix plus a random per-flow nonce, for example
+  `RESET 6878D0 A1B2`
+- an exact phrase is consumed before any asynchronous reset dispatch begins, so
+  duplicate or replayed submissions cannot send a second reset
+- a new Configure flow receives a new nonce; a phrase from an abandoned or
+  completed flow is not valid in the next flow
+- the device capability and coordinator freshness are checked again immediately
+  before the coordinator is called
+- mismatch, warning refusal and stale-device paths perform zero reset writes
+- an uncertain transport outcome is terminal for that flow and explicitly warns
+  that the unit may already have rebooted
+
+A successful result reports only that packet 61 was dispatched. It does not
+claim reboot, rediscovery, re-pairing or configuration recovery. Those behaviours
+remain the scope of #31 and #32.
+
 ## Remaining v0.7.0 work
 
-- #29: implement packet-61 hard reset behind an internal guarded API.
-- #30: add device-specific typed destructive confirmation.
+- #29: complete — packet-61 hard reset is implemented behind an internal guarded API.
+- #30: in progress — add device-specific typed destructive confirmation.
 - #31: handle expected disconnect, rediscovery and recovery.
 - #32: perform destructive validation only on designated hardware with a
   recorded restoration plan.
