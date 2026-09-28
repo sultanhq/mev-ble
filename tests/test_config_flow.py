@@ -422,6 +422,19 @@ async def _complete_hard_reset_recovery_progress(hass, progress):
     return hass.config_entries.options.async_get(progress["flow_id"])
 
 
+def _hold_hard_reset_recovery(coordinator, result: HardResetRecoveryResult):
+    """Hold a mocked recovery until the progress screen has been observed."""
+
+    release = asyncio.Event()
+
+    async def wait_for_recovery() -> HardResetRecoveryResult:
+        await release.wait()
+        return result
+
+    coordinator.async_wait_for_hard_reset_recovery.side_effect = wait_for_recovery
+    return release
+
+
 @pytest.mark.asyncio
 async def test_hard_reset_menu_requires_supported_fresh_device(hass) -> None:
     """Reset appears only for the designated identity with current coordinator data."""
@@ -457,6 +470,13 @@ async def test_hard_reset_requires_warning_and_exact_typed_phrase(
     # Arrange - make the one-time phrase deterministic for this flow.
     monkeypatch.setattr(config_flow_module.secrets, "token_hex", lambda _size: "a1b2")
     entry, coordinator = _options_entry(hass, supports_hard_reset=True)
+    recovery_release = _hold_hard_reset_recovery(
+        coordinator,
+        HardResetRecoveryResult(
+            outcome="recovered",
+            detail="Recovered after fresh advertisement.",
+        ),
+    )
     warning = await _open_hard_reset_options(hass, entry)
 
     # Act - decline the warning, then acknowledge it and enter a wrong phrase.
@@ -485,6 +505,7 @@ async def test_hard_reset_requires_warning_and_exact_typed_phrase(
     progress = await hass.config_entries.options.async_configure(
         mismatch["flow_id"], {CONF_HARD_RESET_PHRASE: "RESET 6878D0 A1B2"}
     )
+    recovery_release.set()
     result = await _complete_hard_reset_recovery_progress(hass, progress)
 
     # Assert - exactly one reset dispatch is followed by one recovery observer.
@@ -573,6 +594,13 @@ async def test_hard_reset_duplicate_submission_dispatches_only_once(
     # Arrange - reach the exact phrase for one supported device.
     monkeypatch.setattr(config_flow_module.secrets, "token_hex", lambda _size: "a1b2")
     entry, coordinator = _options_entry(hass, supports_hard_reset=True)
+    recovery_release = _hold_hard_reset_recovery(
+        coordinator,
+        HardResetRecoveryResult(
+            outcome="recovered",
+            detail="Recovered after fresh advertisement.",
+        ),
+    )
     warning = await _open_hard_reset_options(hass, entry)
     confirm = await hass.config_entries.options.async_configure(
         warning["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: True}
@@ -593,6 +621,8 @@ async def test_hard_reset_duplicate_submission_dispatches_only_once(
     assert duplicate["type"] is data_entry_flow.FlowResultType.ABORT
     assert duplicate["reason"] == "hard_reset_confirmation_consumed"
     coordinator.async_dispatch_hard_reset_from_options.assert_awaited_once_with()
+    recovery_release.set()
+    await _complete_hard_reset_recovery_progress(hass, progress)
 
 
 @pytest.mark.asyncio
@@ -607,12 +637,13 @@ async def test_hard_reset_uncertain_delivery_still_enters_bounded_recovery(
     coordinator.async_dispatch_hard_reset_from_options.side_effect = (
         HardResetDeliveryUncertainError("unit may have rebooted")
     )
-    coordinator.async_wait_for_hard_reset_recovery.return_value = (
+    recovery_release = _hold_hard_reset_recovery(
+        coordinator,
         HardResetRecoveryResult(
             outcome="recovered",
             detail="Recovered after fresh advertisement.",
             delivery_uncertain=True,
-        )
+        ),
     )
     warning = await _open_hard_reset_options(hass, entry)
     confirm = await hass.config_entries.options.async_configure(
@@ -623,6 +654,7 @@ async def test_hard_reset_uncertain_delivery_still_enters_bounded_recovery(
     progress = await hass.config_entries.options.async_configure(
         confirm["flow_id"], {CONF_HARD_RESET_PHRASE: "RESET 6878D0 A1B2"}
     )
+    recovery_release.set()
     result = await _complete_hard_reset_recovery_progress(hass, progress)
     completed = await hass.config_entries.options.async_configure(
         result["flow_id"], {}
@@ -648,14 +680,15 @@ async def test_hard_reset_recovery_result_guides_pairing_without_retry(
     # Arrange - make the post-reset reconnect reject the stored setup code.
     monkeypatch.setattr(config_flow_module.secrets, "token_hex", lambda _size: "a1b2")
     entry, coordinator = _options_entry(hass, supports_hard_reset=True)
-    coordinator.async_wait_for_hard_reset_recovery.return_value = (
+    recovery_release = _hold_hard_reset_recovery(
+        coordinator,
         HardResetRecoveryResult(
             outcome="pairing_required",
             detail=(
                 "Put the unit into physical pairing mode and "
                 "reload/re-authenticate."
             ),
-        )
+        ),
     )
     warning = await _open_hard_reset_options(hass, entry)
     confirm = await hass.config_entries.options.async_configure(
@@ -666,6 +699,7 @@ async def test_hard_reset_recovery_result_guides_pairing_without_retry(
     progress = await hass.config_entries.options.async_configure(
         confirm["flow_id"], {CONF_HARD_RESET_PHRASE: "RESET 6878D0 A1B2"}
     )
+    recovery_release.set()
     result = await _complete_hard_reset_recovery_progress(hass, progress)
 
     # Assert - the result is actionable and reset remains a one-shot operation.
