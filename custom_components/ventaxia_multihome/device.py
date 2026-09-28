@@ -419,7 +419,8 @@ class MultihomeDevice:
         async with self._connection_lock:
             if self._hard_reset_recovery_pending and not allow_hard_reset_recovery:
                 raise DeviceError(
-                    "hard reset recovery requires a fresh advertisement before reconnect"
+                    "hard reset recovery requires a fresh advertisement before "
+                    "reconnect"
                 )
             if self.connected and self._authenticated and self._transport:
                 return
