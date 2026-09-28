@@ -240,6 +240,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         ) = None
         self._hard_reset_baseline_global_settings: bytes | None = None
         self._hard_reset_baseline_silent_hours: tuple[object, ...] | None = None
+        self._hard_reset_baseline_advertisement_time: float | None = None
         self.last_hard_reset_recovery_result: HardResetRecoveryResult | None = None
 
     @staticmethod
@@ -435,6 +436,14 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
 
         self._hard_reset_baseline_global_settings = self.data.global_settings.raw_record
         self._hard_reset_baseline_silent_hours = tuple(self.data.silent_hours)
+        baseline_advertisement = bluetooth.async_last_service_info(
+            self.hass,
+            self.config_entry.data[CONF_ADDRESS],
+            connectable=True,
+        )
+        self._hard_reset_baseline_advertisement_time = (
+            baseline_advertisement.time if baseline_advertisement else None
+        )
 
         # Claim synchronously before the first await. Separate options-flow instances
         # share this coordinator, so a sibling flow cannot queue a second packet 61.
@@ -442,8 +451,14 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
 
         try:
             result = await self.device._dispatch_hard_reset(ble_device)
+        except asyncio.CancelledError:
+            if self.device.hard_reset_recovery_pending:
+                self._begin_hard_reset_recovery(delivery_uncertain=True)
+            else:
+                self._hard_reset_dispatch_claimed = False
+            raise
         except HardResetDispatchUncertainError as err:
-            await self._begin_hard_reset_recovery(delivery_uncertain=True)
+            self._begin_hard_reset_recovery(delivery_uncertain=True)
             raise HardResetDeliveryUncertainError(str(err)) from err
         except (
             BleakError,
@@ -461,18 +476,17 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 f"Hard reset was not dispatched: {err}"
             ) from err
 
-        await self._begin_hard_reset_recovery(delivery_uncertain=False)
+        self._begin_hard_reset_recovery(delivery_uncertain=False)
         return result
 
-    async def _begin_hard_reset_recovery(self, *, delivery_uncertain: bool) -> None:
-        """Own reset recovery before normal coordinator polling can reconnect."""
+    def _begin_hard_reset_recovery(self, *, delivery_uncertain: bool) -> None:
+        """Synchronously transfer post-reset ownership to a coordinator task."""
 
         if self._hard_reset_recovery_task and not self._hard_reset_recovery_task.done():
             return
 
         self._hard_reset_recovery_mode = True
         self._last_ble_device = None
-        await self.device.disconnect()
         self.async_set_update_error(
             UpdateFailed(
                 "Hard reset dispatched; waiting for a fresh Bluetooth advertisement"
@@ -500,6 +514,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         """Wait for one fresh advertisement and make one controlled reconnect."""
 
         address = self.config_entry.data[CONF_ADDRESS]
+        await self.device.disconnect()
 
         if bluetooth.async_scanner_count(self.hass, connectable=True) == 0:
             return self._finish_hard_reset_recovery_failure(
@@ -515,7 +530,11 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         try:
             await bluetooth.async_process_advertisements(
                 self.hass,
-                lambda _service_info: True,
+                lambda service_info: (
+                    self._hard_reset_baseline_advertisement_time is None
+                    or service_info.time
+                    > self._hard_reset_baseline_advertisement_time
+                ),
                 {"address": address, "connectable": True},
                 BluetoothScanningMode.ACTIVE,
                 HARD_RESET_RECOVERY_TIMEOUT,
@@ -635,6 +654,18 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         self.last_hard_reset_recovery_result = result
         self.async_set_update_error(UpdateFailed(detail))
         return result
+
+    async def async_shutdown(self) -> None:
+        """Cancel any reset-recovery task and disconnect during entry unload."""
+
+        task = self._hard_reset_recovery_task
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        await self.device.disconnect()
 
     async def async_set_airflow_profile(
         self,
