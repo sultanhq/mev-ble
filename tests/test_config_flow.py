@@ -509,7 +509,7 @@ async def test_hard_reset_confirmation_phrase_cannot_be_reused(
     monkeypatch.setattr(
         config_flow_module.secrets,
         "token_hex",
-        lambda _size: next(nonces),
+        lambda _size: next(nonces, "e5f6"),
     )
     entry, coordinator = _options_entry(hass, supports_hard_reset=True)
 
@@ -551,17 +551,19 @@ async def test_hard_reset_duplicate_submission_dispatches_only_once(
     )
     phrase = confirm["description_placeholders"]["confirmation_phrase"]
 
-    # Act - submit the exact phrase, then submit again on the resulting flow.
+    # Act - submit the exact phrase, then replay it against the same flow object.
     sent = await hass.config_entries.options.async_configure(
         confirm["flow_id"], {CONF_HARD_RESET_PHRASE: phrase}
     )
-    completed = await hass.config_entries.options.async_configure(
-        sent["flow_id"], {CONF_HARD_RESET_PHRASE: phrase}
+    flow = hass.config_entries.options._progress[confirm["flow_id"]]
+    duplicate = await flow.async_step_hard_reset_confirm(
+        {CONF_HARD_RESET_PHRASE: phrase}
     )
 
-    # Assert - only the first exact confirmation reaches the coordinator.
+    # Assert - the consumed confirmation aborts without a second reset dispatch.
     assert sent["step_id"] == "hard_reset_sent"
-    assert completed["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert duplicate["type"] is data_entry_flow.FlowResultType.ABORT
+    assert duplicate["reason"] == "hard_reset_confirmation_consumed"
     coordinator.async_dispatch_hard_reset_from_options.assert_awaited_once_with()
 
 
