@@ -71,7 +71,7 @@ class ModelCapability:
 
 @dataclass(frozen=True, slots=True)
 class InstallerWriteProfile:
-    """Physically validated fields for one exact device identity."""
+    """Identity-scoped installer fields with the evidence for their gate state."""
 
     model_number: int
     firmware: str
@@ -495,6 +495,7 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
             | LS_ACTION_VALIDATION_FIELDS
             | ANALOGUE_INPUT_1_VALIDATION_FIELDS
             | ANALOGUE_INPUT_2_VALIDATION_FIELDS
+            | DIGITAL_INPUT_VALIDATION_FIELDS
             | TEMPERATURE_VALIDATION_FIELDS
             | LOW_TEMPERATURE_PROTECTION_FIELDS
         ),
@@ -516,34 +517,28 @@ VALIDATED_INSTALLER_WRITE_PROFILES: Final = (
             "analogue input 1 fields 23..26 each changed/read back/restored "
             "independently with exact full-record readback; "
             "analogue input 2 fields 27..30 passed installed-unit RC12 "
-            "change/readback validation with expected results"
+            "change/readback validation with expected results; "
+            "digital input 1/2 fields 31..32 independently changed, read back "
+            "and restored successfully on the installed unit with RC13"
         ),
     ),
 )
 
-VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
+VALIDATION_CANDIDATE_WRITE_PROFILES: Final = ()
+
+
+DEFERRED_INSTALLER_WRITE_PROFILES: Final = (
     InstallerWriteProfile(
         model_number=10,
         firmware="2.03.08",
         hardware="01.00",
-        fields=DIGITAL_INPUT_VALIDATION_FIELDS,
+        fields=frozenset({GlobalSettingField.DELAY_ENABLED}),
         evidence=(
-            "official packet-136 enum maps digital inputs 1/2 to fields 31/32; "
-            "packet-137 offsets are 34/35; the manual permits Low, Boost and "
-            "Purge actions; awaiting independent reversible storage validation"
+            "field 7 has an authoritative packet-136 mapping, but RC8 installed-unit "
+            "testing ignored both reversible values; awaiting an official-app capture "
+            "or an identified prerequisite before another validation attempt"
         ),
     ),
-)
-
-
-DEFERRED_INSTALLER_WRITE_FIELDS: Final = frozenset(
-    {
-        # Field 7 has an authoritative packet-136 mapping, but RC8 physical
-        # testing showed the exact validated unit ignored both reversible values.
-        # Keep it explicit so a future app capture or prerequisite can reopen it
-        # without treating it as permanently read-only.
-        GlobalSettingField.DELAY_ENABLED,
-    }
 )
 
 
@@ -584,6 +579,25 @@ def installer_validation_candidate_fields(
     if model_number is None or firmware is None or hardware is None:
         return frozenset()
     for profile in VALIDATION_CANDIDATE_WRITE_PROFILES:
+        if (
+            profile.model_number == model_number
+            and profile.firmware == firmware
+            and profile.hardware == hardware
+        ):
+            return profile.fields
+    return frozenset()
+
+
+def installer_deferred_fields(
+    model_number: int | None,
+    firmware: str | None,
+    hardware: str | None,
+) -> frozenset[GlobalSettingField]:
+    """Return fields explicitly deferred for this exact device identity."""
+
+    if model_number is None or firmware is None or hardware is None:
+        return frozenset()
+    for profile in DEFERRED_INSTALLER_WRITE_PROFILES:
         if (
             profile.model_number == model_number
             and profile.firmware == firmware
