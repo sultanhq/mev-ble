@@ -424,6 +424,10 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             ProtocolError,
             TimeoutError,
         ) as err:
+            # These errors escape the device primitive only before packet 61 reaches
+            # its uncertain send phase. Release the coordinator claim so a later
+            # fresh Configure flow can retry after connectivity/authentication recovers.
+            self._hard_reset_dispatch_claimed = False
             await self.device.disconnect()
             raise HardResetUnavailableError(
                 f"Hard reset was not dispatched: {err}"
