@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.7.0-rc.2] - 2026-09-28
+
+### Added
+
+- Add bounded post-reset recovery after packet 61: entities become unavailable,
+  normal polling is suppressed, and Home Assistant waits for a genuinely fresh
+  connectable advertisement before one controlled reconnect/read.
+- Add recovery outcomes for successful return, changed commissioning settings,
+  re-pairing required, scanner/route unavailable, timeout, and reconnect failure.
+- Compare fresh packet-137 global settings and silent-hours state with the
+  pre-reset snapshot so configuration loss is surfaced to the operator.
+
+### Changed
+
+- Add a device-level post-reset reconnect barrier so queued polling/control paths
+  cannot reconnect using stale state while reboot recovery owns the route.
+- Reject Home Assistant's replayed pre-reset Bluetooth history by recording the
+  advertisement timestamp before reset and requiring a newer advertisement.
+- Transfer recovery ownership synchronously after successful, uncertain, or
+  cancellation-affected reset dispatch so an interrupted Configure flow cannot
+  abandon a possibly-reset unit.
+- Cancel coordinator-owned recovery during config-entry unload before
+  disconnecting, preventing stale recovery tasks from surviving a reload.
+
+### Safety
+
+- This release candidate is the first build intended for designated-hardware
+  reset/recovery validation under #32.
+- Reset remains limited to model 10 / firmware 2.03.08 / hardware 01.00 and still
+  requires the destructive warning plus device-specific one-time typed phrase.
+- Recovery never automatically resends packet 61. Failure guidance instructs the
+  operator to recover/reload/re-pair rather than retrying reset.
+- No physical reset was performed by automated tests or during manual code review.
+
 ## [0.7.0-rc.1] - 2026-09-28
 
 ### Added
