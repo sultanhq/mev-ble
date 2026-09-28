@@ -71,6 +71,7 @@ from .protocol import (
     encode_cancel_override,
     encode_co2_calibration,
     encode_global_setting_update,
+    encode_hard_reset,
     encode_packet,
     encode_setup_code,
     encode_silent_hour_delete,
@@ -122,6 +123,22 @@ class CalibrationTargetDiscoveryError(DeviceError):
 
 class CalibrationWriteUncertainError(DeviceError):
     """Raised when a calibration write may have reached the unit."""
+
+
+class HardResetDispatchUncertainError(DeviceError):
+    """Raised when reset may have rebooted before transport acceptance was known."""
+
+
+@dataclass(frozen=True, slots=True)
+class HardResetDispatchResult:
+    """Report the deliberately response-free hard-reset dispatch contract."""
+
+    transport: str
+    protocol_response_expected: bool = False
+    note: str = (
+        "No protocol response is expected; the unit may reboot or disconnect "
+        "immediately after packet 61 is dispatched."
+    )
 
 
 class GlobalSettingsUnavailableError(DeviceError):
@@ -217,6 +234,16 @@ class MultihomeDevice:
         self._confirmed_silent_hours: tuple[SilentHourSlot, ...] | None = None
         self._silent_hours_write_ready = False
         self.device_info = MultihomeDeviceInfo()
+
+    @property
+    def _is_designated_hard_reset_identity(self) -> bool:
+        """Return whether this exact identity is designated for v0.7.0 reset work."""
+
+        return (
+            self.model_number == 10
+            and self.device_info.firmware == "2.03.08"
+            and self.device_info.hardware == "01.00"
+        )
 
     @property
     def connected(self) -> bool:
@@ -531,6 +558,64 @@ class MultihomeDevice:
             )
             self._clear_local_override()
             return self._reconcile_override_remaining(await self._read_data())
+
+    async def _dispatch_hard_reset(
+        self, ble_device: BLEDevice
+    ) -> HardResetDispatchResult:
+        """Dispatch packet 61 internally without waiting for a protocol response.
+
+        This primitive is intentionally private until the typed destructive-action
+        flow and recovery handling in #30-#31 are complete. A reboot can happen
+        before fragmented transport acknowledgement is observed, so a transport
+        error after dispatch is reported as uncertain rather than as a safe failure.
+        """
+
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            if not self._is_designated_hard_reset_identity:
+                raise DeviceError(
+                    "hard reset is limited to the designated model 10 / firmware "
+                    "2.03.08 / hardware 01.00 validation identity"
+                )
+
+            transport_name = self.transport_name
+            if transport_name is None:
+                raise DeviceError("hard reset requires an active protocol transport")
+
+            try:
+                await self._send(
+                    PacketType.HARD_RESET,
+                    Operation.NONE,
+                    encode_hard_reset(),
+                )
+            except asyncio.CancelledError:
+                self._invalidate_after_hard_reset_dispatch()
+                raise
+            except Exception as err:
+                self._invalidate_after_hard_reset_dispatch()
+                raise HardResetDispatchUncertainError(
+                    "hard-reset dispatch is uncertain; the unit may have rebooted "
+                    "before transport acknowledgement completed"
+                ) from err
+
+            self._invalidate_after_hard_reset_dispatch()
+            return HardResetDispatchResult(transport=transport_name)
+
+    def _invalidate_after_hard_reset_dispatch(self) -> None:
+        """Discard every cached state that cannot be trusted across a reset."""
+
+        self._transport = None
+        self._authenticated = False
+        self._clear_local_override()
+        self.last_calibration_target = None
+        self.last_calibration_target_scan = []
+        self.last_calibration_device_table_version = None
+        self._confirmed_global_settings = None
+        self._global_settings_write_ready = False
+        self.last_global_setting_write_attempt = None
+        self._confirmed_silent_hours = None
+        self._silent_hours_write_ready = False
+        self.device_info = MultihomeDeviceInfo()
 
     async def calibrate_internal_co2(
         self,

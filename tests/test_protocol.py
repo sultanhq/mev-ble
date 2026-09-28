@@ -34,6 +34,7 @@ from custom_components.ventaxia_multihome.protocol import (
     encode_global_setting_update,
     encode_global_setting_value,
     encode_global_settings,
+    encode_hard_reset,
     encode_packet,
     encode_setup_code,
     encode_silent_hour,
@@ -161,6 +162,35 @@ def test_malformed_data_object_array(data: bytes) -> None:
     # Arrange / Act / Assert - every malformed wrapper is rejected.
     with pytest.raises(ProtocolError):
         decode_data_object_array(data)
+
+
+def test_hard_reset_regression_vector() -> None:
+    """Packet 61 reproduces the recovered RH request byte-for-byte."""
+
+    # Arrange - encode only the recovered Raw DataObjectArray payload.
+    payload = encode_hard_reset()
+
+    # Act - create the deterministic packet and legacy transport frame.
+    whole = encode_packet(
+        PacketType.HARD_RESET,
+        Operation.NONE,
+        payload,
+        timestamp=0,
+    )
+    fragments = fragment_packet(whole)
+    decoded = decode_packet(whole)
+
+    # Assert - payload, packet header/CRC, and fragment bytes are exact.
+    assert payload.hex() == "ba0a00025248"
+    assert whole.hex() == "8510003d000000000000ba0a00025248"
+    assert [fragment.hex() for fragment in fragments] == [
+        "113c008510003d000000000000ba0a0002524800"
+    ]
+    assert decoded.packet_type == PacketType.HARD_RESET
+    assert decoded.operation == Operation.NONE
+    assert decoded.target == 0
+    assert decoded.payload == payload
+    assert reassemble_fragments(fragments) == whole
 
 
 def test_known_boost_regression_vector() -> None:

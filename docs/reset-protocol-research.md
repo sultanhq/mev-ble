@@ -116,6 +116,29 @@ different evidence states:
 The typed destructive confirmation in #30 must therefore refer only to the
 packet-61 hard reset unless new packet-62 evidence is recovered before release.
 
+## Packet 61 internal API status
+
+Issue #29 implements the recovered packet-61 command only as a private device
+primitive:
+
+- production packet enum value 61 is named `HARD_RESET`
+- payload encoding is exactly Raw DataObjectArray + ASCII `RH`
+- operation is `NONE` (0), target remains master 0
+- the primitive first establishes/authenticates the connection and then requires
+  the designated model 10 / firmware 2.03.08 / hardware 01.00 identity
+- dispatch runs through the existing operation and protocol transaction locks
+- no protocol response is expected; a disconnect before fragmented transport
+  acknowledgement is treated as an uncertain dispatch, not a safe failure
+- successful or uncertain dispatch invalidates settings, schedules, local
+  override state, calibration routing state, transport/authentication state and
+  cached device information so recovery must start from fresh reads
+- the method remains private and has no Home Assistant entity, service, action,
+  coordinator wrapper or Configure-flow entry
+
+The exact packet and legacy fragment bytes are covered by deterministic offline
+fixtures. This implementation is not physical reset validation; #30-#32 must
+complete before reset can become a guarded user-facing operation.
+
 ## Remaining v0.7.0 work
 
 - #29: implement packet-61 hard reset behind an internal guarded API.
