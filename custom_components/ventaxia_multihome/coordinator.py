@@ -235,7 +235,9 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         self.last_calibration_error: str | None = None
         self._hard_reset_dispatch_claimed = False
         self._hard_reset_recovery_mode = False
-        self._hard_reset_recovery_task: asyncio.Task[HardResetRecoveryResult] | None = None
+        self._hard_reset_recovery_task: (
+            asyncio.Task[HardResetRecoveryResult] | None
+        ) = None
         self._hard_reset_baseline_global_settings: bytes | None = None
         self._hard_reset_baseline_silent_hours: tuple[object, ...] | None = None
         self.last_hard_reset_recovery_result: HardResetRecoveryResult | None = None
@@ -538,8 +540,8 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 outcome="route_unavailable",
                 detail=(
                     "A fresh advertisement was observed but Home Assistant could not "
-                    "resolve a connectable route. Check the Bluetooth proxy/adapter and "
-                    "reload the integration; do not resend the reset."
+                    "resolve a connectable route. Check the Bluetooth proxy/adapter "
+                    "and reload the integration; do not resend the reset."
                 ),
                 delivery_uncertain=delivery_uncertain,
             )
@@ -589,7 +591,11 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 != self._hard_reset_baseline_silent_hours
             )
         )
-        outcome = "recovered_configuration_changed" if configuration_changed else "recovered"
+        outcome = (
+            "recovered_configuration_changed"
+            if configuration_changed
+            else "recovered"
+        )
         detail = (
             "The unit returned on a fresh Bluetooth advertisement and Home Assistant "
             "completed one authenticated telemetry/settings read."
