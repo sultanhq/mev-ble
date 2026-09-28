@@ -421,7 +421,10 @@ async def _complete_hard_reset_recovery_progress(hass, progress):
         await task
     await hass.async_block_till_done()
     result = hass.config_entries.options.async_get(progress["flow_id"])
-    if result["type"] is data_entry_flow.FlowResultType.SHOW_PROGRESS_DONE:
+    if (
+        result.get("step_id") == "hard_reset_recovery_result"
+        and "description_placeholders" not in result
+    ):
         result = await hass.config_entries.options.async_configure(
             progress["flow_id"]
         )
