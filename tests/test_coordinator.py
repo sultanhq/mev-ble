@@ -94,6 +94,7 @@ def _coordinator() -> VentaxiaMultihomeCoordinator:
     coordinator._hard_reset_recovery_task = None
     coordinator._hard_reset_baseline_global_settings = None
     coordinator._hard_reset_baseline_silent_hours = None
+    coordinator._hard_reset_baseline_advertisement_time = None
     coordinator.last_hard_reset_recovery_result = None
     return coordinator
 
@@ -226,7 +227,9 @@ async def test_initial_bluetooth_waits_for_saved_address(monkeypatch) -> None:
     process_advertisements.assert_awaited_once()
     args = process_advertisements.await_args.args
     assert args[0] is coordinator.hass
-    assert args[1](object()) is True
+    assert args[1](SimpleNamespace(time=100.0)) is False
+    assert args[1](SimpleNamespace(time=99.0)) is False
+    assert args[1](SimpleNamespace(time=100.1)) is True
     assert args[2] == {"address": "AA:BB", "connectable": True}
     assert args[3] is BluetoothScanningMode.ACTIVE
     assert args[4] == STARTUP_ADVERTISEMENT_TIMEOUT
@@ -549,11 +552,7 @@ async def test_hard_reset_options_rejects_concurrent_sibling_flow() -> None:
     coordinator = _reset_dispatch_coordinator(device, ble_device)
 
     # Act - start one flow, then submit a sibling flow while the first is in flight.
-    first = asyncio.create_task(
-        VentaxiaMultihomeCoordinator.async_dispatch_hard_reset_from_options(
-            coordinator
-        )
-    )
+    first = asyncio.create_task(_dispatch_reset(coordinator))
     await started.wait()
     with pytest.raises(HardResetUnavailableError, match="already been claimed"):
         await _dispatch_reset(coordinator)
@@ -706,6 +705,7 @@ async def test_hard_reset_recovery_waits_for_fresh_advertisement_and_recovers(
         baseline.global_settings.raw_record
     )
     coordinator._hard_reset_baseline_silent_hours = tuple(baseline.silent_hours)
+    coordinator._hard_reset_baseline_advertisement_time = 100.0
     coordinator.async_set_updated_data = Mock()
     coordinator.async_set_update_error = Mock()
     process_advertisements = AsyncMock(return_value=object())
@@ -746,7 +746,7 @@ async def test_hard_reset_recovery_waits_for_fresh_advertisement_and_recovers(
     assert args[4] == HARD_RESET_RECOVERY_TIMEOUT
     lookup.assert_called_once_with(coordinator.hass, "AA:BB", connectable=True)
     coordinator.device.recover_after_hard_reset.assert_awaited_once_with(ble_device)
-    coordinator.device.disconnect.assert_not_awaited()
+    coordinator.device.disconnect.assert_awaited_once_with()
     assert coordinator._last_ble_device is ble_device
     assert coordinator._hard_reset_recovery_mode is False
     coordinator.async_set_updated_data.assert_called_once_with(recovered)
@@ -911,6 +911,32 @@ async def test_normal_polling_is_suppressed_while_reset_recovery_owns_route() ->
     coordinator._ble_device.assert_not_called()
     coordinator.device.update.assert_not_awaited()
     coordinator.device.disconnect.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_shutdown_cancels_recovery_before_disconnect() -> None:
+    """Entry unload cannot leave a stale reset-recovery task running."""
+
+    # Arrange - keep one coordinator-owned recovery task blocked indefinitely.
+    started = asyncio.Event()
+
+    async def recovery() -> HardResetRecoveryResult:
+        started.set()
+        await asyncio.Event().wait()
+        raise AssertionError("unreachable")
+
+    coordinator = _coordinator()
+    coordinator.device = SimpleNamespace(disconnect=AsyncMock())
+    task = asyncio.create_task(recovery())
+    coordinator._hard_reset_recovery_task = task
+    await started.wait()
+
+    # Act - unload/shutdown the coordinator.
+    await VentaxiaMultihomeCoordinator.async_shutdown(coordinator)
+
+    # Assert - recovery is cancelled before the device is disconnected.
+    assert task.cancelled()
+    coordinator.device.disconnect.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
