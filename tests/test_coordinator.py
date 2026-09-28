@@ -36,10 +36,10 @@ from custom_components.ventaxia_multihome.coordinator import (
     DelayOverrunConfigurationUnavailableError,
     DigitalInputValidationNotSupportedError,
     DigitalInputValidationUnavailableError,
-    HumidityResponseConfigurationNotSupportedError,
     HardResetDeliveryUncertainError,
     HardResetNotSupportedError,
     HardResetUnavailableError,
+    HumidityResponseConfigurationNotSupportedError,
     HumidityResponseConfigurationUnavailableError,
     LowTemperatureProtectionValidationNotSupportedError,
     LowTemperatureProtectionValidationUnavailableError,
@@ -413,14 +413,14 @@ async def test_hard_reset_options_dispatch_delegates_once_when_fresh() -> None:
         coordinator
     )
 
-    # Assert - exactly one device dispatch is made and its response-free contract returns.
+    # Assert - one dispatch is made and its response-free contract returns.
     assert result is expected
     device._dispatch_hard_reset.assert_awaited_once_with(ble_device)
     device.disconnect.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_hard_reset_options_rejects_unsupported_identity_before_bluetooth() -> None:
+async def test_hard_reset_options_rejects_unsupported_identity() -> None:
     """Unsupported identities cannot resolve a BLE route for hard reset."""
 
     # Arrange - expose fresh data but no reset capability.
