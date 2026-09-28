@@ -312,25 +312,24 @@ read/write behaviour.
 Fields 31–32 map digital inputs 1 and 2 to packet-137 offsets 34 and 35.
 The recovered field IDs and installer manual agree that each stored action is
 selectable from Low=`1`, Boost=`3`, and Purge=`4`; Normal is deliberately
-excluded. RC13 exposes these fields only on model 10 / firmware 2.03.08 /
-hardware 01.00 as guarded validation candidates.
+excluded. RC13 installed-unit testing independently changed, read back and
+restored both fields on model 10 / firmware 2.03.08 / hardware 01.00, so they
+are now normal exact-identity guarded installer controls.
 
 Each review may change exactly one digital input action. Home Assistant rejects
 unknown action codes and a stale 36-byte settings baseline before packet-136
 I/O, then requires exact complete packet-137 readback after the write. Unknown
 stored codes remain visible in diagnostics and block the write flow rather than
-being coerced. Promotion requires independent change/readback/restore evidence
-for both fields. Live low-voltage electrical input behaviour remains separate
-from stored configuration validation.
+being coerced. Live low-voltage electrical input behaviour remains separate
+from the proven stored read/write behaviour.
 
 
 ### v0.6.3 release-gate audit
 
 The packet-136 enum has 33 authoritative field IDs (0–32). For the exact model
 10 / firmware 2.03.08 / hardware 01.00 identity, the release gate now classifies
-every one of them explicitly: 30 fields are physically validated normal writes,
-fields 31–32 are the RC13 guarded digital-input validation candidates, and field
-7 (`Delay On enabled`) is explicitly deferred after the RC8 installed-unit test
+every one of them explicitly: 32 fields are physically validated normal writes,
+and field 7 (`Delay On enabled`) is explicitly deferred after the RC8 installed-unit test
 ignored both reversible write attempts. Field 7 remains a documented protocol
 mapping rather than being labelled permanently read-only; a future official-app
 capture or newly identified prerequisite can reopen validation.
@@ -341,6 +340,7 @@ integration does not infer a write ID from its record offset. Issue #56 remains
 open until an official write path, computed-source setting, or reserved/model-
 specific meaning is demonstrated.
 
-The stable v0.6.3 gate therefore still waits for independent reversible storage
-proof for digital input 1 and digital input 2 from RC13. Live electrical/runtime
-tests remain separate from stored R/W proof.
+The RC13 reversible storage gate for digital inputs is complete. Live
+electrical/runtime tests remain separate from stored R/W proof. Stable v0.6.3
+can proceed with field 7 explicitly deferred and issue #56 retained as the
+separate evidence-recovery dependency for packet-137 byte 16.
