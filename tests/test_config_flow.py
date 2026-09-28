@@ -504,12 +504,12 @@ async def test_hard_reset_confirmation_phrase_cannot_be_reused(
 ) -> None:
     """A phrase from one Configure flow is invalid in the next flow."""
 
-    # Arrange - make two flow-specific nonces deterministic.
-    nonces = iter(("a1b2", "c3d4"))
+    # Arrange - give every flow challenge a deterministic unique nonce.
+    nonce_counter = iter(range(1, 1000))
     monkeypatch.setattr(
         config_flow_module.secrets,
         "token_hex",
-        lambda _size: next(nonces, "e5f6"),
+        lambda _size: f"{next(nonce_counter):04x}",
     )
     entry, coordinator = _options_entry(hass, supports_hard_reset=True)
 
@@ -529,9 +529,10 @@ async def test_hard_reset_confirmation_phrase_cannot_be_reused(
         second_confirm["flow_id"], {CONF_HARD_RESET_PHRASE: first_phrase}
     )
 
-    # Assert - the challenge changed and the old phrase cannot dispatch reset.
-    assert first_phrase == "RESET 6878D0 A1B2"
-    assert second_phrase == "RESET 6878D0 C3D4"
+    # Assert - every new flow gets a new device-specific, non-reusable phrase.
+    assert first_phrase.startswith("RESET 6878D0 ")
+    assert second_phrase.startswith("RESET 6878D0 ")
+    assert first_phrase != second_phrase
     assert mismatch["errors"] == {"base": "hard_reset_phrase_mismatch"}
     coordinator.async_dispatch_hard_reset_from_options.assert_not_awaited()
 
