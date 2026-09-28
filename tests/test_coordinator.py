@@ -740,7 +740,9 @@ async def test_hard_reset_recovery_waits_for_fresh_advertisement_and_recovers(
     process_advertisements.assert_awaited_once()
     args = process_advertisements.await_args.args
     assert args[0] is coordinator.hass
-    assert args[1](object()) is True
+    assert args[1](SimpleNamespace(time=100.0)) is False
+    assert args[1](SimpleNamespace(time=99.0)) is False
+    assert args[1](SimpleNamespace(time=100.1)) is True
     assert args[2] == {"address": "AA:BB", "connectable": True}
     assert args[3] is BluetoothScanningMode.ACTIVE
     assert args[4] == HARD_RESET_RECOVERY_TIMEOUT
@@ -843,7 +845,7 @@ async def test_hard_reset_recovery_requires_repair_after_setup_code_rejection(
     assert "physical pairing mode" in result.detail
     assert coordinator._hard_reset_recovery_mode is True
     coordinator.device.recover_after_hard_reset.assert_awaited_once()
-    coordinator.device.disconnect.assert_awaited_once_with()
+    assert coordinator.device.disconnect.await_count == 2
     coordinator.async_set_updated_data.assert_not_called()
     coordinator.async_set_update_error.assert_called_once()
 
@@ -888,6 +890,7 @@ async def test_hard_reset_recovery_timeout_is_bounded_and_actionable(
     assert "Do not resend the reset" in result.detail
     assert coordinator._hard_reset_recovery_mode is True
     process_advertisements.assert_awaited_once()
+    coordinator.device.disconnect.assert_awaited_once_with()
     coordinator.device.recover_after_hard_reset.assert_not_awaited()
     lookup.assert_not_called()
     coordinator.async_set_updated_data.assert_not_called()
