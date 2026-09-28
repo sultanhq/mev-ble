@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.6.3] - 2026-09-28
+
+### Changed
+
+- Promote Digital input 1 and Digital input 2 packet-136 fields 31–32 to normal
+  exact-identity guarded installer controls after independent RC13
+  change/readback/restore testing.
+- Complete the v0.6.3 installer release-gate audit for model 10 / firmware
+  2.03.08 / hardware 01.00: 32 authoritative packet-136 fields are physically
+  validated for guarded writes, field 7 (Delay On enabled) is explicitly
+  deferred, and no prerelease packet-136 candidates remain.
+- Present the proven digital input controls as normal Configure options while
+  preserving one-field-per-submission writes and exact full-record readback.
+
+### Safety
+
+- Keep field 7 blocked after the RC8 installed-unit write mismatch; its recovered
+  mapping is retained for future validation rather than being treated as
+  permanently read-only.
+- Keep packet-137 byte 16 (`purge_low_mode`) read-only because no authoritative
+  packet-136 write ID has been recovered. Issue #56 remains open for evidence
+  recovery; no write ID is inferred from the record offset.
+- Retain exact model/firmware/hardware gating, explicit confirmation, stale
+  36-byte baseline rejection, isolated packet-136 writes, exact packet-137
+  readback, and preservation of unrelated settings bytes.
+
 ## [0.6.3-rc.13] - 2026-09-27
 
 ### Added
