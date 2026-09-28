@@ -404,6 +404,199 @@ async def _complete_calibration_progress(hass, progress):
 
 
 @pytest.mark.asyncio
+async def test_hard_reset_menu_requires_supported_fresh_device(hass) -> None:
+    """Reset appears only for the designated identity with current coordinator data."""
+
+    # Arrange - create supported, unsupported, and stale device entries.
+    supported, _ = _options_entry(hass, supports_hard_reset=True)
+    unsupported, _ = _options_entry(hass, supports_hard_reset=False)
+    stale, _ = _options_entry(
+        hass,
+        supports_hard_reset=True,
+        airflow_available=False,
+    )
+
+    # Act - open each top-level Configure menu.
+    supported_menu = await hass.config_entries.options.async_init(supported.entry_id)
+    unsupported_menu = await hass.config_entries.options.async_init(
+        unsupported.entry_id
+    )
+    stale_menu = await hass.config_entries.options.async_init(stale.entry_id)
+
+    # Assert - only the supported, freshly updated device exposes hard reset.
+    assert "hard_reset" in supported_menu["menu_options"]
+    assert "hard_reset" not in unsupported_menu["menu_options"]
+    assert "hard_reset" not in stale_menu["menu_options"]
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_requires_warning_and_exact_typed_phrase(
+    hass, monkeypatch
+) -> None:
+    """No reset reaches the coordinator before both destructive safeguards pass."""
+
+    # Arrange - make the one-time phrase deterministic for this flow.
+    monkeypatch.setattr(config_flow_module.secrets, "token_hex", lambda _size: "a1b2")
+    entry, coordinator = _options_entry(hass, supports_hard_reset=True)
+    warning = await _open_hard_reset_options(hass, entry)
+
+    # Act - decline the warning, then acknowledge it and enter a wrong phrase.
+    declined = await hass.config_entries.options.async_configure(
+        warning["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: False}
+    )
+    confirm = await hass.config_entries.options.async_configure(
+        declined["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: True}
+    )
+    mismatch = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_HARD_RESET_PHRASE: "RESET 6878D0 WRONG"}
+    )
+
+    # Assert - the warning, address suffix, and exact phrase are visible with zero writes.
+    assert warning["step_id"] == "hard_reset"
+    assert warning["description_placeholders"]["address_suffix"] == "6878D0"
+    assert declined["errors"] == {"base": "hard_reset_warning_required"}
+    assert confirm["step_id"] == "hard_reset_confirm"
+    assert confirm["description_placeholders"]["confirmation_phrase"] == (
+        "RESET 6878D0 A1B2"
+    )
+    assert mismatch["errors"] == {"base": "hard_reset_phrase_mismatch"}
+    coordinator.async_dispatch_hard_reset_from_options.assert_not_awaited()
+
+    # Act - enter the exact one-time phrase.
+    sent = await hass.config_entries.options.async_configure(
+        mismatch["flow_id"], {CONF_HARD_RESET_PHRASE: "RESET 6878D0 A1B2"}
+    )
+
+    # Assert - exactly one guarded coordinator dispatch is made.
+    assert sent["step_id"] == "hard_reset_sent"
+    coordinator.async_dispatch_hard_reset_from_options.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_stale_device_blocks_exact_phrase_without_write(
+    hass, monkeypatch
+) -> None:
+    """A device becoming stale after review consumes the phrase but sends nothing."""
+
+    # Arrange - reach the final step while coordinator state is fresh.
+    monkeypatch.setattr(config_flow_module.secrets, "token_hex", lambda _size: "a1b2")
+    entry, coordinator = _options_entry(hass, supports_hard_reset=True)
+    warning = await _open_hard_reset_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        warning["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: True}
+    )
+    coordinator.last_update_success = False
+
+    # Act - submit the exact phrase after the device becomes stale.
+    result = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_HARD_RESET_PHRASE: "RESET 6878D0 A1B2"}
+    )
+
+    # Assert - the flow aborts and no reset call can occur.
+    assert result["type"] is data_entry_flow.FlowResultType.ABORT
+    assert result["reason"] == "hard_reset_unavailable"
+    coordinator.async_dispatch_hard_reset_from_options.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_confirmation_phrase_cannot_be_reused(
+    hass, monkeypatch
+) -> None:
+    """A phrase from one Configure flow is invalid in the next flow."""
+
+    # Arrange - make two flow-specific nonces deterministic.
+    nonces = iter(("a1b2", "c3d4"))
+    monkeypatch.setattr(
+        config_flow_module.secrets,
+        "token_hex",
+        lambda _size: next(nonces),
+    )
+    entry, coordinator = _options_entry(hass, supports_hard_reset=True)
+
+    first_warning = await _open_hard_reset_options(hass, entry)
+    first_confirm = await hass.config_entries.options.async_configure(
+        first_warning["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: True}
+    )
+    first_phrase = first_confirm["description_placeholders"]["confirmation_phrase"]
+
+    # Act - abandon the first flow, open a new one, and submit the old phrase.
+    second_warning = await _open_hard_reset_options(hass, entry)
+    second_confirm = await hass.config_entries.options.async_configure(
+        second_warning["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: True}
+    )
+    second_phrase = second_confirm["description_placeholders"]["confirmation_phrase"]
+    mismatch = await hass.config_entries.options.async_configure(
+        second_confirm["flow_id"], {CONF_HARD_RESET_PHRASE: first_phrase}
+    )
+
+    # Assert - the challenge changed and the old phrase cannot dispatch reset.
+    assert first_phrase == "RESET 6878D0 A1B2"
+    assert second_phrase == "RESET 6878D0 C3D4"
+    assert mismatch["errors"] == {"base": "hard_reset_phrase_mismatch"}
+    coordinator.async_dispatch_hard_reset_from_options.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_duplicate_submission_dispatches_only_once(
+    hass, monkeypatch
+) -> None:
+    """Reusing the submitted flow after success cannot dispatch a second reset."""
+
+    # Arrange - reach the exact phrase for one supported device.
+    monkeypatch.setattr(config_flow_module.secrets, "token_hex", lambda _size: "a1b2")
+    entry, coordinator = _options_entry(hass, supports_hard_reset=True)
+    warning = await _open_hard_reset_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        warning["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: True}
+    )
+    phrase = confirm["description_placeholders"]["confirmation_phrase"]
+
+    # Act - submit the exact phrase, then submit again on the resulting flow.
+    sent = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_HARD_RESET_PHRASE: phrase}
+    )
+    completed = await hass.config_entries.options.async_configure(
+        sent["flow_id"], {CONF_HARD_RESET_PHRASE: phrase}
+    )
+
+    # Assert - only the first exact confirmation reaches the coordinator.
+    assert sent["step_id"] == "hard_reset_sent"
+    assert completed["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    coordinator.async_dispatch_hard_reset_from_options.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_uncertain_delivery_is_terminal_for_flow(
+    hass, monkeypatch
+) -> None:
+    """An uncertain reset cannot be retried using the consumed confirmation."""
+
+    # Arrange - simulate packet 61 losing transport acknowledgement after dispatch.
+    monkeypatch.setattr(config_flow_module.secrets, "token_hex", lambda _size: "a1b2")
+    entry, coordinator = _options_entry(hass, supports_hard_reset=True)
+    coordinator.async_dispatch_hard_reset_from_options.side_effect = (
+        HardResetDeliveryUncertainError("unit may have rebooted")
+    )
+    warning = await _open_hard_reset_options(hass, entry)
+    confirm = await hass.config_entries.options.async_configure(
+        warning["flow_id"], {CONF_CONFIRM_HARD_RESET_WARNING: True}
+    )
+
+    # Act - submit the exact phrase and then close the uncertain result.
+    uncertain = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_HARD_RESET_PHRASE: "RESET 6878D0 A1B2"}
+    )
+    completed = await hass.config_entries.options.async_configure(
+        uncertain["flow_id"], {}
+    )
+
+    # Assert - uncertain delivery is surfaced distinctly and never auto-retried.
+    assert uncertain["step_id"] == "hard_reset_uncertain"
+    assert completed["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    coordinator.async_dispatch_hard_reset_from_options.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
 async def test_airflow_profile_menu_requires_supported_current_settings(hass) -> None:
     """Airflow commissioning appears only with a validated writable snapshot."""
 
