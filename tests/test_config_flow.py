@@ -63,9 +63,9 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_DELAY_TIMEOUT,
     CONF_DIGITAL_INPUT_1_ACTION,
     CONF_DIGITAL_INPUT_2_ACTION,
+    CONF_HARD_RESET_PHRASE,
     CONF_HIGH_TEMPERATURE_ACTION,
     CONF_HIGH_TEMPERATURE_THRESHOLD,
-    CONF_HARD_RESET_PHRASE,
     CONF_HUMIDITY_THRESHOLD,
     CONF_LOW_TEMPERATURE_ACTION,
     CONF_LOW_TEMPERATURE_PROTECTION,
@@ -451,7 +451,7 @@ async def test_hard_reset_requires_warning_and_exact_typed_phrase(
         confirm["flow_id"], {CONF_HARD_RESET_PHRASE: "RESET 6878D0 WRONG"}
     )
 
-    # Assert - the warning, address suffix, and exact phrase are visible with zero writes.
+    # Assert - warning, suffix, and exact phrase are visible with zero writes.
     assert warning["step_id"] == "hard_reset"
     assert warning["description_placeholders"]["address_suffix"] == "6878D0"
     assert declined["errors"] == {"base": "hard_reset_warning_required"}
