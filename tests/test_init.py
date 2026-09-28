@@ -50,3 +50,26 @@ async def test_setup_waits_for_bluetooth_before_first_refresh(monkeypatch) -> No
     assert calls == ["bluetooth", "refresh"]
     assert entry.runtime_data is coordinator
     forward_setups.assert_awaited_once_with(entry, integration.PLATFORMS)
+
+
+
+@pytest.mark.asyncio
+async def test_unload_cancels_coordinator_recovery_before_disconnect() -> None:
+    """Config-entry unload delegates lifecycle cleanup to the coordinator."""
+
+    # Arrange - expose one loaded entry whose coordinator owns recovery cleanup.
+    shutdown = AsyncMock()
+    coordinator = SimpleNamespace(async_shutdown=shutdown)
+    entry = SimpleNamespace(runtime_data=coordinator)
+    unload_platforms = AsyncMock(return_value=True)
+    hass = SimpleNamespace(
+        config_entries=SimpleNamespace(async_unload_platforms=unload_platforms)
+    )
+
+    # Act - unload the config entry.
+    result = await integration.async_unload_entry(hass, entry)
+
+    # Assert - platform unload happens first, then coordinator cleanup exactly once.
+    assert result is True
+    unload_platforms.assert_awaited_once_with(entry, integration.PLATFORMS)
+    shutdown.assert_awaited_once_with()

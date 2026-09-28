@@ -62,7 +62,7 @@ async def async_unload_entry(
     """Unload a Multihome config entry."""
 
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
-        await entry.runtime_data.device.disconnect()
+        await entry.runtime_data.async_shutdown()
     return unload_ok
 
 

@@ -386,10 +386,15 @@
       "hard_reset_uncertain": {
         "title": "Hard reset delivery uncertain",
         "description": "The connection or transport acknowledgement was lost while packet 61 was being dispatched to **{device}**. The reset **may already have reached the unit and caused a reboot**. Do not retry from this flow. Treat the device as potentially reset and proceed with recovery/rediscovery checks."
+      },
+      "hard_reset_recovery_result": {
+        "title": "Hard reset recovery result",
+        "description": "Device: **{device}**\n\nRecovery result: **{outcome}**\n\n{detail}\n\n{delivery_status}\n\nDo not resend the reset from this flow. If recovery requires pairing, reload/re-authenticate only after putting the unit into physical pairing mode."
       }
     },
     "progress": {
-      "calibration_sampling": "At 100%, the sampling period has elapsed and this screen can be closed"
+      "calibration_sampling": "At 100%, the sampling period has elapsed and this screen can be closed",
+      "hard_reset_recovery": "Waiting for a fresh Bluetooth advertisement and one controlled reconnect. Do not retry the reset."
     },
     "error": {
       "calibration_failed": "The calibration command failed unexpectedly. No success was recorded.",

@@ -6,7 +6,7 @@ import asyncio
 import struct
 from collections import deque
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, call
+from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 
@@ -646,6 +646,7 @@ async def test_internal_hard_reset_dispatches_and_invalidates_state() -> None:
     assert device.last_calibration_target_scan == []
     assert device.last_calibration_device_table_version is None
     assert device.device_info == MultihomeDeviceInfo()
+    assert device._hard_reset_recovery_pending is True
 
 
 @pytest.mark.asyncio
@@ -725,6 +726,7 @@ async def test_internal_hard_reset_reports_reboot_before_ack_as_uncertain() -> N
     assert device._confirmed_silent_hours is None
     assert device._silent_hours_write_ready is False
     assert device.device_info == MultihomeDeviceInfo()
+    assert device._hard_reset_recovery_pending is True
 
 
 @pytest.mark.asyncio
@@ -772,6 +774,64 @@ async def test_internal_hard_reset_cancellation_invalidates_then_propagates() ->
     assert device._confirmed_silent_hours is None
     assert device._silent_hours_write_ready is False
     assert device.device_info == MultihomeDeviceInfo()
+    assert device._hard_reset_recovery_pending is True
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_recovery_barrier_blocks_normal_reconnect() -> None:
+    """Queued polling/control paths cannot reconnect before a fresh reset route."""
+
+    # Arrange - simulate state immediately after packet 61 invalidation.
+    factory = AsyncMock()
+    device = MultihomeDevice("AA", "MEV", 1234, client_factory=factory)
+    device._hard_reset_recovery_pending = True
+
+    # Act / Assert - the ordinary update path fails before creating a BLE client.
+    with pytest.raises(DeviceError, match="fresh advertisement before reconnect"):
+        await device.update(object())
+    factory.assert_not_awaited()
+    assert device._hard_reset_recovery_pending is True
+
+
+@pytest.mark.asyncio
+async def test_dedicated_hard_reset_recovery_clears_barrier_after_fresh_read() -> None:
+    """Only the dedicated recovery path clears the post-reset reconnect barrier."""
+
+    # Arrange - stand in for the coordinator-approved fresh-advertisement route.
+    fresh_data = object()
+    ble_device = object()
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device._hard_reset_recovery_pending = True
+    device.connect = AsyncMock()
+    device._read_data = AsyncMock(return_value=fresh_data)
+    device._reconcile_override_remaining = Mock(side_effect=lambda data: data)
+
+    # Act - recover once through the dedicated reset path.
+    result = await device.recover_after_hard_reset(ble_device)
+
+    # Assert - recovery explicitly bypasses then clears the reconnect barrier.
+    assert result is fresh_data
+    device.connect.assert_awaited_once_with(
+        ble_device, allow_hard_reset_recovery=True
+    )
+    device._read_data.assert_awaited_once_with()
+    assert device._hard_reset_recovery_pending is False
+
+
+@pytest.mark.asyncio
+async def test_failed_hard_reset_recovery_keeps_reconnect_barrier() -> None:
+    """A failed controlled recovery does not reopen ordinary reconnect paths."""
+
+    # Arrange - allow the fresh route to connect but fail its first protocol read.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device._hard_reset_recovery_pending = True
+    device.connect = AsyncMock()
+    device._read_data = AsyncMock(side_effect=ProtocolError("malformed recovery"))
+
+    # Act / Assert - failure propagates while the post-reset barrier remains active.
+    with pytest.raises(ProtocolError, match="malformed recovery"):
+        await device.recover_after_hard_reset(object())
+    assert device._hard_reset_recovery_pending is True
 
 
 @pytest.mark.asyncio
