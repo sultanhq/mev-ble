@@ -163,7 +163,7 @@ are proven.
 | 25–26 | analogue input 1 low/high values | 26–27 | UInt8 tenths of a volt | raw 1–99 = 0.1–9.9 V, step 0.1 V | Low < High; paired actions | Wired input | Physical storage/readback; exact validated identity only |
 | 27–28 | analogue input 2 low/high actions | 32–33 | UInt8 action code | Low=1, Normal=2, Boost=3, Purge=4 | 0–10 V input; paired thresholds | Wired input | Physical storage/readback; exact validated identity only |
 | 29–30 | analogue input 2 low/high values | 30–31 | UInt8 tenths of a volt | raw 1–99 = 0.1–9.9 V, step 0.1 V | Low < High; paired actions | Wired input | Physical storage/readback; exact validated identity only |
-| 31–32 | digital input 1/2 actions | 34–35 | UInt8 action code | Low=1, Boost=3, Purge=4 | Low-voltage inputs; Normal excluded | Wired input | RC13 exact-identity validation candidate |
+| 31–32 | digital input 1/2 actions | 34–35 | UInt8 action code | Low=1, Boost=3, Purge=4 | Low-voltage inputs; Normal excluded | Wired input | Physical storage/readback; exact validated identity only |
 
 Packet-137 byte 16 decodes as `purge_low_mode`, but no corresponding packet-136
 field ID was recovered. It is retained losslessly and is never written. Restore
