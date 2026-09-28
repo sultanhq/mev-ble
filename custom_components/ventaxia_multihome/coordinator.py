@@ -40,6 +40,8 @@ from .device import (
     CalibrationWriteUncertainError,
     DeviceError,
     GlobalSettingsUnavailableError,
+    HardResetDispatchResult,
+    HardResetDispatchUncertainError,
     MultihomeData,
     MultihomeDevice,
     SetupCodeRejectedError,
@@ -78,6 +80,18 @@ class CalibrationCommandNotSentError(HomeAssistantError):
 
 class CalibrationDeliveryUncertainError(HomeAssistantError):
     """Raised when the calibration write may have reached the unit."""
+
+
+class HardResetNotSupportedError(HomeAssistantError):
+    """Raised when hard reset is not enabled for the exact device identity."""
+
+
+class HardResetUnavailableError(HomeAssistantError):
+    """Raised when current device state is too stale to begin a hard reset."""
+
+
+class HardResetDeliveryUncertainError(HomeAssistantError):
+    """Raised when packet 61 may have reached a unit that disconnected."""
 
 
 class AirflowConfigurationNotSupportedError(HomeAssistantError):
@@ -368,6 +382,38 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         self.async_set_updated_data(
             VentaxiaMultihomeCoordinator._localize_data(self, data)
         )
+
+    async def async_dispatch_hard_reset_from_options(
+        self,
+    ) -> HardResetDispatchResult:
+        """Dispatch the guarded hard reset only for the interactive options flow."""
+
+        if not self.device.supports_guarded_hard_reset:
+            raise HardResetNotSupportedError(
+                "Hard reset is not enabled for this model, firmware, and hardware"
+            )
+        if self.data is None or not self.last_update_success:
+            raise HardResetUnavailableError(
+                "Current device state is unavailable; wait for a successful poll"
+            )
+
+        try:
+            return await self.device._dispatch_hard_reset(self._ble_device())
+        except HardResetDispatchUncertainError as err:
+            raise HardResetDeliveryUncertainError(str(err)) from err
+        except UpdateFailed as err:
+            raise HardResetUnavailableError(str(err)) from err
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            await self.device.disconnect()
+            raise HardResetUnavailableError(
+                f"Hard reset was not dispatched: {err}"
+            ) from err
 
     async def async_set_airflow_profile(
         self,
