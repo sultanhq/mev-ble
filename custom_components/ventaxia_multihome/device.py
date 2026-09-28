@@ -247,6 +247,12 @@ class MultihomeDevice:
         )
 
     @property
+    def hard_reset_recovery_pending(self) -> bool:
+        """Return whether only the fresh-advertisement recovery path may reconnect."""
+
+        return self._hard_reset_recovery_pending
+
+    @property
     def connected(self) -> bool:
         """Return whether the current client is connected."""
 
