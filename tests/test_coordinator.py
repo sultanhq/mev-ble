@@ -681,6 +681,228 @@ async def test_hard_reset_options_preserves_uncertain_delivery() -> None:
 
 
 @pytest.mark.asyncio
+async def test_hard_reset_recovery_waits_for_fresh_advertisement_and_recovers(
+    monkeypatch,
+) -> None:
+    """Recovery uses one address-filtered advertisement before one reconnect."""
+
+    # Arrange - retain a pre-reset snapshot and make the unit reappear once.
+    coordinator = _coordinator()
+    baseline = _reset_data()
+    recovered = _reset_data()
+    ble_device = object()
+    coordinator.device = SimpleNamespace(
+        update=AsyncMock(return_value=recovered),
+        disconnect=AsyncMock(),
+    )
+    coordinator._hard_reset_recovery_mode = True
+    coordinator._hard_reset_baseline_global_settings = (
+        baseline.global_settings.raw_record
+    )
+    coordinator._hard_reset_baseline_silent_hours = tuple(baseline.silent_hours)
+    coordinator.async_set_updated_data = Mock()
+    coordinator.async_set_update_error = Mock()
+    process_advertisements = AsyncMock(return_value=object())
+    lookup = Mock(return_value=ble_device)
+    monkeypatch.setattr(
+        coordinator_module.bluetooth, "async_scanner_count", Mock(return_value=1)
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_process_advertisements",
+        process_advertisements,
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth, "async_ble_device_from_address", lookup
+    )
+
+    # Act - let the coordinator observe the reboot advertisement and reconnect once.
+    result = await VentaxiaMultihomeCoordinator._async_recover_after_hard_reset(
+        coordinator, delivery_uncertain=False
+    )
+
+    # Assert - only this address was awaited and normal availability is restored.
+    assert result == HardResetRecoveryResult(
+        outcome="recovered",
+        detail=(
+            "The unit returned on a fresh Bluetooth advertisement and Home Assistant "
+            "completed one authenticated telemetry/settings read."
+        ),
+        configuration_changed=False,
+        delivery_uncertain=False,
+    )
+    process_advertisements.assert_awaited_once()
+    args = process_advertisements.await_args.args
+    assert args[0] is coordinator.hass
+    assert args[1](object()) is True
+    assert args[2] == {"address": "AA:BB", "connectable": True}
+    assert args[3] is BluetoothScanningMode.ACTIVE
+    assert args[4] == HARD_RESET_RECOVERY_TIMEOUT
+    lookup.assert_called_once_with(coordinator.hass, "AA:BB", connectable=True)
+    coordinator.device.update.assert_awaited_once_with(ble_device)
+    coordinator.device.disconnect.assert_not_awaited()
+    assert coordinator._last_ble_device is ble_device
+    assert coordinator._hard_reset_recovery_mode is False
+    coordinator.async_set_updated_data.assert_called_once_with(recovered)
+    coordinator.async_set_update_error.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_recovery_surfaces_configuration_change(
+    monkeypatch,
+) -> None:
+    """A successful reconnect reports changed commissioning state."""
+
+    # Arrange - recover with a different packet-137 settings prefix.
+    coordinator = _coordinator()
+    baseline = _reset_data("06082532")
+    recovered = _reset_data("07082532")
+    coordinator.device = SimpleNamespace(
+        update=AsyncMock(return_value=recovered),
+        disconnect=AsyncMock(),
+    )
+    coordinator._hard_reset_recovery_mode = True
+    coordinator._hard_reset_baseline_global_settings = (
+        baseline.global_settings.raw_record
+    )
+    coordinator._hard_reset_baseline_silent_hours = tuple(baseline.silent_hours)
+    coordinator.async_set_updated_data = Mock()
+    coordinator.async_set_update_error = Mock()
+    monkeypatch.setattr(
+        coordinator_module.bluetooth, "async_scanner_count", Mock(return_value=1)
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_process_advertisements",
+        AsyncMock(return_value=object()),
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_ble_device_from_address",
+        Mock(return_value=object()),
+    )
+
+    # Act - complete one controlled post-reset reconnect.
+    result = await VentaxiaMultihomeCoordinator._async_recover_after_hard_reset(
+        coordinator, delivery_uncertain=True
+    )
+
+    # Assert - recovery succeeds but requires configuration review/restoration.
+    assert result.outcome == "recovered_configuration_changed"
+    assert result.configuration_changed is True
+    assert result.delivery_uncertain is True
+    assert "differ from the pre-reset snapshot" in result.detail
+    assert coordinator._hard_reset_recovery_mode is False
+    coordinator.async_set_updated_data.assert_called_once_with(recovered)
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_recovery_requires_repair_after_setup_code_rejection(
+    monkeypatch,
+) -> None:
+    """A reset-cleared setup code is surfaced as a re-pairing requirement."""
+
+    # Arrange - let the device advertise but reject the stored application code.
+    coordinator = _coordinator()
+    coordinator.device = SimpleNamespace(
+        update=AsyncMock(side_effect=SetupCodeRejectedError("rejected")),
+        disconnect=AsyncMock(),
+    )
+    coordinator._hard_reset_recovery_mode = True
+    coordinator.async_set_updated_data = Mock()
+    coordinator.async_set_update_error = Mock()
+    monkeypatch.setattr(
+        coordinator_module.bluetooth, "async_scanner_count", Mock(return_value=1)
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_process_advertisements",
+        AsyncMock(return_value=object()),
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_ble_device_from_address",
+        Mock(return_value=object()),
+    )
+
+    # Act - attempt the single reconnect after the fresh advertisement.
+    result = await VentaxiaMultihomeCoordinator._async_recover_after_hard_reset(
+        coordinator, delivery_uncertain=False
+    )
+
+    # Assert - no reconnect loop runs and HA remains deliberately unavailable.
+    assert result.outcome == "pairing_required"
+    assert "physical pairing mode" in result.detail
+    assert coordinator._hard_reset_recovery_mode is True
+    coordinator.device.update.assert_awaited_once()
+    coordinator.device.disconnect.assert_awaited_once_with()
+    coordinator.async_set_updated_data.assert_not_called()
+    coordinator.async_set_update_error.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_recovery_timeout_is_bounded_and_actionable(
+    monkeypatch,
+) -> None:
+    """A unit that never returns times out without a reconnect storm."""
+
+    # Arrange - keep the shared scanner alive but never advertise this address.
+    coordinator = _coordinator()
+    coordinator.device = SimpleNamespace(update=AsyncMock(), disconnect=AsyncMock())
+    coordinator._hard_reset_recovery_mode = True
+    coordinator.async_set_updated_data = Mock()
+    coordinator.async_set_update_error = Mock()
+    process_advertisements = AsyncMock(side_effect=TimeoutError)
+    lookup = Mock()
+    monkeypatch.setattr(
+        coordinator_module.bluetooth, "async_scanner_count", Mock(return_value=1)
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_process_advertisements",
+        process_advertisements,
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth, "async_ble_device_from_address", lookup
+    )
+
+    # Act - let the address-specific recovery window expire.
+    result = await VentaxiaMultihomeCoordinator._async_recover_after_hard_reset(
+        coordinator, delivery_uncertain=False
+    )
+
+    # Assert - no connection is attempted and guidance explicitly forbids reset retry.
+    assert result.outcome == "timed_out"
+    assert str(HARD_RESET_RECOVERY_TIMEOUT) in result.detail
+    assert "Do not resend the reset" in result.detail
+    assert coordinator._hard_reset_recovery_mode is True
+    process_advertisements.assert_awaited_once()
+    coordinator.device.update.assert_not_awaited()
+    lookup.assert_not_called()
+    coordinator.async_set_updated_data.assert_not_called()
+    coordinator.async_set_update_error.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_normal_polling_is_suppressed_while_reset_recovery_owns_route() -> None:
+    """The 10-second coordinator poll cannot race reset reboot recovery."""
+
+    # Arrange - make every Bluetooth path fail the test if normal polling reaches it.
+    coordinator = SimpleNamespace(
+        _hard_reset_recovery_mode=True,
+        _ble_device=Mock(),
+        device=SimpleNamespace(update=AsyncMock(), disconnect=AsyncMock()),
+    )
+
+    # Act / Assert - polling reports unavailable before any Bluetooth lookup.
+    with pytest.raises(UpdateFailed, match="recovery owns the Bluetooth route"):
+        await VentaxiaMultihomeCoordinator._async_update_data(coordinator)
+    coordinator._ble_device.assert_not_called()
+    coordinator.device.update.assert_not_awaited()
+    coordinator.device.disconnect.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_airflow_profile_publishes_only_confirmed_settings() -> None:
     """A successful profile write replaces settings after exact readback."""
 
