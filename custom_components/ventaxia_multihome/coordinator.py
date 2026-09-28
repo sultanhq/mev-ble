@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from math import ceil, isfinite
 from time import time
 from typing import TYPE_CHECKING
@@ -30,6 +31,7 @@ from .const import (
     CONF_LAST_CO2_CALIBRATION_ATTEMPT,
     CONF_OVERRIDE_DURATION,
     DEFAULT_OVERRIDE_DURATION,
+    HARD_RESET_RECOVERY_TIMEOUT,
     MAX_OVERRIDE_DURATION,
     MIN_OVERRIDE_DURATION,
     STARTUP_ADVERTISEMENT_TIMEOUT,
@@ -92,6 +94,16 @@ class HardResetUnavailableError(HomeAssistantError):
 
 class HardResetDeliveryUncertainError(HomeAssistantError):
     """Raised when packet 61 may have reached a unit that disconnected."""
+
+
+@dataclass(frozen=True, slots=True)
+class HardResetRecoveryResult:
+    """Describe one bounded post-reset recovery attempt."""
+
+    outcome: str
+    detail: str
+    configuration_changed: bool = False
+    delivery_uncertain: bool = False
 
 
 class AirflowConfigurationNotSupportedError(HomeAssistantError):
@@ -222,6 +234,11 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         self.last_calibration_outcome: str | None = None
         self.last_calibration_error: str | None = None
         self._hard_reset_dispatch_claimed = False
+        self._hard_reset_recovery_mode = False
+        self._hard_reset_recovery_task: asyncio.Task[HardResetRecoveryResult] | None = None
+        self._hard_reset_baseline_global_settings: bytes | None = None
+        self._hard_reset_baseline_silent_hours: tuple[object, ...] | None = None
+        self.last_hard_reset_recovery_result: HardResetRecoveryResult | None = None
 
     @staticmethod
     def _stored_calibration_attempt(entry: ConfigEntry) -> float | None:
@@ -315,6 +332,12 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
     async def _async_update_data(self) -> MultihomeData:
         """Fetch zone telemetry and system status."""
 
+        if self._hard_reset_recovery_mode:
+            raise UpdateFailed(
+                "Hard reset recovery owns the Bluetooth route; waiting for a fresh "
+                "device advertisement before reconnecting"
+            )
+
         ble_device = self._ble_device()
         try:
             data = await self.device.update(ble_device)
@@ -387,7 +410,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
     async def async_dispatch_hard_reset_from_options(
         self,
     ) -> HardResetDispatchResult:
-        """Dispatch the guarded hard reset only once per coordinator lifetime."""
+        """Dispatch one guarded reset and start bounded recovery ownership."""
 
         if not self.device.supports_guarded_hard_reset:
             raise HardResetNotSupportedError(
@@ -408,14 +431,17 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         except UpdateFailed as err:
             raise HardResetUnavailableError(str(err)) from err
 
+        self._hard_reset_baseline_global_settings = self.data.global_settings.raw_record
+        self._hard_reset_baseline_silent_hours = tuple(self.data.silent_hours)
+
         # Claim synchronously before the first await. Separate options-flow instances
-        # share this coordinator, so a sibling flow cannot queue a second packet 61
-        # while the first flow is dispatching or after its delivery becomes uncertain.
+        # share this coordinator, so a sibling flow cannot queue a second packet 61.
         self._hard_reset_dispatch_claimed = True
 
         try:
-            return await self.device._dispatch_hard_reset(ble_device)
+            result = await self.device._dispatch_hard_reset(ble_device)
         except HardResetDispatchUncertainError as err:
+            await self._begin_hard_reset_recovery(delivery_uncertain=True)
             raise HardResetDeliveryUncertainError(str(err)) from err
         except (
             BleakError,
@@ -432,6 +458,177 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             raise HardResetUnavailableError(
                 f"Hard reset was not dispatched: {err}"
             ) from err
+
+        await self._begin_hard_reset_recovery(delivery_uncertain=False)
+        return result
+
+    async def _begin_hard_reset_recovery(self, *, delivery_uncertain: bool) -> None:
+        """Own reset recovery before normal coordinator polling can reconnect."""
+
+        if self._hard_reset_recovery_task and not self._hard_reset_recovery_task.done():
+            return
+
+        self._hard_reset_recovery_mode = True
+        self._last_ble_device = None
+        await self.device.disconnect()
+        self.async_set_update_error(
+            UpdateFailed(
+                "Hard reset dispatched; waiting for a fresh Bluetooth advertisement"
+            )
+        )
+        self._hard_reset_recovery_task = self.hass.async_create_task(
+            self._async_recover_after_hard_reset(
+                delivery_uncertain=delivery_uncertain
+            ),
+            f"Recover Vent-Axia Multihome {self.config_entry.data[CONF_ADDRESS]} "
+            "after hard reset",
+        )
+
+    async def async_wait_for_hard_reset_recovery(self) -> HardResetRecoveryResult:
+        """Wait for coordinator-owned reset recovery without transferring ownership."""
+
+        task = self._hard_reset_recovery_task
+        if task is None:
+            raise HardResetUnavailableError("Hard reset recovery has not started")
+        return await asyncio.shield(task)
+
+    async def _async_recover_after_hard_reset(
+        self, *, delivery_uncertain: bool
+    ) -> HardResetRecoveryResult:
+        """Wait for one fresh advertisement and make one controlled reconnect."""
+
+        address = self.config_entry.data[CONF_ADDRESS]
+
+        if bluetooth.async_scanner_count(self.hass, connectable=True) == 0:
+            return self._finish_hard_reset_recovery_failure(
+                outcome="bluetooth_unavailable",
+                detail=(
+                    "No connectable Home Assistant Bluetooth scanner is available. "
+                    "Check Bluetooth/proxy availability, then reload the integration; "
+                    "do not resend the reset."
+                ),
+                delivery_uncertain=delivery_uncertain,
+            )
+
+        try:
+            await bluetooth.async_process_advertisements(
+                self.hass,
+                lambda _service_info: True,
+                {"address": address, "connectable": True},
+                BluetoothScanningMode.ACTIVE,
+                HARD_RESET_RECOVERY_TIMEOUT,
+            )
+        except TimeoutError:
+            return self._finish_hard_reset_recovery_failure(
+                outcome="timed_out",
+                detail=(
+                    "The unit did not produce a fresh connectable advertisement within "
+                    f"{HARD_RESET_RECOVERY_TIMEOUT} seconds. Check power, Bluetooth "
+                    "range, and the unit state; reload the integration after it is "
+                    "advertising again. Do not resend the reset."
+                ),
+                delivery_uncertain=delivery_uncertain,
+            )
+
+        ble_device = bluetooth.async_ble_device_from_address(
+            self.hass, address, connectable=True
+        )
+        if ble_device is None:
+            return self._finish_hard_reset_recovery_failure(
+                outcome="route_unavailable",
+                detail=(
+                    "A fresh advertisement was observed but Home Assistant could not "
+                    "resolve a connectable route. Check the Bluetooth proxy/adapter and "
+                    "reload the integration; do not resend the reset."
+                ),
+                delivery_uncertain=delivery_uncertain,
+            )
+
+        self._last_ble_device = ble_device
+        try:
+            data = await self.device.update(ble_device)
+        except SetupCodeRejectedError:
+            await self.device.disconnect()
+            return self._finish_hard_reset_recovery_failure(
+                outcome="pairing_required",
+                detail=(
+                    "The reset unit is advertising again but rejected the stored "
+                    "application setup code. Put the unit into physical pairing mode "
+                    "and reload/re-authenticate the integration. Do not resend reset."
+                ),
+                delivery_uncertain=delivery_uncertain,
+            )
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            await self.device.disconnect()
+            return self._finish_hard_reset_recovery_failure(
+                outcome="reconnect_failed",
+                detail=(
+                    "The unit advertised again but the single controlled reconnect "
+                    f"failed: {err}. Wait for the unit to settle, then reload the "
+                    "integration. Do not resend reset."
+                ),
+                delivery_uncertain=delivery_uncertain,
+            )
+
+        localized = VentaxiaMultihomeCoordinator._localize_data(self, data)
+        configuration_changed = bool(
+            (
+                self._hard_reset_baseline_global_settings is not None
+                and data.global_settings.raw_record
+                != self._hard_reset_baseline_global_settings
+            )
+            or (
+                self._hard_reset_baseline_silent_hours is not None
+                and tuple(data.silent_hours)
+                != self._hard_reset_baseline_silent_hours
+            )
+        )
+        outcome = "recovered_configuration_changed" if configuration_changed else "recovered"
+        detail = (
+            "The unit returned on a fresh Bluetooth advertisement and Home Assistant "
+            "completed one authenticated telemetry/settings read."
+        )
+        if configuration_changed:
+            detail += (
+                " One or more global settings or silent-hours records differ from the "
+                "pre-reset snapshot; review and restore commissioning settings before "
+                "normal use."
+            )
+
+        self._hard_reset_recovery_mode = False
+        result = HardResetRecoveryResult(
+            outcome=outcome,
+            detail=detail,
+            configuration_changed=configuration_changed,
+            delivery_uncertain=delivery_uncertain,
+        )
+        self.last_hard_reset_recovery_result = result
+        self.async_set_updated_data(localized)
+        return result
+
+    def _finish_hard_reset_recovery_failure(
+        self,
+        *,
+        outcome: str,
+        detail: str,
+        delivery_uncertain: bool,
+    ) -> HardResetRecoveryResult:
+        """Keep normal polling suppressed after an actionable recovery failure."""
+
+        result = HardResetRecoveryResult(
+            outcome=outcome,
+            detail=detail,
+            delivery_uncertain=delivery_uncertain,
+        )
+        self.last_hard_reset_recovery_result = result
+        self.async_set_update_error(UpdateFailed(detail))
+        return result
 
     async def async_set_airflow_profile(
         self,
