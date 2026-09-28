@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.7.0-rc.1] - 2026-09-28
+
+### Added
+
+- Add the recovered packet-61 HardReset command as an exact Raw DataObjectArray
+  containing ASCII `RH`, initially behind an internal exact-identity guard.
+- Add a dedicated Home Assistant Configure flow for hard reset with a destructive
+  warning and a device-specific one-time typed confirmation phrase.
+- Add coordinator-wide single-dispatch protection so concurrent Configure flows
+  cannot queue two packet-61 resets for the same device session.
+
+### Changed
+
+- Permit a later fresh Configure flow only after a definite pre-dispatch
+  connectivity/authentication failure; successful, cancelled, or uncertain reset
+  delivery keeps the coordinator reset claim consumed.
+- Explicitly keep packet 62 `RestoreDefaults` blocked after cross-version
+  Connect 6.0.28 / 7.2.2 research found no coherent MEV request path.
+
+### Safety
+
+- This release candidate is intended first for **non-destructive UI validation**.
+  Opening the reset warning, declining it, generating the confirmation phrase,
+  and submitting an intentionally wrong phrase are safe validation steps.
+- **Do not submit the exact confirmation phrase during RC1 UI validation.**
+  An exact phrase dispatches the real packet-61 hard reset. Post-reset
+  rediscovery/recovery work remains #31 and physical reset validation remains #32.
+- Reset remains unavailable for identities other than model 10 / firmware
+  2.03.08 / hardware 01.00 and is not exposed as an entity, button, service, or
+  automation action.
+
 ## [0.6.3] - 2026-09-28
 
 ### Changed
