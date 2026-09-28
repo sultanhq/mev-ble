@@ -221,6 +221,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         self._last_calibration_attempt = self._stored_calibration_attempt(entry)
         self.last_calibration_outcome: str | None = None
         self.last_calibration_error: str | None = None
+        self._hard_reset_dispatch_claimed = False
 
     @staticmethod
     def _stored_calibration_attempt(entry: ConfigEntry) -> float | None:
@@ -386,7 +387,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
     async def async_dispatch_hard_reset_from_options(
         self,
     ) -> HardResetDispatchResult:
-        """Dispatch the guarded hard reset only for the interactive options flow."""
+        """Dispatch the guarded hard reset only once per coordinator lifetime."""
 
         if not self.device.supports_guarded_hard_reset:
             raise HardResetNotSupportedError(
@@ -396,13 +397,26 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             raise HardResetUnavailableError(
                 "Current device state is unavailable; wait for a successful poll"
             )
+        if self._hard_reset_dispatch_claimed:
+            raise HardResetUnavailableError(
+                "A hard reset has already been claimed for this device session; "
+                "wait for recovery before starting another Configure flow"
+            )
 
         try:
-            return await self.device._dispatch_hard_reset(self._ble_device())
-        except HardResetDispatchUncertainError as err:
-            raise HardResetDeliveryUncertainError(str(err)) from err
+            ble_device = self._ble_device()
         except UpdateFailed as err:
             raise HardResetUnavailableError(str(err)) from err
+
+        # Claim synchronously before the first await. Separate options-flow instances
+        # share this coordinator, so a sibling flow cannot queue a second packet 61
+        # while the first flow is dispatching or after its delivery becomes uncertain.
+        self._hard_reset_dispatch_claimed = True
+
+        try:
+            return await self.device._dispatch_hard_reset(ble_device)
+        except HardResetDispatchUncertainError as err:
+            raise HardResetDeliveryUncertainError(str(err)) from err
         except (
             BleakError,
             TransportError,
