@@ -2753,7 +2753,7 @@ async def test_analogue_input_2_write_has_exact_readback() -> None:
 
 @pytest.mark.asyncio
 async def test_digital_input_validation_writes_one_field_with_exact_readback() -> None:
-    """A candidate digital action preserves all 35 unrelated settings bytes."""
+    """A guarded digital action preserves all 35 unrelated settings bytes."""
 
     # Arrange - prepare the exact identity, current profile, and field-31 result.
     device = MultihomeDevice("AA", "MEV", 1234)
