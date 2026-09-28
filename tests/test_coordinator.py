@@ -2234,6 +2234,7 @@ async def test_polling_continues_after_successful_calibration(monkeypatch) -> No
             coordinator, "_last_calibration_attempt", value
         ),
         _ble_device=lambda: ble_device,
+        _hard_reset_recovery_mode=False,
     )
     monkeypatch.setattr(coordinator_module, "time", lambda: 100.0)
 
