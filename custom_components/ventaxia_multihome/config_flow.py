@@ -66,10 +66,10 @@ from .coordinator import (
     DelayOverrunConfigurationUnavailableError,
     DigitalInputValidationNotSupportedError,
     DigitalInputValidationUnavailableError,
-    HumidityResponseConfigurationNotSupportedError,
     HardResetDeliveryUncertainError,
     HardResetNotSupportedError,
     HardResetUnavailableError,
+    HumidityResponseConfigurationNotSupportedError,
     HumidityResponseConfigurationUnavailableError,
     LowTemperatureProtectionValidationNotSupportedError,
     LowTemperatureProtectionValidationUnavailableError,
@@ -658,7 +658,9 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                     except HardResetDeliveryUncertainError:
                         return await self.async_step_hard_reset_uncertain()
                     except HomeAssistantError as err:
-                        _LOGGER.warning("Unable to dispatch Multihome hard reset: %s", err)
+                        _LOGGER.warning(
+                            "Unable to dispatch Multihome hard reset: %s", err
+                        )
                         return self.async_abort(reason="hard_reset_unavailable")
                     return await self.async_step_hard_reset_sent()
                 finally:
