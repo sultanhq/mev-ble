@@ -55,6 +55,7 @@ from custom_components.ventaxia_multihome.coordinator import (
 from custom_components.ventaxia_multihome.device import (
     CalibrationTargetDiscoveryError,
     CalibrationWriteUncertainError,
+    DeviceError,
     GlobalSettingsUnavailableError,
     HardResetDispatchResult,
     HardResetDispatchUncertainError,
