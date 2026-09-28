@@ -6,7 +6,7 @@ import asyncio
 import struct
 from collections import deque
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, call
+from unittest.mock import AsyncMock, Mock, call
 
 import pytest
 
