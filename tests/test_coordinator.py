@@ -569,6 +569,50 @@ async def test_hard_reset_claim_remains_consumed_after_uncertain_delivery() -> N
 
 
 @pytest.mark.asyncio
+async def test_hard_reset_claim_releases_after_definite_pre_dispatch_failure() -> None:
+    """A definite pre-send failure permits a later fresh Configure-flow retry."""
+
+    # Arrange - fail before packet 61 can enter the uncertain send phase, then recover.
+    ble_device = object()
+    expected = HardResetDispatchResult(transport="test")
+    device = SimpleNamespace(
+        supports_guarded_hard_reset=True,
+        _dispatch_hard_reset=AsyncMock(
+            side_effect=[DeviceError("authentication failed"), expected]
+        ),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=object(),
+        last_update_success=True,
+        _hard_reset_dispatch_claimed=False,
+        _ble_device=lambda: ble_device,
+    )
+
+    # Act - the first flow fails definitely, then a later fresh flow retries.
+    with pytest.raises(HardResetUnavailableError, match="not dispatched"):
+        await VentaxiaMultihomeCoordinator.async_dispatch_hard_reset_from_options(
+            coordinator
+        )
+    claim_after_failure = coordinator._hard_reset_dispatch_claimed
+    result = await VentaxiaMultihomeCoordinator.async_dispatch_hard_reset_from_options(
+        coordinator
+    )
+
+    # Assert - only the definite failure releases the claim; retry then consumes it.
+    assert claim_after_failure is False
+    assert result is expected
+    assert coordinator._hard_reset_dispatch_claimed is True
+    assert device._dispatch_hard_reset.await_count == 2
+    assert device._dispatch_hard_reset.await_args_list == [
+        call(ble_device),
+        call(ble_device),
+    ]
+    device.disconnect.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
 async def test_hard_reset_options_preserves_uncertain_delivery() -> None:
     """A possible reboot before acknowledgement remains explicitly uncertain."""
 
