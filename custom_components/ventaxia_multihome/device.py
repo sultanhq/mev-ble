@@ -588,6 +588,9 @@ class MultihomeDevice:
                     Operation.NONE,
                     encode_hard_reset(),
                 )
+            except asyncio.CancelledError:
+                self._invalidate_after_hard_reset_dispatch()
+                raise
             except Exception as err:
                 self._invalidate_after_hard_reset_dispatch()
                 raise HardResetDispatchUncertainError(
