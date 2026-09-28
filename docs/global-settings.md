@@ -322,3 +322,25 @@ stored codes remain visible in diagnostics and block the write flow rather than
 being coerced. Promotion requires independent change/readback/restore evidence
 for both fields. Live low-voltage electrical input behaviour remains separate
 from stored configuration validation.
+
+
+### v0.6.3 release-gate audit
+
+The packet-136 enum has 33 authoritative field IDs (0–32). For the exact model
+10 / firmware 2.03.08 / hardware 01.00 identity, the release gate now classifies
+every one of them explicitly: 30 fields are physically validated normal writes,
+fields 31–32 are the RC13 guarded digital-input validation candidates, and field
+7 (`Delay On enabled`) is explicitly deferred after the RC8 installed-unit test
+ignored both reversible write attempts. Field 7 remains a documented protocol
+mapping rather than being labelled permanently read-only; a future official-app
+capture or newly identified prerequisite can reopen validation.
+
+Packet-137 byte 16 (`purge_low_mode`) is a separate evidence-recovery item. It
+has no authoritative packet-136 field ID in the recovered enum, so the
+integration does not infer a write ID from its record offset. Issue #56 remains
+open until an official write path, computed-source setting, or reserved/model-
+specific meaning is demonstrated.
+
+The stable v0.6.3 gate therefore still waits for independent reversible storage
+proof for digital input 1 and digital input 2 from RC13. Live electrical/runtime
+tests remain separate from stored R/W proof.
