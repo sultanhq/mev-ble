@@ -9,7 +9,6 @@ from custom_components.ventaxia_multihome.capabilities import (
     BOOST_MINIMUM_FIELDS,
     COMFORT_MODE_FIELDS,
     DELAY_OVERRUN_FIELDS,
-    DEFERRED_INSTALLER_WRITE_FIELDS,
     DIGITAL_INPUT_VALIDATION_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
     INSTALLER_FIELD_DEFINITIONS,
@@ -21,6 +20,7 @@ from custom_components.ventaxia_multihome.capabilities import (
     VALIDATED_INSTALLER_WRITE_PROFILES,
     VALIDATION_CANDIDATE_WRITE_PROFILES,
     CapabilityEvidence,
+    installer_deferred_fields,
     installer_validation_candidate_fields,
     installer_writable_fields,
 )
@@ -86,25 +86,24 @@ def test_every_packet_136_field_has_one_documented_definition() -> None:
 
 
 def test_every_packet_136_field_has_an_explicit_release_gate_state() -> None:
-    """Every authoritative packet-136 field is validated, candidate, or deferred."""
+    """The v0.6.3 identity partitions every packet-136 field into one gate state."""
 
-    # Arrange - collect the release-gate buckets used by the production matrix.
-    validated = set().union(
-        *(profile.fields for profile in VALIDATED_INSTALLER_WRITE_PROFILES)
-    )
-    candidates = set().union(
-        *(profile.fields for profile in VALIDATION_CANDIDATE_WRITE_PROFILES)
-    )
-    deferred = set(DEFERRED_INSTALLER_WRITE_FIELDS)
+    # Arrange - select the exact identity covered by the v0.6.3 physical gate.
+    identity = (10, "2.03.08", "01.00")
 
-    # Act - combine the mutually exclusive states.
+    # Act - resolve each release-gate state through the production selectors.
+    validated = set(installer_writable_fields(*identity))
+    candidates = set(installer_validation_candidate_fields(*identity))
+    deferred = set(installer_deferred_fields(*identity))
     classified = validated | candidates | deferred
 
-    # Assert - no authoritative field is omitted or assigned to two states.
+    # Assert - this identity covers every field exactly once; only field 7 is deferred.
     assert classified == set(GlobalSettingField)
     assert validated.isdisjoint(candidates)
     assert validated.isdisjoint(deferred)
     assert candidates.isdisjoint(deferred)
+    assert len(validated) == 32
+    assert candidates == set()
     assert deferred == {GlobalSettingField.DELAY_ENABLED}
 
 
@@ -240,6 +239,7 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
             | LS_ACTION_VALIDATION_FIELDS
             | ANALOGUE_INPUT_1_VALIDATION_FIELDS
             | ANALOGUE_INPUT_2_VALIDATION_FIELDS
+            | DIGITAL_INPUT_VALIDATION_FIELDS
             | TEMPERATURE_VALIDATION_FIELDS
             | LOW_TEMPERATURE_PROTECTION_FIELDS
         ),
@@ -250,10 +250,10 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     ]
 
 
-def test_only_digital_inputs_are_exact_identity_validation_candidates() -> None:
-    """RC13 exposes only digital input actions as exact-identity candidates."""
+def test_proven_digital_inputs_leave_no_validation_candidates() -> None:
+    """RC13 proof promotes digital inputs out of the prerelease candidate matrix."""
 
-    # Arrange - include the target unit plus firmware, hardware, and model misses.
+    # Arrange - include the proven identity plus firmware, hardware, and model misses.
     identities = [
         (10, "2.03.08", "01.00"),
         (10, "2.03.09", "01.00"),
@@ -261,19 +261,18 @@ def test_only_digital_inputs_are_exact_identity_validation_candidates() -> None:
         (2, "2.03.08", "01.00"),
     ]
 
-    # Act - resolve candidate fields for exact and near identities.
+    # Act - resolve validation candidates after digital-input promotion.
     resolved = [
         installer_validation_candidate_fields(*identity) for identity in identities
     ]
 
-    # Assert - only fields 31 and 32 are enabled for guarded RC13 validation.
+    # Assert - no prerelease packet-136 candidates remain for these identities.
     assert resolved == [
-        DIGITAL_INPUT_VALIDATION_FIELDS,
+        frozenset(),
         frozenset(),
         frozenset(),
         frozenset(),
     ]
-
 
 
 def test_analogue_input_2_metadata_matches_recovered_app_ranges() -> None:
@@ -310,7 +309,7 @@ def test_analogue_input_2_metadata_matches_recovered_app_ranges() -> None:
 
 
 def test_digital_input_metadata_matches_manual_actions() -> None:
-    """Digital input candidates expose only Low, Boost and Purge."""
+    """Validated digital inputs expose only Low, Boost and Purge."""
 
     # Arrange - select both low-voltage digital-input definitions.
     input_1 = INSTALLER_FIELD_DEFINITIONS[GlobalSettingField.DIGITAL_INPUT_1_ACTION]
