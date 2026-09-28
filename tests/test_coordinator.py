@@ -692,7 +692,7 @@ async def test_hard_reset_recovery_waits_for_fresh_advertisement_and_recovers(
     recovered = _reset_data()
     ble_device = object()
     coordinator.device = SimpleNamespace(
-        update=AsyncMock(return_value=recovered),
+        recover_after_hard_reset=AsyncMock(return_value=recovered),
         disconnect=AsyncMock(),
     )
     coordinator._hard_reset_recovery_mode = True
@@ -739,7 +739,7 @@ async def test_hard_reset_recovery_waits_for_fresh_advertisement_and_recovers(
     assert args[3] is BluetoothScanningMode.ACTIVE
     assert args[4] == HARD_RESET_RECOVERY_TIMEOUT
     lookup.assert_called_once_with(coordinator.hass, "AA:BB", connectable=True)
-    coordinator.device.update.assert_awaited_once_with(ble_device)
+    coordinator.device.recover_after_hard_reset.assert_awaited_once_with(ble_device)
     coordinator.device.disconnect.assert_not_awaited()
     assert coordinator._last_ble_device is ble_device
     assert coordinator._hard_reset_recovery_mode is False
@@ -758,7 +758,7 @@ async def test_hard_reset_recovery_surfaces_configuration_change(
     baseline = _reset_data("06082532")
     recovered = _reset_data("07082532")
     coordinator.device = SimpleNamespace(
-        update=AsyncMock(return_value=recovered),
+        recover_after_hard_reset=AsyncMock(return_value=recovered),
         disconnect=AsyncMock(),
     )
     coordinator._hard_reset_recovery_mode = True
@@ -805,7 +805,9 @@ async def test_hard_reset_recovery_requires_repair_after_setup_code_rejection(
     # Arrange - let the device advertise but reject the stored application code.
     coordinator = _coordinator()
     coordinator.device = SimpleNamespace(
-        update=AsyncMock(side_effect=SetupCodeRejectedError("rejected")),
+        recover_after_hard_reset=AsyncMock(
+            side_effect=SetupCodeRejectedError("rejected")
+        ),
         disconnect=AsyncMock(),
     )
     coordinator._hard_reset_recovery_mode = True
@@ -834,7 +836,7 @@ async def test_hard_reset_recovery_requires_repair_after_setup_code_rejection(
     assert result.outcome == "pairing_required"
     assert "physical pairing mode" in result.detail
     assert coordinator._hard_reset_recovery_mode is True
-    coordinator.device.update.assert_awaited_once()
+    coordinator.device.recover_after_hard_reset.assert_awaited_once()
     coordinator.device.disconnect.assert_awaited_once_with()
     coordinator.async_set_updated_data.assert_not_called()
     coordinator.async_set_update_error.assert_called_once()
@@ -848,7 +850,10 @@ async def test_hard_reset_recovery_timeout_is_bounded_and_actionable(
 
     # Arrange - keep the shared scanner alive but never advertise this address.
     coordinator = _coordinator()
-    coordinator.device = SimpleNamespace(update=AsyncMock(), disconnect=AsyncMock())
+    coordinator.device = SimpleNamespace(
+        recover_after_hard_reset=AsyncMock(),
+        disconnect=AsyncMock(),
+    )
     coordinator._hard_reset_recovery_mode = True
     coordinator.async_set_updated_data = Mock()
     coordinator.async_set_update_error = Mock()
@@ -877,7 +882,7 @@ async def test_hard_reset_recovery_timeout_is_bounded_and_actionable(
     assert "Do not resend the reset" in result.detail
     assert coordinator._hard_reset_recovery_mode is True
     process_advertisements.assert_awaited_once()
-    coordinator.device.update.assert_not_awaited()
+    coordinator.device.recover_after_hard_reset.assert_not_awaited()
     lookup.assert_not_called()
     coordinator.async_set_updated_data.assert_not_called()
     coordinator.async_set_update_error.assert_called_once()
