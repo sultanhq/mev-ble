@@ -536,6 +536,17 @@ VALIDATION_CANDIDATE_WRITE_PROFILES: Final = (
 )
 
 
+DEFERRED_INSTALLER_WRITE_FIELDS: Final = frozenset(
+    {
+        # Field 7 has an authoritative packet-136 mapping, but RC8 physical
+        # testing showed the exact validated unit ignored both reversible values.
+        # Keep it explicit so a future app capture or prerequisite can reopen it
+        # without treating it as permanently read-only.
+        GlobalSettingField.DELAY_ENABLED,
+    }
+)
+
+
 def model_capability(model_number: int | None) -> ModelCapability | None:
     """Return the official-app model classification when known."""
 
