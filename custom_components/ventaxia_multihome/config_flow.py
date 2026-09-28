@@ -63,6 +63,8 @@ from .coordinator import (
     ComfortModeConfigurationUnavailableError,
     DelayOverrunConfigurationNotSupportedError,
     DelayOverrunConfigurationUnavailableError,
+    DigitalInputValidationNotSupportedError,
+    DigitalInputValidationUnavailableError,
     HumidityResponseConfigurationNotSupportedError,
     HumidityResponseConfigurationUnavailableError,
     LowTemperatureProtectionValidationNotSupportedError,
@@ -110,6 +112,7 @@ from .protocol import (
     plan_analogue_input_1_validation_update,
     plan_analogue_input_2_validation_update,
     plan_delay_overrun_updates,
+    plan_digital_input_validation_update,
     plan_low_temperature_protection_validation_update,
     plan_ls_action_validation_update,
     plan_temperature_validation_update,
@@ -117,6 +120,7 @@ from .protocol import (
     validate_airflow_profile,
     validate_analogue_input_1_profile,
     validate_analogue_input_2_profile,
+    validate_digital_input_profile,
     validate_ls_action_profile,
     validate_sensor_thresholds,
     validate_temperature_threshold_profile,
@@ -162,6 +166,9 @@ CONF_ANALOGUE_INPUT_2_HIGH_ACTION = "analogue_input_2_high_action"
 CONF_ANALOGUE_INPUT_2_LOW_THRESHOLD = "analogue_input_2_low_threshold"
 CONF_ANALOGUE_INPUT_2_HIGH_THRESHOLD = "analogue_input_2_high_threshold"
 CONF_CONFIRM_ANALOGUE_INPUT_2_VALIDATION = "confirm_analogue_input_2_validation"
+CONF_DIGITAL_INPUT_1_ACTION = "digital_input_1_action"
+CONF_DIGITAL_INPUT_2_ACTION = "digital_input_2_action"
+CONF_CONFIRM_DIGITAL_INPUT_VALIDATION = "confirm_digital_input_validation"
 CONF_LOW_TEMPERATURE_ACTION = "low_temperature_action"
 CONF_HIGH_TEMPERATURE_ACTION = "high_temperature_action"
 CONF_LOW_TEMPERATURE_THRESHOLD = "low_temperature_threshold"
@@ -459,6 +466,8 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._analogue_input_1_validation_baseline_raw: bytes | None = None
         self._analogue_input_2_validation: tuple[int, int, int, int] | None = None
         self._analogue_input_2_validation_baseline_raw: bytes | None = None
+        self._digital_input_validation: tuple[int, int] | None = None
+        self._digital_input_validation_baseline_raw: bytes | None = None
         self._temperature_validation: tuple[int, int, int, int] | None = None
         self._temperature_validation_baseline_raw: bytes | None = None
         self._low_temperature_protection: bool | None = None
@@ -531,6 +540,11 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             and self._current_analogue_input_2_validation_settings() is not None
         ):
             menu_options.append("analogue_input_2_validation")
+        if (
+            coordinator.device.supports_digital_input_validation
+            and self._current_digital_input_validation_settings() is not None
+        ):
+            menu_options.append("digital_input_validation")
         if (
             coordinator.device.supports_low_temperature_protection_validation
             and self._current_low_temperature_protection_settings() is not None
@@ -1611,6 +1625,152 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             },
         )
 
+    async def async_step_digital_input_validation(
+        self,
+        user_input: dict[str, Any] | None = None,
+        *,
+        errors: dict[str, str] | None = None,
+    ) -> ConfigFlowResult:
+        """Collect exactly one digital-input action validation change."""
+
+        coordinator = self.config_entry.runtime_data
+        if not coordinator.device.supports_digital_input_validation:
+            return self.async_abort(reason="digital_input_validation_not_supported")
+        settings = self._current_digital_input_validation_settings()
+        if settings is None:
+            return self.async_abort(reason="digital_input_validation_unavailable")
+
+        if user_input is not None:
+            try:
+                profile = (
+                    int(user_input[CONF_DIGITAL_INPUT_1_ACTION]),
+                    int(user_input[CONF_DIGITAL_INPUT_2_ACTION]),
+                )
+                validate_digital_input_profile(*profile)
+                plan_digital_input_validation_update(
+                    settings,
+                    digital_input_1_action=profile[0],
+                    digital_input_2_action=profile[1],
+                )
+            except (KeyError, ProtocolError, TypeError, ValueError):
+                errors = {"base": "digital_input_validation_invalid"}
+            else:
+                self._digital_input_validation = profile
+                self._digital_input_validation_baseline_raw = settings.raw_record
+                return await self.async_step_digital_input_validation_confirm()
+
+        return self.async_show_form(
+            step_id="digital_input_validation",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_DIGITAL_INPUT_1_ACTION,
+                        default=str(settings.digital_input_1_action),
+                    ): self._ls_action_selector(),
+                    vol.Required(
+                        CONF_DIGITAL_INPUT_2_ACTION,
+                        default=str(settings.digital_input_2_action),
+                    ): self._ls_action_selector(),
+                }
+            ),
+            errors=errors or {},
+            description_placeholders={
+                "current_profile": self._format_digital_input_profile(
+                    *self._digital_input_profile(settings)
+                )
+            },
+        )
+
+    async def async_step_digital_input_validation_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Recheck the full record before one digital-input action write."""
+
+        assert self._digital_input_validation is not None
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input[CONF_CONFIRM_DIGITAL_INPUT_VALIDATION]:
+                errors["base"] = "digital_input_validation_confirmation_required"
+            else:
+                settings = self._current_digital_input_validation_settings()
+                if settings is None:
+                    errors["base"] = "digital_input_validation_unavailable"
+                elif settings.raw_record != self._digital_input_validation_baseline_raw:
+                    self._digital_input_validation = None
+                    self._digital_input_validation_baseline_raw = None
+                    return await self.async_step_digital_input_validation(
+                        errors={"base": "digital_input_validation_settings_changed"}
+                    )
+                else:
+                    digital_input_1_action, digital_input_2_action = (
+                        self._digital_input_validation
+                    )
+                    try:
+                        coordinator = self.config_entry.runtime_data
+                        await coordinator.async_set_digital_input_validation(
+                            digital_input_1_action=digital_input_1_action,
+                            digital_input_2_action=digital_input_2_action,
+                        )
+                    except DigitalInputValidationNotSupportedError:
+                        return self.async_abort(
+                            reason="digital_input_validation_not_supported"
+                        )
+                    except DigitalInputValidationUnavailableError:
+                        errors["base"] = "digital_input_validation_unavailable"
+                    except HomeAssistantError as err:
+                        _LOGGER.warning(
+                            "Unable to update Multihome digital input validation: %s",
+                            err,
+                        )
+                        errors["base"] = "digital_input_validation_update_failed"
+                    else:
+                        return await self.async_step_digital_input_validation_result()
+
+        settings = self._current_digital_input_validation_settings()
+        current = (
+            self._format_digital_input_profile(*self._digital_input_profile(settings))
+            if settings is not None
+            else "Unavailable"
+        )
+        return self.async_show_form(
+            step_id="digital_input_validation_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONFIRM_DIGITAL_INPUT_VALIDATION, default=False
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "device": self.config_entry.title,
+                "current_profile": current,
+                "new_profile": self._format_digital_input_profile(
+                    *self._digital_input_validation
+                ),
+            },
+        )
+
+    async def async_step_digital_input_validation_result(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report one digital-input action confirmed through exact readback."""
+
+        assert self._digital_input_validation is not None
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        return self.async_show_form(
+            step_id="digital_input_validation_result",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "new_profile": self._format_digital_input_profile(
+                    *self._digital_input_validation
+                )
+            },
+        )
+
     async def async_step_analogue_input_1_validation(
         self,
         user_input: dict[str, Any] | None = None,
@@ -2411,6 +2571,18 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             return None
         return settings
 
+    def _current_digital_input_validation_settings(self) -> GlobalSettings | None:
+        """Return current digital-input actions when both codes are documented."""
+
+        settings = self._current_sensor_threshold_settings()
+        if settings is None:
+            return None
+        try:
+            validate_digital_input_profile(*self._digital_input_profile(settings))
+        except ProtocolError:
+            return None
+        return settings
+
     def _current_temperature_validation_settings(self) -> GlobalSettings | None:
         """Return a disabled, fully decoded temperature validation snapshot."""
 
@@ -2547,6 +2719,24 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             f"Low {low_threshold / 10:.1f} V · "
             f"High action {analogue_action_name(high_action).title()} · "
             f"High {high_threshold / 10:.1f} V"
+        )
+
+    @staticmethod
+    def _digital_input_profile(settings: GlobalSettings) -> tuple[int, int]:
+        """Return digital-input actions in installer UI order."""
+
+        return settings.digital_input_1_action, settings.digital_input_2_action
+
+    @staticmethod
+    def _format_digital_input_profile(
+        digital_input_1_action: int,
+        digital_input_2_action: int,
+    ) -> str:
+        """Return an unambiguous digital-input action review string."""
+
+        return (
+            f"Digital input 1 {ls_action_name(digital_input_1_action).title()} · "
+            f"Digital input 2 {ls_action_name(digital_input_2_action).title()}"
         )
 
     @staticmethod

@@ -26,6 +26,7 @@ from .capabilities import (
     BOOST_MINIMUM_FIELDS,
     COMFORT_MODE_FIELDS,
     DELAY_OVERRUN_FIELDS,
+    DIGITAL_INPUT_VALIDATION_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
     LOW_TEMPERATURE_PROTECTION_FIELDS,
     LS_ACTION_VALIDATION_FIELDS,
@@ -83,6 +84,7 @@ from .protocol import (
     plan_analogue_input_2_validation_update,
     plan_comfort_mode_update,
     plan_delay_overrun_updates,
+    plan_digital_input_validation_update,
     plan_humidity_response_updates,
     plan_low_temperature_protection_validation_update,
     plan_ls_action_validation_update,
@@ -329,6 +331,15 @@ class MultihomeDevice:
         """Return whether physically validated analogue-input 2 writes are enabled."""
 
         return ANALOGUE_INPUT_2_VALIDATION_FIELDS <= self.writable_installer_fields
+
+    @property
+    def supports_digital_input_validation(self) -> bool:
+        """Return whether guarded digital-input action candidates are enabled."""
+
+        return (
+            DIGITAL_INPUT_VALIDATION_FIELDS
+            <= self.validation_candidate_installer_fields
+        )
 
     @property
     def supports_temperature_threshold_validation(self) -> bool:
@@ -581,6 +592,7 @@ class MultihomeDevice:
             LS_ACTION_VALIDATION_FIELDS
             | ANALOGUE_INPUT_1_VALIDATION_FIELDS
             | ANALOGUE_INPUT_2_VALIDATION_FIELDS
+            | DIGITAL_INPUT_VALIDATION_FIELDS
         )
         if normalized_field in guarded_input_fields:
             raise DeviceError(
@@ -1034,6 +1046,59 @@ class MultihomeDevice:
                 high_action=high_action,
                 low_threshold=low_threshold,
                 high_threshold=high_threshold,
+            )
+            return await self._set_global_setting_locked(field, value)
+
+    async def set_digital_input_validation(
+        self,
+        ble_device: BLEDevice,
+        *,
+        digital_input_1_action: int,
+        digital_input_2_action: int,
+    ) -> GlobalSettings:
+        """Apply one guarded digital-input action validation write."""
+
+        if not self.supports_digital_input_validation:
+            raise DeviceError(
+                "digital input validation is not enabled for this model, firmware, "
+                "and hardware"
+            )
+        confirmed = self._confirmed_global_settings
+        if confirmed is None or not self._global_settings_write_ready:
+            raise GlobalSettingsUnavailableError(
+                "global settings must be read successfully before an update"
+            )
+        plan_digital_input_validation_update(
+            confirmed,
+            digital_input_1_action=digital_input_1_action,
+            digital_input_2_action=digital_input_2_action,
+        )
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            confirmed = self._confirmed_global_settings
+            if confirmed is None or not self._global_settings_write_ready:
+                raise GlobalSettingsUnavailableError(
+                    "global settings must be read successfully before an update"
+                )
+            fresh = decode_global_settings(
+                (
+                    await self._request(
+                        PacketType.GLOBAL_DATA,
+                        Operation.DATA_REQUEST,
+                    )
+                ).payload
+            )
+            if fresh.raw_record != confirmed.raw_record:
+                self._global_settings_write_ready = False
+                raise GlobalSettingUpdateError(
+                    "global settings changed before the digital input validation "
+                    "write; no update was sent and the last confirmed snapshot "
+                    "was retained"
+                )
+            field, value = plan_digital_input_validation_update(
+                fresh,
+                digital_input_1_action=digital_input_1_action,
+                digital_input_2_action=digital_input_2_action,
             )
             return await self._set_global_setting_locked(field, value)
 

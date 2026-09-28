@@ -152,6 +152,14 @@ class AnalogueInput2ValidationUnavailableError(HomeAssistantError):
     """Raised when no current record permits analogue-input 2 validation."""
 
 
+class DigitalInputValidationNotSupportedError(HomeAssistantError):
+    """Raised when guarded digital-input validation is not enabled."""
+
+
+class DigitalInputValidationUnavailableError(HomeAssistantError):
+    """Raised when no current record permits digital-input validation."""
+
+
 class TemperatureValidationNotSupportedError(HomeAssistantError):
     """Raised when guarded temperature validation is not enabled."""
 
@@ -801,6 +809,49 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             self.async_set_update_error(err)
             raise HomeAssistantError(
                 f"Unable to update Multihome analogue input 2 validation field: {err}"
+            ) from err
+        self.async_set_updated_data(replace(self.data, global_settings=settings))
+
+    async def async_set_digital_input_validation(
+        self,
+        *,
+        digital_input_1_action: int,
+        digital_input_2_action: int,
+    ) -> None:
+        """Apply and publish one confirmed digital-input action change."""
+
+        if not self.device.supports_digital_input_validation:
+            raise DigitalInputValidationNotSupportedError(
+                "digital input validation is not enabled for this model, firmware, "
+                "and hardware"
+            )
+        if (
+            self.data is None
+            or not self.last_update_success
+            or not self.device.global_settings_write_ready
+        ):
+            raise DigitalInputValidationUnavailableError(
+                "Current global settings are unavailable; wait for a successful poll"
+            )
+        try:
+            settings = await self.device.set_digital_input_validation(
+                self._ble_device(),
+                digital_input_1_action=digital_input_1_action,
+                digital_input_2_action=digital_input_2_action,
+            )
+        except GlobalSettingsUnavailableError as err:
+            raise DigitalInputValidationUnavailableError(str(err)) from err
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            await self.device.disconnect()
+            self.async_set_update_error(err)
+            raise HomeAssistantError(
+                f"Unable to update Multihome digital input validation field: {err}"
             ) from err
         self.async_set_updated_data(replace(self.data, global_settings=settings))
 

@@ -9,6 +9,7 @@ from custom_components.ventaxia_multihome.capabilities import (
     BOOST_MINIMUM_FIELDS,
     COMFORT_MODE_FIELDS,
     DELAY_OVERRUN_FIELDS,
+    DIGITAL_INPUT_VALIDATION_FIELDS,
     HUMIDITY_RESPONSE_FIELDS,
     INSTALLER_FIELD_DEFINITIONS,
     LOW_TEMPERATURE_PROTECTION_FIELDS,
@@ -225,10 +226,10 @@ def test_installer_write_matrix_requires_an_exact_validated_identity() -> None:
     ]
 
 
-def test_proven_analogue_input_2_leaves_no_validation_candidates() -> None:
-    """RC12 proof promotes analogue-input 2 to the validated write matrix."""
+def test_only_digital_inputs_are_exact_identity_validation_candidates() -> None:
+    """RC13 exposes only digital input actions as exact-identity candidates."""
 
-    # Arrange - include the proven unit plus firmware, hardware, and model misses.
+    # Arrange - include the target unit plus firmware, hardware, and model misses.
     identities = [
         (10, "2.03.08", "01.00"),
         (10, "2.03.09", "01.00"),
@@ -236,14 +237,14 @@ def test_proven_analogue_input_2_leaves_no_validation_candidates() -> None:
         (2, "2.03.08", "01.00"),
     ]
 
-    # Act - resolve candidate fields after Input 2 promotion.
+    # Act - resolve candidate fields for exact and near identities.
     resolved = [
         installer_validation_candidate_fields(*identity) for identity in identities
     ]
 
-    # Assert - no prerelease validation candidates remain in this batch.
+    # Assert - only fields 31 and 32 are enabled for guarded RC13 validation.
     assert resolved == [
-        frozenset(),
+        DIGITAL_INPUT_VALIDATION_FIELDS,
         frozenset(),
         frozenset(),
         frozenset(),
@@ -282,3 +283,23 @@ def test_analogue_input_2_metadata_matches_recovered_app_ranges() -> None:
     assert definitions[2].maximum == 99
     assert definitions[3].minimum == 1
     assert definitions[3].maximum == 99
+
+
+def test_digital_input_metadata_matches_manual_actions() -> None:
+    """Digital input candidates expose only Low, Boost and Purge."""
+
+    # Arrange - select both low-voltage digital-input definitions.
+    input_1 = INSTALLER_FIELD_DEFINITIONS[GlobalSettingField.DIGITAL_INPUT_1_ACTION]
+    input_2 = INSTALLER_FIELD_DEFINITIONS[GlobalSettingField.DIGITAL_INPUT_2_ACTION]
+
+    # Act - resolve their documented action labels.
+    actions_1 = dict(input_1.known_values)
+    actions_2 = dict(input_2.known_values)
+
+    # Assert - Normal is excluded exactly as documented for digital inputs.
+    assert actions_1 == {1: "low", 3: "boost", 4: "purge"}
+    assert actions_2 == actions_1
+    assert input_1.unit == input_2.unit == "action_code"
+
+
+

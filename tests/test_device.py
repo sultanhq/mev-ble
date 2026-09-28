@@ -2752,6 +2752,52 @@ async def test_analogue_input_2_write_has_exact_readback() -> None:
 
 
 @pytest.mark.asyncio
+async def test_digital_input_validation_writes_one_field_with_exact_readback() -> None:
+    """A candidate digital action preserves all 35 unrelated settings bytes."""
+
+    # Arrange - prepare the exact identity, current profile, and field-31 result.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    confirmed = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    expected = global_settings_after_update(
+        confirmed, GlobalSettingField.DIGITAL_INPUT_1_ACTION, 3
+    )
+    device._confirmed_global_settings = confirmed
+    device._global_settings_write_ready = True
+    device.connect = AsyncMock()
+    device._send = AsyncMock()
+    device._request = AsyncMock(
+        side_effect=[
+            SimpleNamespace(payload=confirmed.raw_record),
+            SimpleNamespace(payload=expected.raw_record),
+        ]
+    )
+
+    # Act - change Digital input 1 from Low to Boost.
+    result = await device.set_digital_input_validation(
+        object(),
+        digital_input_1_action=3,
+        digital_input_2_action=3,
+    )
+
+    # Assert - only field 31 is sent and exact full-record readback is published.
+    device._send.assert_awaited_once_with(
+        PacketType.GLOBAL_DATA_FIELD,
+        Operation.UPDATE,
+        encode_global_setting_update(GlobalSettingField.DIGITAL_INPUT_1_ACTION, 3),
+        target=0,
+    )
+    assert result.raw_record == expected.raw_record
+    assert result.digital_input_1_action == 3
+
+
+@pytest.mark.asyncio
 async def test_delay_enabled_rejects_a_fresh_stale_baseline_before_write() -> None:
     """A fresh packet-137 difference prevents candidate field-7 I/O."""
 

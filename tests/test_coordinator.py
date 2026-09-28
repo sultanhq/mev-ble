@@ -34,6 +34,8 @@ from custom_components.ventaxia_multihome.coordinator import (
     ComfortModeConfigurationUnavailableError,
     DelayOverrunConfigurationNotSupportedError,
     DelayOverrunConfigurationUnavailableError,
+    DigitalInputValidationNotSupportedError,
+    DigitalInputValidationUnavailableError,
     HumidityResponseConfigurationNotSupportedError,
     HumidityResponseConfigurationUnavailableError,
     LowTemperatureProtectionValidationNotSupportedError,
@@ -1101,6 +1103,91 @@ async def test_analogue_input_2_validation_rejects_stale_state_before_io(
         )
     coordinator._ble_device.assert_not_called()
     device.set_analogue_input_2_validation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_digital_input_validation_publishes_only_confirmed_settings() -> None:
+    """A successful digital-input write publishes only exact device readback."""
+
+    # Arrange - retain telemetry and return a distinct confirmed settings object.
+    current = MultihomeData(
+        zone=object(),
+        system=object(),
+        global_settings=_settings(),
+        last_successful_update=datetime.now(UTC),
+    )
+    confirmed = decode_global_settings(bytes(36))
+    ble_device = object()
+    device = SimpleNamespace(
+        supports_digital_input_validation=True,
+        global_settings_write_ready=True,
+        set_digital_input_validation=AsyncMock(return_value=confirmed),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=current,
+        last_update_success=True,
+        _ble_device=lambda: ble_device,
+        async_set_updated_data=Mock(),
+        async_set_update_error=Mock(),
+    )
+
+    # Act - apply one reviewed Digital input 1 action change.
+    await VentaxiaMultihomeCoordinator.async_set_digital_input_validation(
+        coordinator,
+        digital_input_1_action=3,
+        digital_input_2_action=3,
+    )
+
+    # Assert - exact confirmed settings replace only settings state.
+    device.set_digital_input_validation.assert_awaited_once_with(
+        ble_device,
+        digital_input_1_action=3,
+        digital_input_2_action=3,
+    )
+    published = coordinator.async_set_updated_data.call_args.args[0]
+    assert published.global_settings is confirmed
+    assert published.zone is current.zone
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("supported", "data", "last_success", "write_ready", "error"),
+    [
+        (False, object(), True, True, DigitalInputValidationNotSupportedError),
+        (True, None, True, True, DigitalInputValidationUnavailableError),
+        (True, object(), False, True, DigitalInputValidationUnavailableError),
+        (True, object(), True, False, DigitalInputValidationUnavailableError),
+    ],
+)
+async def test_digital_input_validation_rejects_stale_state_before_io(
+    supported, data, last_success, write_ready, error
+) -> None:
+    """Digital-input identity and snapshot guards run before Bluetooth lookup."""
+
+    # Arrange - vary each prerequisite for one guarded digital action write.
+    device = SimpleNamespace(
+        supports_digital_input_validation=supported,
+        global_settings_write_ready=write_ready,
+        set_digital_input_validation=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=data,
+        last_update_success=last_success,
+        _ble_device=Mock(),
+    )
+
+    # Act / Assert - reject without resolving or using a Bluetooth path.
+    with pytest.raises(error):
+        await VentaxiaMultihomeCoordinator.async_set_digital_input_validation(
+            coordinator,
+            digital_input_1_action=3,
+            digital_input_2_action=3,
+        )
+    coordinator._ble_device.assert_not_called()
+    device.set_digital_input_validation.assert_not_awaited()
 
 
 @pytest.mark.asyncio

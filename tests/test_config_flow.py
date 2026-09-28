@@ -52,6 +52,7 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_CONFIRM_CALIBRATION,
     CONF_CONFIRM_COMFORT_MODE,
     CONF_CONFIRM_DELAY_OVERRUN,
+    CONF_CONFIRM_DIGITAL_INPUT_VALIDATION,
     CONF_CONFIRM_HUMIDITY_RESPONSE,
     CONF_CONFIRM_LOW_TEMPERATURE_PROTECTION,
     CONF_CONFIRM_LS_ACTION_VALIDATION,
@@ -59,6 +60,8 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_CONFIRM_SILENT_HOUR_DELETE,
     CONF_CONFIRM_TEMPERATURE_VALIDATION,
     CONF_DELAY_TIMEOUT,
+    CONF_DIGITAL_INPUT_1_ACTION,
+    CONF_DIGITAL_INPUT_2_ACTION,
     CONF_HIGH_TEMPERATURE_ACTION,
     CONF_HIGH_TEMPERATURE_THRESHOLD,
     CONF_HUMIDITY_THRESHOLD,
@@ -129,6 +132,7 @@ def _options_entry(
     supports_ls_actions: bool = False,
     supports_analogue_input_1: bool = False,
     supports_analogue_input_2: bool = False,
+    supports_digital_inputs: bool = False,
     supports_temperature_validation: bool = False,
     supports_low_temperature_protection: bool = False,
     airflow_available: bool = True,
@@ -158,6 +162,7 @@ def _options_entry(
             supports_ls_action_validation=supports_ls_actions,
             supports_analogue_input_1_validation=supports_analogue_input_1,
             supports_analogue_input_2_validation=supports_analogue_input_2,
+            supports_digital_input_validation=supports_digital_inputs,
             supports_temperature_threshold_validation=(supports_temperature_validation),
             supports_low_temperature_protection_validation=(
                 supports_low_temperature_protection
@@ -186,6 +191,7 @@ def _options_entry(
         async_set_ls_action_validation=AsyncMock(),
         async_set_analogue_input_1_validation=AsyncMock(),
         async_set_analogue_input_2_validation=AsyncMock(),
+        async_set_digital_input_validation=AsyncMock(),
         async_set_temperature_threshold_validation=AsyncMock(),
         async_set_low_temperature_protection_validation=AsyncMock(),
         async_set_silent_hour=AsyncMock(),
@@ -323,6 +329,17 @@ async def _open_analogue_input_2_validation_options(hass, entry):
     assert initial["step_id"] == "init"
     return await hass.config_entries.options.async_configure(
         initial["flow_id"], {"next_step_id": "analogue_input_2_validation"}
+    )
+
+
+async def _open_digital_input_validation_options(hass, entry):
+    """Open the one-field digital-input action validation screen."""
+
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    assert initial["type"] is data_entry_flow.FlowResultType.MENU
+    assert initial["step_id"] == "init"
+    return await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "digital_input_validation"}
     )
 
 
@@ -1225,6 +1242,59 @@ async def test_analogue_input_2_rechecks_complete_snapshot_before_write(hass) ->
         "base": "analogue_input_2_validation_settings_changed"
     }
     coordinator.async_set_analogue_input_2_validation.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_digital_input_validation_requires_review_and_one_change(hass) -> None:
+    """One documented digital action is written only after explicit confirmation."""
+
+    # Arrange - open the exact-identity Low / Boost installed profile.
+    entry, coordinator = _options_entry(hass, supports_digital_inputs=True)
+    form = await _open_digital_input_validation_options(hass, entry)
+
+    # Act - change only Digital input 1 from Low to Boost, then confirm.
+    confirm = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {
+            CONF_DIGITAL_INPUT_1_ACTION: "3",
+            CONF_DIGITAL_INPUT_2_ACTION: "3",
+        },
+    )
+    result = await hass.config_entries.options.async_configure(
+        confirm["flow_id"], {CONF_CONFIRM_DIGITAL_INPUT_VALIDATION: True}
+    )
+
+    # Assert - only the reviewed profile reaches the coordinator after confirmation.
+    assert form["step_id"] == "digital_input_validation"
+    assert confirm["step_id"] == "digital_input_validation_confirm"
+    coordinator.async_set_digital_input_validation.assert_awaited_once_with(
+        digital_input_1_action=3,
+        digital_input_2_action=3,
+    )
+    assert result["step_id"] == "digital_input_validation_result"
+
+
+@pytest.mark.asyncio
+async def test_digital_input_validation_rejects_multiple_changes(hass) -> None:
+    """RC13 cannot combine both unvalidated digital fields in one operation."""
+
+    # Arrange - open the installed Low / Boost digital-input profile.
+    entry, coordinator = _options_entry(hass, supports_digital_inputs=True)
+    form = await _open_digital_input_validation_options(hass, entry)
+
+    # Act - request simultaneous Digital input 1 and 2 changes.
+    result = await hass.config_entries.options.async_configure(
+        form["flow_id"],
+        {
+            CONF_DIGITAL_INPUT_1_ACTION: "3",
+            CONF_DIGITAL_INPUT_2_ACTION: "4",
+        },
+    )
+
+    # Assert - the form rejects the proposal before coordinator/Bluetooth I/O.
+    assert result["step_id"] == "digital_input_validation"
+    assert result["errors"] == {"base": "digital_input_validation_invalid"}
+    coordinator.async_set_digital_input_validation.assert_not_awaited()
 
 
 @pytest.mark.asyncio

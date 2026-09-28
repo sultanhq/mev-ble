@@ -54,7 +54,8 @@
           "low_temperature_protection_validation": "Configure Low-temperature protection",
           "temperature_validation": "Configure temperature settings",
           "analogue_input_1_validation": "Configure analogue input 1",
-          "analogue_input_2_validation": "Configure analogue input 2"
+          "analogue_input_2_validation": "Configure analogue input 2",
+          "digital_input_validation": "Validate digital input actions"
         }
       },
       "fan_options": {
@@ -343,6 +344,25 @@
       "analogue_input_2_validation_result": {
         "title": "Analogue input 2 field confirmed",
         "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. This confirms the stored field value; live 0–10 V response is separate."
+      },
+      "digital_input_validation": {
+        "title": "Validate digital input actions",
+        "description": "Current profile: **{current_profile}**\n\nDigital inputs 1 and 2 map to packet-136 fields 31 and 32. The installer manual permits Low, Boost and Purge. For RC13, change exactly one selector at a time and keep the physical low-voltage inputs inactive while proving stored configuration.",
+        "data": {
+          "digital_input_1_action": "Digital input 1 action",
+          "digital_input_2_action": "Digital input 2 action"
+        }
+      },
+      "digital_input_validation_confirm": {
+        "title": "Confirm one digital input change",
+        "description": "Device: **{device}**\n\nCurrent profile: **{current_profile}**\n\nProposed profile: **{new_profile}**\n\nHome Assistant will send exactly one packet-136 field and accept success only after the complete fresh packet-137 record matches. This proves stored configuration, not live electrical input behaviour.",
+        "data": {
+          "confirm_digital_input_validation": "I recorded the current profile and want to test this one digital input action"
+        }
+      },
+      "digital_input_validation_result": {
+        "title": "Digital input action confirmed",
+        "description": "The installed unit returned **{new_profile}** through exact fresh packet-137 readback. Restore the original action before validating the other digital input."
       }
     },
     "progress": {
@@ -423,7 +443,12 @@
       "analogue_input_2_validation_confirmation_required": "Review the complete analogue input 2 profile and enable the acknowledgement before continuing.",
       "analogue_input_2_validation_settings_changed": "The global settings changed after review. Recheck all four analogue input 2 values before continuing.",
       "analogue_input_2_validation_unavailable": "Analogue input 2 validation requires a fresh record containing recognised actions and valid ordered thresholds. No setting was changed.",
-      "analogue_input_2_validation_update_failed": "The one-field analogue input 2 update or its exact readback failed. Reopen the flow and inspect all four current values."
+      "analogue_input_2_validation_update_failed": "The one-field analogue input 2 update or its exact readback failed. Reopen the flow and inspect all four current values.",
+      "digital_input_validation_invalid": "Use only Low, Boost or Purge actions and change exactly one digital input.",
+      "digital_input_validation_confirmation_required": "Review both digital input actions and enable the acknowledgement before continuing.",
+      "digital_input_validation_settings_changed": "The global settings changed after review. Recheck both digital input actions before continuing.",
+      "digital_input_validation_unavailable": "Digital input validation requires a fresh record containing recognised actions. No setting was changed.",
+      "digital_input_validation_update_failed": "The one-field digital input update or its exact readback failed. Reopen the flow and inspect both current actions."
     },
     "abort": {
       "airflow_not_supported": "Airflow configuration is not validated for this model, firmware, and hardware. No setting was changed.",
@@ -447,7 +472,9 @@
       "analogue_input_1_validation_not_supported": "Analogue input 1 validation is unavailable for this model, firmware, or hardware. No setting was changed.",
       "analogue_input_1_validation_unavailable": "Analogue input 1 validation requires recognised current values and a fresh settings record. No setting was changed.",
       "analogue_input_2_validation_not_supported": "Analogue input 2 validation is unavailable for this model, firmware, or hardware. No setting was changed.",
-      "analogue_input_2_validation_unavailable": "Analogue input 2 validation requires recognised current values and a fresh settings record. No setting was changed."
+      "analogue_input_2_validation_unavailable": "Analogue input 2 validation requires recognised current values and a fresh settings record. No setting was changed.",
+      "digital_input_validation_not_supported": "Digital input validation is unavailable for this model, firmware, or hardware. No setting was changed.",
+      "digital_input_validation_unavailable": "Digital input validation requires recognised current values and a fresh settings record. No setting was changed."
     }
   },
   "selector": {

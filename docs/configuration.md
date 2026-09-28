@@ -162,6 +162,14 @@ Low, Normal, Boost and Purge dropdowns; thresholds use 0.1–9.9 V sliders in
 36-byte baselines, and requires exact fresh packet-137 readback. Live 0–10 V
 electrical response remains separate from the proven stored R/W behaviour.
 
+Version 0.6.3 RC13 adds **Configure → Validate digital input actions** for the
+same exact model 10 / firmware 2.03.08 / hardware 01.00 identity. Digital input
+1 and 2 expose only Low, Boost and Purge. During validation, change and restore
+each input independently. Each review may change exactly one action, rejects a
+stale 36-byte baseline, and requires exact fresh packet-137 readback. Keep the
+physical low-voltage inputs inactive while proving stored configuration; live
+electrical activation remains a separate test.
+
 Version 0.6.3 RC4 adds **Configure → Configure Boost minimum** on the same exact
 identity. It accepts the recovered one-byte 0–100% wire range, displays current
 and proposed values, rejects a stale full settings record, writes only field 4,
