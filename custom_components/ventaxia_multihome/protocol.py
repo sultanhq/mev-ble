@@ -62,6 +62,7 @@ class PacketType(IntEnum):
 
     SILENT_HOURS = 49
     USER_OVERRIDE = 56
+    HARD_RESET = 61
     SYSTEM_STATUS = 67
     CO2_CALIBRATION = 116
     GLOBAL_DATA_FIELD = 136
@@ -487,6 +488,12 @@ def encode_cancel_override() -> bytes:
     """Encode the documented cancel-override command."""
 
     return encode_user_override(AirflowPreset.LOW, 0, command=MevCommand.CANCEL)
+
+
+def encode_hard_reset() -> bytes:
+    """Encode the recovered packet-61 hard-reset payload exactly."""
+
+    return encode_data_object_array(DataObjectType.RAW, b"RH")
 
 
 def encode_co2_calibration(
