@@ -440,8 +440,10 @@ async def _dispatch_reset(coordinator, *, baseline_time: float | None = None):
         "async_last_service_info",
         return_value=service_info,
     ):
-        return await VentaxiaMultihomeCoordinator.async_dispatch_hard_reset_from_options(
-            coordinator
+        return await (
+            VentaxiaMultihomeCoordinator.async_dispatch_hard_reset_from_options(
+                coordinator
+            )
         )
 
 
