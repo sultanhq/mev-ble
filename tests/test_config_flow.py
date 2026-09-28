@@ -651,7 +651,10 @@ async def test_hard_reset_recovery_result_guides_pairing_without_retry(
     coordinator.async_wait_for_hard_reset_recovery.return_value = (
         HardResetRecoveryResult(
             outcome="pairing_required",
-            detail="Put the unit into physical pairing mode and reload/re-authenticate.",
+            detail=(
+                "Put the unit into physical pairing mode and "
+                "reload/re-authenticate."
+            ),
         )
     )
     warning = await _open_hard_reset_options(hass, entry)
