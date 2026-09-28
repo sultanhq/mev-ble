@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -405,6 +406,7 @@ async def test_hard_reset_options_dispatch_delegates_once_when_fresh() -> None:
         device=device,
         data=object(),
         last_update_success=True,
+        _hard_reset_dispatch_claimed=False,
         _ble_device=lambda: ble_device,
     )
 
@@ -432,6 +434,7 @@ async def test_hard_reset_options_rejects_unsupported_identity() -> None:
         device=device,
         data=object(),
         last_update_success=True,
+        _hard_reset_dispatch_claimed=False,
         _ble_device=Mock(),
     )
 
@@ -466,6 +469,7 @@ async def test_hard_reset_options_requires_fresh_coordinator_state(
         device=device,
         data=data,
         last_update_success=last_success,
+        _hard_reset_dispatch_claimed=False,
         _ble_device=Mock(),
     )
 
@@ -476,6 +480,92 @@ async def test_hard_reset_options_requires_fresh_coordinator_state(
         )
     coordinator._ble_device.assert_not_called()
     device._dispatch_hard_reset.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_options_rejects_concurrent_sibling_flow() -> None:
+    """Two armed Configure flows cannot queue two packet-61 dispatches."""
+
+    # Arrange - hold the first reset inside the shared coordinator after its claim.
+    ble_device = object()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    expected = HardResetDispatchResult(transport="test")
+
+    async def dispatch(_ble_device) -> HardResetDispatchResult:
+        started.set()
+        await release.wait()
+        return expected
+
+    device = SimpleNamespace(
+        supports_guarded_hard_reset=True,
+        _dispatch_hard_reset=AsyncMock(side_effect=dispatch),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=object(),
+        last_update_success=True,
+        _hard_reset_dispatch_claimed=False,
+        _ble_device=lambda: ble_device,
+    )
+
+    # Act - start one flow, then submit a sibling flow while the first is in flight.
+    first = asyncio.create_task(
+        VentaxiaMultihomeCoordinator.async_dispatch_hard_reset_from_options(
+            coordinator
+        )
+    )
+    await started.wait()
+    with pytest.raises(HardResetUnavailableError, match="already been claimed"):
+        await VentaxiaMultihomeCoordinator.async_dispatch_hard_reset_from_options(
+            coordinator
+        )
+    release.set()
+    result = await first
+
+    # Assert - only the first flow reaches the device and the claim remains consumed.
+    assert result is expected
+    assert coordinator._hard_reset_dispatch_claimed is True
+    device._dispatch_hard_reset.assert_awaited_once_with(ble_device)
+    device.disconnect.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_claim_remains_consumed_after_uncertain_delivery() -> None:
+    """An uncertain first dispatch prevents a sibling flow from retrying reset."""
+
+    # Arrange - make the first packet-61 delivery uncertain.
+    ble_device = object()
+    device = SimpleNamespace(
+        supports_guarded_hard_reset=True,
+        _dispatch_hard_reset=AsyncMock(
+            side_effect=HardResetDispatchUncertainError("may have rebooted")
+        ),
+        disconnect=AsyncMock(),
+    )
+    coordinator = SimpleNamespace(
+        device=device,
+        data=object(),
+        last_update_success=True,
+        _hard_reset_dispatch_claimed=False,
+        _ble_device=lambda: ble_device,
+    )
+
+    # Act - record uncertainty, then attempt a second Configure-flow dispatch.
+    with pytest.raises(HardResetDeliveryUncertainError, match="may have rebooted"):
+        await VentaxiaMultihomeCoordinator.async_dispatch_hard_reset_from_options(
+            coordinator
+        )
+    with pytest.raises(HardResetUnavailableError, match="already been claimed"):
+        await VentaxiaMultihomeCoordinator.async_dispatch_hard_reset_from_options(
+            coordinator
+        )
+
+    # Assert - uncertainty never permits an automatic or sibling retry.
+    assert coordinator._hard_reset_dispatch_claimed is True
+    device._dispatch_hard_reset.assert_awaited_once_with(ble_device)
+    device.disconnect.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -495,6 +585,7 @@ async def test_hard_reset_options_preserves_uncertain_delivery() -> None:
         device=device,
         data=object(),
         last_update_success=True,
+        _hard_reset_dispatch_claimed=False,
         _ble_device=lambda: ble_device,
     )
 
