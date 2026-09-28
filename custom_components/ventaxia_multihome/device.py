@@ -236,8 +236,8 @@ class MultihomeDevice:
         self.device_info = MultihomeDeviceInfo()
 
     @property
-    def _is_designated_hard_reset_identity(self) -> bool:
-        """Return whether this exact identity is designated for v0.7.0 reset work."""
+    def supports_guarded_hard_reset(self) -> bool:
+        """Return whether this identity may enter the guarded v0.7.0 reset flow."""
 
         return (
             self.model_number == 10
@@ -572,7 +572,7 @@ class MultihomeDevice:
 
         async with self._operation_lock:
             await self.connect(ble_device)
-            if not self._is_designated_hard_reset_identity:
+            if not self.supports_guarded_hard_reset:
                 raise DeviceError(
                     "hard reset is limited to the designated model 10 / firmware "
                     "2.03.08 / hardware 01.00 validation identity"
