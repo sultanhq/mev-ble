@@ -62,6 +62,8 @@ from .coordinator import (
     CalibrationRateLimitedError,
     ComfortModeConfigurationNotSupportedError,
     ComfortModeConfigurationUnavailableError,
+    ConfigurationBackupUnavailableError,
+    ConfigurationRestoreResult,
     DelayOverrunConfigurationNotSupportedError,
     DelayOverrunConfigurationUnavailableError,
     DigitalInputValidationNotSupportedError,
@@ -190,6 +192,7 @@ CONF_CONFIRM_SILENT_HOUR_DELETE = "confirm_silent_hour_delete"
 
 CONF_CONFIRM_HARD_RESET_WARNING = "confirm_hard_reset_warning"
 CONF_HARD_RESET_PHRASE = "hard_reset_phrase"
+CONF_CONFIRM_CONFIGURATION_RESTORE = "confirm_configuration_restore"
 
 CALIBRATION_METHOD_FRESH_AIR = "fresh_air"
 CALIBRATION_METHOD_REFERENCE_SENSORS = "reference_sensors"
@@ -491,6 +494,9 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         self._hard_reset_recovery_progress_task: asyncio.Task[
             HardResetRecoveryResult
         ] | None = None
+        self._configuration_restore_progress_task: asyncio.Task[
+            ConfigurationRestoreResult
+        ] | None = None
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -499,6 +505,31 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
 
         menu_options = ["fan_options"]
         coordinator = self.config_entry.runtime_data
+        if (
+            coordinator.data is not None
+            and coordinator.last_update_success
+            and coordinator.device.global_settings_write_ready
+            and (
+                not coordinator.device.supports_silent_hours_management
+                or (
+                    coordinator.device.silent_hours_write_ready
+                    and len(coordinator.data.silent_hours) == 6
+                    and all(
+                        slot.is_known
+                        and (slot.record is None or slot.record.is_valid)
+                        for slot in coordinator.data.silent_hours
+                    )
+                )
+            )
+        ):
+            menu_options.append("configuration_backup")
+        if (
+            coordinator.configuration_backup is not None
+            and coordinator.data is not None
+            and coordinator.last_update_success
+            and coordinator.device.global_settings_write_ready
+        ):
+            menu_options.append("configuration_restore")
         if (
             coordinator.device.supports_global_airflow_configuration
             and coordinator.data is not None
@@ -589,6 +620,160 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         return self.async_show_menu(
             step_id="init",
             menu_options=menu_options,
+        )
+
+    async def async_step_configuration_backup(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Persist the current commissioned configuration for later restore."""
+
+        coordinator = self.config_entry.runtime_data
+        if user_input is not None:
+            try:
+                coordinator.save_configuration_backup(reason="manual")
+            except ConfigurationBackupUnavailableError:
+                return self.async_abort(reason="configuration_backup_unavailable")
+            return await self.async_step_configuration_backup_result()
+
+        return self.async_show_form(
+            step_id="configuration_backup",
+            data_schema=vol.Schema({}),
+            description_placeholders={"device": self.config_entry.title},
+        )
+
+    async def async_step_configuration_backup_result(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report the persisted backup metadata."""
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        backup = self.config_entry.runtime_data.configuration_backup
+        if backup is None:
+            return self.async_abort(reason="configuration_backup_missing")
+        identity = backup.get("identity")
+        identity = identity if isinstance(identity, dict) else {}
+        return self.async_show_form(
+            step_id="configuration_backup_result",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "device": self.config_entry.title,
+                "captured_at": str(backup.get("captured_at", "unknown")),
+                "model": str(identity.get("model_number", "unknown")),
+                "firmware": str(identity.get("firmware", "unknown")),
+                "hardware": str(identity.get("hardware", "unknown")),
+            },
+        )
+
+    async def async_step_configuration_restore(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm a guarded restore of the persisted configuration backup."""
+
+        coordinator = self.config_entry.runtime_data
+        backup = coordinator.configuration_backup
+        if backup is None:
+            return self.async_abort(reason="configuration_backup_missing")
+
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input[CONF_CONFIRM_CONFIGURATION_RESTORE]:
+                errors["base"] = "configuration_restore_confirmation_required"
+            else:
+                self._configuration_restore_progress_task = self.hass.async_create_task(
+                    coordinator.async_restore_configuration_backup(),
+                    "Restore Vent-Axia Multihome configuration backup",
+                )
+                return await self.async_step_configuration_restore_progress()
+
+        identity = backup.get("identity")
+        identity = identity if isinstance(identity, dict) else {}
+        return self.async_show_form(
+            step_id="configuration_restore",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_CONFIRM_CONFIGURATION_RESTORE, default=False
+                    ): selector.BooleanSelector()
+                }
+            ),
+            errors=errors,
+            description_placeholders={
+                "device": self.config_entry.title,
+                "captured_at": str(backup.get("captured_at", "unknown")),
+                "model": str(identity.get("model_number", "unknown")),
+                "firmware": str(identity.get("firmware", "unknown")),
+                "hardware": str(identity.get("hardware", "unknown")),
+            },
+        )
+
+    async def async_step_configuration_restore_progress(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Show progress while guarded writes restore the saved configuration."""
+
+        task = self._configuration_restore_progress_task
+        if task is None:
+            return self.async_abort(reason="configuration_backup_missing")
+        if not task.done():
+            return self.async_show_progress(
+                step_id="configuration_restore_progress",
+                progress_action="configuration_restore",
+                progress_task=task,
+                description_placeholders={"device": self.config_entry.title},
+            )
+        return self.async_show_progress_done(
+            next_step_id="configuration_restore_result"
+        )
+
+    async def async_step_configuration_restore_result(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Report confirmed restore completion or the first guarded failure."""
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="", data=dict(self.config_entry.options)
+            )
+        task = self._configuration_restore_progress_task
+        if task is None or not task.done():
+            return await self.async_step_configuration_restore_progress()
+
+        try:
+            result = task.result()
+        except HomeAssistantError as err:
+            outcome = "Restore stopped"
+            detail = (
+                f"{err}. No further settings were written after this failure. "
+                "Inspect the current values before retrying."
+            )
+        else:
+            outcome = "Restore confirmed"
+            raw_note = (
+                "The complete packet-137 raw record also matches the backup."
+                if result.raw_record_matches
+                else (
+                    "All validated writable fields match the backup. One or more "
+                    "non-writable/reserved packet-137 bytes differ and were not "
+                    "replayed."
+                )
+            )
+            detail = (
+                f"Confirmed {result.global_fields_restored} changed global setting "
+                f"field(s) and {result.silent_hours_restored} silent-hours slot(s). "
+                f"{raw_note}"
+            )
+
+        return self.async_show_form(
+            step_id="configuration_restore_result",
+            data_schema=vol.Schema({}),
+            description_placeholders={
+                "device": self.config_entry.title,
+                "outcome": outcome,
+                "detail": detail,
+            },
         )
 
     async def async_step_hard_reset(
@@ -788,7 +973,10 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         """Configure the default duration used by fan preset calls."""
 
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            return self.async_create_entry(
+                title="",
+                data={**self.config_entry.options, **user_input},
+            )
         return self.async_show_form(
             step_id="fan_options",
             data_schema=vol.Schema(

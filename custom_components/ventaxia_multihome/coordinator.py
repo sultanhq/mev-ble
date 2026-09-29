@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from math import ceil, isfinite
 from time import time
@@ -26,8 +27,23 @@ from homeassistant.exceptions import (
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .bluetooth import TransportError
+from .capabilities import (
+    AIRFLOW_FIELDS,
+    ANALOGUE_INPUT_1_VALIDATION_FIELDS,
+    ANALOGUE_INPUT_2_VALIDATION_FIELDS,
+    BOOST_MINIMUM_FIELDS,
+    COMFORT_MODE_FIELDS,
+    DELAY_OVERRUN_FIELDS,
+    DIGITAL_INPUT_VALIDATION_FIELDS,
+    HUMIDITY_RESPONSE_FIELDS,
+    LOW_TEMPERATURE_PROTECTION_FIELDS,
+    LS_ACTION_VALIDATION_FIELDS,
+    SENSOR_THRESHOLD_FIELDS,
+    TEMPERATURE_VALIDATION_FIELDS,
+)
 from .const import (
     CO2_CALIBRATION_COOLDOWN,
+    CONF_CONFIGURATION_BACKUP,
     CONF_LAST_CO2_CALIBRATION_ATTEMPT,
     CONF_OVERRIDE_DURATION,
     DEFAULT_OVERRIDE_DURATION,
@@ -50,11 +66,23 @@ from .device import (
     SilentHoursUnavailableError,
 )
 from .protocol import (
+    GLOBAL_SETTING_FIELD_SPECS,
     MAX_CO2_CALIBRATION_REFERENCE,
     MIN_CO2_CALIBRATION_REFERENCE,
     AirflowPreset,
+    GlobalSettings,
     ProtocolError,
     SilentHour,
+    decode_global_settings,
+    decode_silent_hour,
+    encode_global_setting_value,
+    validate_airflow_profile,
+    validate_analogue_input_1_profile,
+    validate_analogue_input_2_profile,
+    validate_digital_input_profile,
+    validate_ls_action_profile,
+    validate_sensor_thresholds,
+    validate_temperature_threshold_profile,
 )
 from .schedule_time import (
     current_utc_offset_seconds,
@@ -104,6 +132,23 @@ class HardResetRecoveryResult:
     detail: str
     configuration_changed: bool = False
     delivery_uncertain: bool = False
+
+
+class ConfigurationBackupUnavailableError(HomeAssistantError):
+    """Raised when a complete restorable configuration snapshot cannot be saved."""
+
+
+class ConfigurationRestoreError(HomeAssistantError):
+    """Raised when a saved configuration cannot be safely restored."""
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigurationRestoreResult:
+    """Describe one confirmed restore from the persistent configuration backup."""
+
+    global_fields_restored: int
+    silent_hours_restored: int
+    raw_record_matches: bool
 
 
 class AirflowConfigurationNotSupportedError(HomeAssistantError):
@@ -242,6 +287,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         self._hard_reset_baseline_silent_hours: tuple[object, ...] | None = None
         self._hard_reset_baseline_advertisement_time: float | None = None
         self.last_hard_reset_recovery_result: HardResetRecoveryResult | None = None
+        self._configuration_operation: str | None = None
 
     @staticmethod
     def _stored_calibration_attempt(entry: ConfigEntry) -> float | None:
@@ -410,6 +456,784 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             VentaxiaMultihomeCoordinator._localize_data(self, data)
         )
 
+    def _validate_restorable_global_settings(
+        self, settings: GlobalSettings
+    ) -> None:
+        """Validate every field/profile that this identity may restore."""
+
+        writable = self.device.writable_installer_fields
+        for field in writable:
+            spec = GLOBAL_SETTING_FIELD_SPECS[field]
+            encode_global_setting_value(field, getattr(settings, spec.attribute))
+
+        if AIRFLOW_FIELDS <= writable:
+            validate_airflow_profile(
+                settings.speed_low,
+                settings.speed_medium,
+                settings.speed_boost,
+                settings.speed_purge,
+            )
+        if SENSOR_THRESHOLD_FIELDS <= writable:
+            validate_sensor_thresholds(
+                settings.humidity_threshold,
+                settings.co2_boost_threshold,
+                settings.co2_purge_threshold,
+            )
+        if LS_ACTION_VALIDATION_FIELDS <= writable:
+            validate_ls_action_profile(
+                settings.ls1_action,
+                settings.ls2_action,
+                settings.ls3_action,
+            )
+        if TEMPERATURE_VALIDATION_FIELDS <= writable:
+            validate_temperature_threshold_profile(
+                settings.low_threshold_action,
+                settings.high_threshold_action,
+                settings.low_temperature_threshold,
+                settings.high_temperature_threshold,
+            )
+        if ANALOGUE_INPUT_1_VALIDATION_FIELDS <= writable:
+            validate_analogue_input_1_profile(
+                settings.analogue_input_1_low_action,
+                settings.analogue_input_1_high_action,
+                settings.analogue_input_1_low_value,
+                settings.analogue_input_1_high_value,
+            )
+        if ANALOGUE_INPUT_2_VALIDATION_FIELDS <= writable:
+            validate_analogue_input_2_profile(
+                settings.analogue_input_2_low_action,
+                settings.analogue_input_2_high_action,
+                settings.analogue_input_2_low_value,
+                settings.analogue_input_2_high_value,
+            )
+        if DIGITAL_INPUT_VALIDATION_FIELDS <= writable:
+            validate_digital_input_profile(
+                settings.digital_input_1_action,
+                settings.digital_input_2_action,
+            )
+
+    @property
+    def configuration_backup(self) -> dict[str, object] | None:
+        """Return the persisted configuration backup, if one is available."""
+
+        backup = self.config_entry.options.get(CONF_CONFIGURATION_BACKUP)
+        return dict(backup) if isinstance(backup, dict) else None
+
+    def save_configuration_backup(
+        self,
+        *,
+        reason: str,
+        data: MultihomeData | None = None,
+    ) -> dict[str, object]:
+        """Persist a complete, currently confirmed configuration snapshot."""
+
+        if reason == "manual":
+            active_operation = getattr(self, "_configuration_operation", None)
+            if active_operation is not None:
+                raise ConfigurationBackupUnavailableError(
+                    f"Configuration {active_operation} is in progress; "
+                    "wait for it to finish before creating a manual backup"
+                )
+            if getattr(self, "_hard_reset_recovery_mode", False):
+                raise ConfigurationBackupUnavailableError(
+                    "Hard reset recovery owns the device; "
+                    "wait for recovery before creating a manual backup"
+                )
+
+        snapshot = self.data if data is None else data
+        if (
+            snapshot is None
+            or not self.last_update_success
+            or not self.device.global_settings_write_ready
+        ):
+            raise ConfigurationBackupUnavailableError(
+                "Current global settings are unavailable; wait for a successful poll"
+            )
+        settings = snapshot.global_settings
+        if settings.invalid_boolean_fields:
+            raise ConfigurationBackupUnavailableError(
+                "Current global settings contain unsupported boolean values and "
+                "cannot be guaranteed restorable"
+            )
+        try:
+            VentaxiaMultihomeCoordinator._validate_restorable_global_settings(
+                self, settings
+            )
+        except ProtocolError as err:
+            raise ConfigurationBackupUnavailableError(
+                f"Current global settings are not safely restorable: {err}"
+            ) from err
+
+        silent_hours: list[str | None] = []
+        if self.device.supports_silent_hours_management:
+            if (
+                not self.device.silent_hours_write_ready
+                or len(snapshot.silent_hours) != 6
+                or not all(
+                    slot.is_known
+                    and (slot.record is None or slot.record.is_valid)
+                    for slot in snapshot.silent_hours
+                )
+            ):
+                raise ConfigurationBackupUnavailableError(
+                    "The complete six-slot silent-hours table is unavailable "
+                    "or contains invalid records"
+                )
+            silent_hours = [
+                slot.record.raw_record.hex() if slot.record is not None else None
+                for slot in snapshot.silent_hours
+            ]
+
+        backup: dict[str, object] = {
+            "version": 1,
+            "reason": reason,
+            "captured_at": snapshot.last_successful_update.isoformat(),
+            "time_zone": self.hass.config.time_zone,
+            "identity": {
+                "address": self.config_entry.data[CONF_ADDRESS],
+                "model_number": self.device.model_number,
+                "serial": self.device.device_info.serial,
+                "firmware": self.device.device_info.firmware,
+                "hardware": self.device.device_info.hardware,
+            },
+            "global_settings": settings.raw_record.hex(),
+            "silent_hours": silent_hours,
+        }
+        self.hass.config_entries.async_update_entry(
+            self.config_entry,
+            options={
+                **self.config_entry.options,
+                CONF_CONFIGURATION_BACKUP: backup,
+            },
+        )
+        return backup
+
+    def _load_configuration_backup(
+        self,
+    ) -> tuple[dict[str, object], GlobalSettings, tuple[SilentHour | None, ...]]:
+        """Validate and decode the persisted backup without writing the unit."""
+
+        backup = self.configuration_backup
+        if backup is None:
+            raise ConfigurationRestoreError("No configuration backup is stored")
+        if backup.get("version") != 1:
+            raise ConfigurationRestoreError(
+                "The stored configuration backup is unsupported"
+            )
+
+        identity = backup.get("identity")
+        if not isinstance(identity, dict):
+            raise ConfigurationRestoreError("The stored backup has no device identity")
+        saved_address = identity.get("address")
+        if (
+            not isinstance(saved_address, str)
+            or saved_address != self.config_entry.data[CONF_ADDRESS]
+        ):
+            raise ConfigurationRestoreError(
+                "The stored backup belongs to a different Bluetooth address"
+            )
+
+        expected_identity = (
+            identity.get("model_number"),
+            identity.get("firmware"),
+            identity.get("hardware"),
+        )
+        current_identity = (
+            self.device.model_number,
+            self.device.device_info.firmware,
+            self.device.device_info.hardware,
+        )
+        if expected_identity != current_identity:
+            raise ConfigurationRestoreError(
+                "The stored backup belongs to a different model, firmware, or hardware"
+            )
+        saved_serial = identity.get("serial")
+        if (
+            isinstance(saved_serial, str)
+            and self.device.device_info.serial is not None
+            and saved_serial != self.device.device_info.serial
+        ):
+            raise ConfigurationRestoreError(
+                "The stored backup belongs to a different serial number"
+            )
+
+        saved_time_zone = backup.get("time_zone")
+        if (
+            self.device.supports_silent_hours_management
+            and saved_time_zone != self.hass.config.time_zone
+        ):
+            raise ConfigurationRestoreError(
+                "The stored backup uses a different Home Assistant time zone"
+            )
+
+        raw_settings = backup.get("global_settings")
+        if not isinstance(raw_settings, str):
+            raise ConfigurationRestoreError(
+                "The stored backup has no global-settings record"
+            )
+        try:
+            target_settings = decode_global_settings(bytes.fromhex(raw_settings))
+        except (ValueError, ProtocolError) as err:
+            raise ConfigurationRestoreError(
+                "The stored global-settings record is malformed"
+            ) from err
+        if target_settings.invalid_boolean_fields:
+            raise ConfigurationRestoreError(
+                "The stored global-settings record contains unsupported boolean values"
+            )
+        try:
+            VentaxiaMultihomeCoordinator._validate_restorable_global_settings(
+                self, target_settings
+            )
+        except ProtocolError as err:
+            raise ConfigurationRestoreError(
+                f"The stored global-settings record is not safely restorable: {err}"
+            ) from err
+
+        raw_silent_hours = backup.get("silent_hours")
+        if not isinstance(raw_silent_hours, list):
+            raise ConfigurationRestoreError(
+                "The stored backup has no silent-hours table"
+            )
+        if self.device.supports_silent_hours_management and len(raw_silent_hours) != 6:
+            raise ConfigurationRestoreError(
+                "The stored silent-hours table does not contain six slots"
+            )
+        decoded_silent_hours: list[SilentHour | None] = []
+        try:
+            for raw_record in raw_silent_hours:
+                if raw_record is None:
+                    decoded_silent_hours.append(None)
+                elif isinstance(raw_record, str):
+                    decoded_record = decode_silent_hour(bytes.fromhex(raw_record))
+                    if not decoded_record.is_valid:
+                        raise ValueError("invalid silent-hours record")
+                    decoded_silent_hours.append(decoded_record)
+                else:
+                    raise ValueError("invalid silent-hours slot")
+        except (ValueError, ProtocolError) as err:
+            raise ConfigurationRestoreError(
+                "The stored silent-hours table is malformed"
+            ) from err
+
+        return backup, target_settings, tuple(decoded_silent_hours)
+
+    async def _async_compensate_low_temperature_protection(
+        self, *, enabled: bool
+    ) -> None:
+        """Fresh-read and compensate field 16 after an uncertain restore write."""
+
+        try:
+            settings = await self.device.compensate_low_temperature_protection(
+                self._ble_device(), enabled=enabled
+            )
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            await self.device.disconnect()
+            self.async_set_update_error(err)
+            raise HomeAssistantError(
+                "Unable to recover Multihome low-temperature protection after "
+                f"a failed restore: {err}"
+            ) from err
+        self.async_set_updated_data(replace(self.data, global_settings=settings))
+
+    async def _async_cancellation_safe_low_temperature_compensation(
+        self, *, enabled: bool
+    ) -> None:
+        """Finish safety compensation before allowing cancellation to propagate."""
+
+        task = asyncio.create_task(
+            self._async_compensate_low_temperature_protection(enabled=enabled),
+            name="Vent-Axia Multihome low-temperature restore compensation",
+        )
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                continue
+        task.result()
+
+    @staticmethod
+    def _next_valid_profile_step(
+        current: tuple[int, ...],
+        target: tuple[int, ...],
+        validator: Callable[..., None],
+        *,
+        name: str,
+    ) -> tuple[int, ...]:
+        """Return one target-directed field change that keeps a profile valid."""
+
+        for index, (current_value, target_value) in enumerate(
+            zip(current, target, strict=True)
+        ):
+            if current_value == target_value:
+                continue
+            candidate = list(current)
+            candidate[index] = target_value
+            try:
+                validator(*candidate)
+            except ProtocolError:
+                continue
+            return tuple(candidate)
+        raise ConfigurationRestoreError(
+            f"No safe one-field path could restore the saved {name} profile"
+        )
+
+    async def async_restore_configuration_backup(self) -> ConfigurationRestoreResult:
+        """Own one complete restore so sibling configuration work cannot interleave."""
+
+        if getattr(self, "_hard_reset_recovery_mode", False):
+            raise ConfigurationRestoreError(
+                "Hard reset recovery owns the device; "
+                "configuration restore cannot start"
+            )
+        active_operation = getattr(self, "_configuration_operation", None)
+        if active_operation is not None:
+            raise ConfigurationRestoreError(
+                f"Configuration {active_operation} is already in progress"
+            )
+
+        self._configuration_operation = "restore"
+        try:
+            return await self._async_restore_configuration_backup_owned()
+        finally:
+            if self._configuration_operation == "restore":
+                self._configuration_operation = None
+
+    async def _async_restore_configuration_backup_owned(
+        self,
+    ) -> ConfigurationRestoreResult:
+        """Restore the backup while coordinator-level restore ownership is held."""
+
+        _backup, target, target_silent_hours = self._load_configuration_backup()
+        if (
+            self.data is None
+            or not self.last_update_success
+            or not self.device.global_settings_write_ready
+        ):
+            raise ConfigurationRestoreError(
+                "Current global settings are unavailable; wait for a successful poll"
+            )
+        if (
+            self.device.supports_silent_hours_management
+            and (
+                not self.device.silent_hours_write_ready
+                or len(self.data.silent_hours) != 6
+            )
+        ):
+            raise ConfigurationRestoreError(
+                "Current silent-hours state is unavailable; wait for a successful poll"
+            )
+
+        restorable_fields = (
+            AIRFLOW_FIELDS
+            | BOOST_MINIMUM_FIELDS
+            | SENSOR_THRESHOLD_FIELDS
+            | HUMIDITY_RESPONSE_FIELDS
+            | COMFORT_MODE_FIELDS
+            | DELAY_OVERRUN_FIELDS
+            | LS_ACTION_VALIDATION_FIELDS
+            | TEMPERATURE_VALIDATION_FIELDS
+            | LOW_TEMPERATURE_PROTECTION_FIELDS
+            | ANALOGUE_INPUT_1_VALIDATION_FIELDS
+            | ANALOGUE_INPUT_2_VALIDATION_FIELDS
+            | DIGITAL_INPUT_VALIDATION_FIELDS
+        )
+        unsupported = self.device.writable_installer_fields - restorable_fields
+        if unsupported:
+            ids = ", ".join(str(int(field)) for field in sorted(unsupported))
+            raise ConfigurationRestoreError(
+                f"Validated writable fields are missing from restore coverage: {ids}"
+            )
+
+        initial = self.data.global_settings
+        global_fields_restored = sum(
+            getattr(initial, GLOBAL_SETTING_FIELD_SPECS[field].attribute)
+            != getattr(target, GLOBAL_SETTING_FIELD_SPECS[field].attribute)
+            for field in self.device.writable_installer_fields
+        )
+
+        if AIRFLOW_FIELDS <= self.device.writable_installer_fields and (
+            initial.speed_low,
+            initial.speed_medium,
+            initial.speed_boost,
+            initial.speed_purge,
+        ) != (
+            target.speed_low,
+            target.speed_medium,
+            target.speed_boost,
+            target.speed_purge,
+        ):
+            await self.async_set_airflow_profile(
+                low=target.speed_low,
+                normal=target.speed_medium,
+                boost=target.speed_boost,
+                purge=target.speed_purge,
+            )
+
+        if (
+            BOOST_MINIMUM_FIELDS <= self.device.writable_installer_fields
+            and self.data.global_settings.boost_minimum != target.boost_minimum
+        ):
+            await self.async_set_boost_minimum(value=target.boost_minimum)
+
+        current = self.data.global_settings
+        if SENSOR_THRESHOLD_FIELDS <= self.device.writable_installer_fields and (
+            current.humidity_threshold,
+            current.co2_boost_threshold,
+            current.co2_purge_threshold,
+        ) != (
+            target.humidity_threshold,
+            target.co2_boost_threshold,
+            target.co2_purge_threshold,
+        ):
+            await self.async_set_sensor_thresholds(
+                humidity=target.humidity_threshold,
+                co2_boost=target.co2_boost_threshold,
+                co2_purge=target.co2_purge_threshold,
+            )
+
+        current = self.data.global_settings
+        if HUMIDITY_RESPONSE_FIELDS <= self.device.writable_installer_fields and (
+            current.rapid_response_enabled,
+            current.ambient_response_enabled,
+        ) != (
+            target.rapid_response_enabled,
+            target.ambient_response_enabled,
+        ):
+            await self.async_set_humidity_response(
+                rapid=bool(target.rapid_response_enabled),
+                ambient=bool(target.ambient_response_enabled),
+            )
+
+        if (
+            COMFORT_MODE_FIELDS <= self.device.writable_installer_fields
+            and self.data.global_settings.comfort_enabled != target.comfort_enabled
+        ):
+            await self.async_set_comfort_mode(enabled=bool(target.comfort_enabled))
+
+        current = self.data.global_settings
+        if DELAY_OVERRUN_FIELDS <= self.device.writable_installer_fields and (
+            current.delay_timeout_minutes,
+            current.overrun_enabled,
+            current.overrun_timeout_minutes,
+        ) != (
+            target.delay_timeout_minutes,
+            target.overrun_enabled,
+            target.overrun_timeout_minutes,
+        ):
+            # Field 7 (Delay enabled) remains intentionally unvalidated on this
+            # firmware. Preserve its current value while restoring only fields
+            # 8..10 through the already validated grouped setter.
+            await self.async_set_delay_overrun(
+                delay_enabled=bool(current.delay_enabled),
+                delay_minutes=target.delay_timeout_minutes,
+                overrun_enabled=bool(target.overrun_enabled),
+                overrun_minutes=target.overrun_timeout_minutes,
+            )
+
+        current = self.data.global_settings
+        if LS_ACTION_VALIDATION_FIELDS <= self.device.writable_installer_fields and (
+            current.ls1_action,
+            current.ls2_action,
+            current.ls3_action,
+        ) != (
+            target.ls1_action,
+            target.ls2_action,
+            target.ls3_action,
+        ):
+            await self.async_set_ls_action_validation(
+                ls1_action=target.ls1_action,
+                ls2_action=target.ls2_action,
+                ls3_action=target.ls3_action,
+            )
+
+        target_temperature = (
+            target.low_threshold_action,
+            target.high_threshold_action,
+            target.low_temperature_threshold,
+            target.high_temperature_threshold,
+        )
+        current = self.data.global_settings
+        current_temperature = (
+            current.low_threshold_action,
+            current.high_threshold_action,
+            current.low_temperature_threshold,
+            current.high_temperature_threshold,
+        )
+        if (
+            TEMPERATURE_VALIDATION_FIELDS <= self.device.writable_installer_fields
+            and current_temperature != target_temperature
+        ):
+            original_protection = current.low_temperature_enabled
+            if original_protection is None:
+                raise ConfigurationRestoreError(
+                    "Current low-temperature protection state is unavailable"
+                )
+            if original_protection and not (
+                LOW_TEMPERATURE_PROTECTION_FIELDS
+                <= self.device.writable_installer_fields
+            ):
+                raise ConfigurationRestoreError(
+                    "Temperature settings require disabling low-temperature "
+                    "protection, but that field is not validated writable"
+                )
+
+            disable_may_have_reached_device = False
+            disable_attempt_before = getattr(
+                self.device, "last_global_setting_write_attempt", None
+            )
+            try:
+                if original_protection:
+                    try:
+                        await self.async_set_low_temperature_protection_validation(
+                            enabled=False
+                        )
+                    except BaseException:
+                        disable_attempt = getattr(
+                            self.device,
+                            "last_global_setting_write_attempt",
+                            None,
+                        )
+                        disable_may_have_reached_device = (
+                            disable_attempt is not None
+                            and disable_attempt is not disable_attempt_before
+                            and getattr(disable_attempt, "field_id", None) == 16
+                            and getattr(disable_attempt, "requested_value", None) == 0
+                        )
+                        raise
+                    else:
+                        disable_may_have_reached_device = True
+                for _attempt in range(4):
+                    current = self.data.global_settings
+                    current_temperature = (
+                        current.low_threshold_action,
+                        current.high_threshold_action,
+                        current.low_temperature_threshold,
+                        current.high_temperature_threshold,
+                    )
+                    if current_temperature == target_temperature:
+                        break
+                    step = self._next_valid_profile_step(
+                        current_temperature,
+                        target_temperature,
+                        validate_temperature_threshold_profile,
+                        name="temperature",
+                    )
+                    await self.async_set_temperature_threshold_validation(
+                        low_action=step[0],
+                        high_action=step[1],
+                        low_threshold=step[2],
+                        high_threshold=step[3],
+                    )
+                else:
+                    raise ConfigurationRestoreError(
+                        "Temperature settings did not converge to the saved profile"
+                    )
+            except asyncio.CancelledError:
+                if original_protection and disable_may_have_reached_device:
+                    try:
+                        await (
+                            self._async_cancellation_safe_low_temperature_compensation(
+                                enabled=True
+                            )
+                        )
+                    except Exception:
+                        _LOGGER.exception(
+                            "Low-temperature protection compensation failed while "
+                            "the configuration restore was being cancelled"
+                        )
+                raise
+            except Exception as err:
+                if original_protection and disable_may_have_reached_device:
+                    try:
+                        await (
+                            self._async_cancellation_safe_low_temperature_compensation(
+                                enabled=True
+                            )
+                        )
+                    except Exception as rollback_err:
+                        raise ConfigurationRestoreError(
+                            "Temperature restore failed and low-temperature "
+                            "protection could not be restored: "
+                            f"{rollback_err}"
+                        ) from err
+                raise
+
+        if (
+            LOW_TEMPERATURE_PROTECTION_FIELDS <= self.device.writable_installer_fields
+            and self.data.global_settings.low_temperature_enabled
+            != target.low_temperature_enabled
+        ):
+            await self.async_set_low_temperature_protection_validation(
+                enabled=bool(target.low_temperature_enabled)
+            )
+
+        target_analogue_1 = (
+            target.analogue_input_1_low_action,
+            target.analogue_input_1_high_action,
+            target.analogue_input_1_low_value,
+            target.analogue_input_1_high_value,
+        )
+        if (
+            ANALOGUE_INPUT_1_VALIDATION_FIELDS
+            <= self.device.writable_installer_fields
+        ):
+            for _attempt in range(4):
+                current = self.data.global_settings
+                current_analogue_1 = (
+                    current.analogue_input_1_low_action,
+                    current.analogue_input_1_high_action,
+                    current.analogue_input_1_low_value,
+                    current.analogue_input_1_high_value,
+                )
+                if current_analogue_1 == target_analogue_1:
+                    break
+                step = self._next_valid_profile_step(
+                    current_analogue_1,
+                    target_analogue_1,
+                    validate_analogue_input_1_profile,
+                    name="analogue input 1",
+                )
+                await self.async_set_analogue_input_1_validation(
+                    low_action=step[0],
+                    high_action=step[1],
+                    low_threshold=step[2],
+                    high_threshold=step[3],
+                )
+            else:
+                raise ConfigurationRestoreError(
+                    "Analogue input 1 settings did not converge to the saved profile"
+                )
+
+        target_analogue_2 = (
+            target.analogue_input_2_low_action,
+            target.analogue_input_2_high_action,
+            target.analogue_input_2_low_value,
+            target.analogue_input_2_high_value,
+        )
+        if (
+            ANALOGUE_INPUT_2_VALIDATION_FIELDS
+            <= self.device.writable_installer_fields
+        ):
+            for _attempt in range(4):
+                current = self.data.global_settings
+                current_analogue_2 = (
+                    current.analogue_input_2_low_action,
+                    current.analogue_input_2_high_action,
+                    current.analogue_input_2_low_value,
+                    current.analogue_input_2_high_value,
+                )
+                if current_analogue_2 == target_analogue_2:
+                    break
+                step = self._next_valid_profile_step(
+                    current_analogue_2,
+                    target_analogue_2,
+                    validate_analogue_input_2_profile,
+                    name="analogue input 2",
+                )
+                await self.async_set_analogue_input_2_validation(
+                    low_action=step[0],
+                    high_action=step[1],
+                    low_threshold=step[2],
+                    high_threshold=step[3],
+                )
+            else:
+                raise ConfigurationRestoreError(
+                    "Analogue input 2 settings did not converge to the saved profile"
+                )
+
+        target_digital = (
+            target.digital_input_1_action,
+            target.digital_input_2_action,
+        )
+        if DIGITAL_INPUT_VALIDATION_FIELDS <= self.device.writable_installer_fields:
+            for _attempt in range(2):
+                current = self.data.global_settings
+                current_digital = (
+                    current.digital_input_1_action,
+                    current.digital_input_2_action,
+                )
+                if current_digital == target_digital:
+                    break
+                step = list(current_digital)
+                index = next(
+                    index
+                    for index, values in enumerate(
+                        zip(current_digital, target_digital, strict=True)
+                    )
+                    if values[0] != values[1]
+                )
+                step[index] = target_digital[index]
+                await self.async_set_digital_input_validation(
+                    digital_input_1_action=step[0],
+                    digital_input_2_action=step[1],
+                )
+            else:
+                raise ConfigurationRestoreError(
+                    "Digital input settings did not converge to the saved profile"
+                )
+
+        silent_hours_restored = 0
+        if self.device.supports_silent_hours_management:
+            for index, target_record in enumerate(target_silent_hours):
+                current_record = self.data.silent_hours[index].record
+                current_raw = (
+                    current_record.raw_record if current_record is not None else None
+                )
+                target_raw = (
+                    target_record.raw_record if target_record is not None else None
+                )
+                if current_raw == target_raw:
+                    continue
+                if target_record is None:
+                    await self.async_delete_silent_hour(index)
+                else:
+                    await self.async_set_silent_hour(index, target_record)
+                silent_hours_restored += 1
+
+        remaining = tuple(
+            GLOBAL_SETTING_FIELD_SPECS[field].attribute
+            for field in self.device.writable_installer_fields
+            if getattr(
+                self.data.global_settings,
+                GLOBAL_SETTING_FIELD_SPECS[field].attribute,
+            )
+            != getattr(target, GLOBAL_SETTING_FIELD_SPECS[field].attribute)
+        )
+        if remaining:
+            raise ConfigurationRestoreError(
+                "Restore completed writes but confirmed values still differ for: "
+                + ", ".join(remaining)
+            )
+
+        if self.device.supports_silent_hours_management:
+            confirmed_silent_hours = tuple(
+                slot.record.raw_record if slot.record is not None else None
+                for slot in self.data.silent_hours
+            )
+            expected_silent_hours = tuple(
+                record.raw_record if record is not None else None
+                for record in target_silent_hours
+            )
+            if confirmed_silent_hours != expected_silent_hours:
+                raise ConfigurationRestoreError(
+                    "Restore completed writes but silent-hours readback still differs"
+                )
+
+        return ConfigurationRestoreResult(
+            global_fields_restored=global_fields_restored,
+            silent_hours_restored=silent_hours_restored,
+            raw_record_matches=(
+                self.data.global_settings.raw_record == target.raw_record
+            ),
+        )
+
     async def async_dispatch_hard_reset_from_options(
         self,
     ) -> HardResetDispatchResult:
@@ -423,6 +1247,12 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             raise HardResetUnavailableError(
                 "Current device state is unavailable; wait for a successful poll"
             )
+        active_operation = getattr(self, "_configuration_operation", None)
+        if active_operation is not None:
+            raise HardResetUnavailableError(
+                f"Configuration {active_operation} is in progress; "
+                "hard reset cannot start"
+            )
         if self._hard_reset_dispatch_claimed:
             raise HardResetUnavailableError(
                 "A hard reset has already been claimed for this device session; "
@@ -434,23 +1264,43 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         except UpdateFailed as err:
             raise HardResetUnavailableError(str(err)) from err
 
-        self._hard_reset_baseline_global_settings = self.data.global_settings.raw_record
-        self._hard_reset_baseline_silent_hours = tuple(self.data.silent_hours)
-        baseline_advertisement = bluetooth.async_last_service_info(
-            self.hass,
-            self.config_entry.data[CONF_ADDRESS],
-            connectable=True,
-        )
-        self._hard_reset_baseline_advertisement_time = (
-            baseline_advertisement.time if baseline_advertisement else None
-        )
-
         # Claim synchronously before the first await. Separate options-flow instances
         # share this coordinator, so a sibling flow cannot queue a second packet 61.
         self._hard_reset_dispatch_claimed = True
+        self._configuration_operation = "hard_reset"
+
+        def persist_reset_snapshot(raw_snapshot: MultihomeData) -> None:
+            snapshot = VentaxiaMultihomeCoordinator._localize_data(
+                self, raw_snapshot
+            )
+            self.save_configuration_backup(
+                reason="hard_reset",
+                data=snapshot,
+            )
+            self._hard_reset_baseline_global_settings = (
+                snapshot.global_settings.raw_record
+            )
+            self._hard_reset_baseline_silent_hours = tuple(snapshot.silent_hours)
+            baseline_advertisement = bluetooth.async_last_service_info(
+                self.hass,
+                self.config_entry.data[CONF_ADDRESS],
+                connectable=True,
+            )
+            self._hard_reset_baseline_advertisement_time = (
+                baseline_advertisement.time if baseline_advertisement else None
+            )
 
         try:
-            result = await self.device._dispatch_hard_reset(ble_device)
+            result = await self.device._snapshot_and_dispatch_hard_reset(
+                ble_device,
+                persist_reset_snapshot,
+            )
+        except ConfigurationBackupUnavailableError as err:
+            self._hard_reset_dispatch_claimed = False
+            raise HardResetUnavailableError(
+                "Hard reset requires a fresh restorable configuration backup: "
+                f"{err}"
+            ) from err
         except asyncio.CancelledError:
             if self.device.hard_reset_recovery_pending:
                 self._begin_hard_reset_recovery(delivery_uncertain=True)
@@ -475,6 +1325,18 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             raise HardResetUnavailableError(
                 f"Hard reset was not dispatched: {err}"
             ) from err
+        except Exception as err:
+            # Snapshot/localization/persistence runs before packet 61 while the
+            # device operation lock is held. Any unexpected exception escaping here
+            # is therefore a definite pre-dispatch failure, not uncertain delivery.
+            self._hard_reset_dispatch_claimed = False
+            await self.device.disconnect()
+            raise HardResetUnavailableError(
+                f"Hard reset prerequisite failed before dispatch: {err}"
+            ) from err
+        finally:
+            if self._configuration_operation == "hard_reset":
+                self._configuration_operation = None
 
         self._begin_hard_reset_recovery(delivery_uncertain=False)
         return result

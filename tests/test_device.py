@@ -27,6 +27,7 @@ from custom_components.ventaxia_multihome.device import (
     DeviceError,
     GlobalSettingsUnavailableError,
     GlobalSettingUpdateError,
+    HardResetDispatchResult,
     HardResetDispatchUncertainError,
     MultihomeDevice,
     MultihomeDeviceInfo,
@@ -727,6 +728,53 @@ async def test_internal_hard_reset_reports_reboot_before_ack_as_uncertain() -> N
     assert device._silent_hours_write_ready is False
     assert device.device_info == MultihomeDeviceInfo()
     assert device._hard_reset_recovery_pending is True
+
+
+@pytest.mark.asyncio
+async def test_reset_snapshot_and_packet_61_share_operation_ownership() -> None:
+    """A queued configuration operation cannot land between snapshot and reset."""
+
+    # Arrange - hold the device operation lock as if a settings write is in flight.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    ble_device = object()
+    snapshot = object()
+    expected = HardResetDispatchResult(transport="test")
+    device.connect = AsyncMock()
+    device._read_data = AsyncMock(return_value=snapshot)
+    device._reconcile_override_remaining = Mock(side_effect=lambda data: data)
+    callback_lock_states: list[bool] = []
+
+    def persist_snapshot(data) -> None:
+        assert data is snapshot
+        callback_lock_states.append(device._operation_lock.locked())
+
+    async def dispatch_locked() -> HardResetDispatchResult:
+        assert device._operation_lock.locked()
+        return expected
+
+    device._dispatch_hard_reset_locked = AsyncMock(side_effect=dispatch_locked)
+    await device._operation_lock.acquire()
+
+    # Act - reset queues behind the existing operation, then snapshots and dispatches.
+    task = asyncio.create_task(
+        device._snapshot_and_dispatch_hard_reset(
+            ble_device,
+            persist_snapshot,
+        )
+    )
+    await asyncio.sleep(0)
+    device._read_data.assert_not_awaited()
+    device._operation_lock.release()
+    result = await task
+
+    # Assert - both the persisted snapshot and packet 61 execute under the same lock.
+    assert result is expected
+    assert callback_lock_states == [True]
+    device._read_data.assert_awaited_once_with()
+    device._dispatch_hard_reset_locked.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -1994,6 +2042,66 @@ async def test_low_temperature_protection_rechecks_fresh_record_before_write() -
     device._send.assert_not_awaited()
     assert device.confirmed_global_settings == confirmed
     assert device.global_settings_write_ready is False
+
+
+@pytest.mark.asyncio
+async def test_low_temperature_compensation_reopens_write_gate_from_fresh_read(
+) -> None:
+    """Safety compensation can recover field 16 after readiness was invalidated."""
+
+    # Arrange - simulate a failed prior write with the normal write gate closed.
+    current = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    sent: list[bytes] = []
+    requested: list[bytes] = []
+
+    class ApplyingTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            nonlocal current
+            sent.append(packet)
+            wrapped = decode_data_object_array(decode_packet(packet).payload)
+            assert wrapped.object_id == GlobalSettingField.LOW_TEMPERATURE_ENABLED
+            current = global_settings_after_update(
+                current,
+                GlobalSettingField.LOW_TEMPERATURE_ENABLED,
+                bool(wrapped.payload[0]),
+            )
+
+        async def request(self, packet: bytes) -> bytes:
+            requested.append(packet)
+            return encode_packet(
+                PacketType.GLOBAL_DATA,
+                Operation.RESPONSE,
+                current.raw_record,
+                timestamp=2,
+            )
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._client = DeviceClient([])
+    device._transport = ApplyingTransport()
+    device._authenticated = True
+    device._confirmed_global_settings = current
+    device._global_settings_write_ready = False
+
+    # Act - compensate by fresh-reading first, then enabling field 16.
+    result = await device.compensate_low_temperature_protection(
+        object(), enabled=True
+    )
+
+    # Assert - a fresh baseline reopens the gate before exact write/readback.
+    assert len(requested) == 2
+    assert len(sent) == 1
+    assert result.low_temperature_enabled is True
+    assert device.confirmed_global_settings == result
+    assert device.global_settings_write_ready is True
 
 
 @pytest.mark.parametrize(

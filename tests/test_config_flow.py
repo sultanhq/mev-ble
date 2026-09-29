@@ -52,6 +52,7 @@ from custom_components.ventaxia_multihome.config_flow import (
     CONF_CONFIRM_BOOST_MINIMUM,
     CONF_CONFIRM_CALIBRATION,
     CONF_CONFIRM_COMFORT_MODE,
+    CONF_CONFIRM_CONFIGURATION_RESTORE,
     CONF_CONFIRM_DELAY_OVERRUN,
     CONF_CONFIRM_DIGITAL_INPUT_VALIDATION,
     CONF_CONFIRM_HARD_RESET_WARNING,
@@ -88,6 +89,7 @@ from custom_components.ventaxia_multihome.config_flow import (
     SILENT_HOUR_ACTION_EDIT,
 )
 from custom_components.ventaxia_multihome.const import (
+    CONF_CONFIGURATION_BACKUP,
     CONF_OVERRIDE_DURATION,
     CONF_SETUP_CODE,
     DOMAIN,
@@ -97,6 +99,7 @@ from custom_components.ventaxia_multihome.coordinator import (
     CalibrationCommandNotSentError,
     CalibrationDeliveryUncertainError,
     CalibrationRateLimitedError,
+    ConfigurationRestoreResult,
     HardResetDeliveryUncertainError,
     HardResetRecoveryResult,
     SensorThresholdConfigurationUnavailableError,
@@ -144,6 +147,7 @@ def _options_entry(
     airflow_available: bool = True,
     supports_schedules: bool = False,
     schedules_available: bool = True,
+    configuration_backup: dict[str, object] | None = None,
 ):
     """Create a loaded-looking entry without starting Bluetooth I/O."""
 
@@ -188,6 +192,15 @@ def _options_entry(
             else None
         ),
         last_update_success=airflow_available and schedules_available,
+        configuration_backup=configuration_backup,
+        save_configuration_backup=Mock(return_value=configuration_backup or {}),
+        async_restore_configuration_backup=AsyncMock(
+            return_value=ConfigurationRestoreResult(
+                global_fields_restored=0,
+                silent_hours_restored=0,
+                raw_record_matches=True,
+            )
+        ),
         async_calibrate_internal_co2=AsyncMock(),
         async_dispatch_hard_reset_from_options=AsyncMock(),
         async_wait_for_hard_reset_recovery=AsyncMock(
@@ -218,7 +231,14 @@ def _options_entry(
             CONF_ADDRESS: "70:B3:D5:68:78:D0",
             CONF_SETUP_CODE: 123456,
         },
-        options={CONF_OVERRIDE_DURATION: 1800},
+        options={
+            CONF_OVERRIDE_DURATION: 1800,
+            **(
+                {CONF_CONFIGURATION_BACKUP: configuration_backup}
+                if configuration_backup is not None
+                else {}
+            ),
+        },
         unique_id="70b3d56878d0",
     )
     entry.runtime_data = coordinator
@@ -442,6 +462,143 @@ def _hold_hard_reset_recovery(coordinator, result: HardResetRecoveryResult):
 
     coordinator.async_wait_for_hard_reset_recovery.side_effect = wait_for_recovery
     return release
+
+
+
+@pytest.mark.asyncio
+async def test_configuration_backup_menu_and_capture(hass) -> None:
+    """A fresh device can persist its confirmed configuration from Configure."""
+
+    # Arrange - expose fresh confirmed settings and a persisted backup result.
+    backup = {
+        "version": 1,
+        "captured_at": "2026-09-29T08:00:00+00:00",
+        "identity": {
+            "model_number": 10,
+            "firmware": "2.03.08",
+            "hardware": "01.00",
+        },
+    }
+    entry, coordinator = _options_entry(hass)
+    coordinator.save_configuration_backup.return_value = backup
+
+    def save_backup(*, reason: str):
+        assert reason == "manual"
+        coordinator.configuration_backup = backup
+        return backup
+
+    coordinator.save_configuration_backup.side_effect = save_backup
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+
+    # Act - open Backup configuration and save the current snapshot.
+    form = await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "configuration_backup"}
+    )
+    result = await hass.config_entries.options.async_configure(form["flow_id"], {})
+
+    # Assert - backup is available independently of hard reset and metadata is shown.
+    assert "configuration_backup" in initial["menu_options"]
+    assert "configuration_restore" not in initial["menu_options"]
+    coordinator.save_configuration_backup.assert_called_once_with(reason="manual")
+    assert result["step_id"] == "configuration_backup_result"
+    assert result["description_placeholders"]["firmware"] == "2.03.08"
+
+
+
+@pytest.mark.asyncio
+async def test_fan_options_preserve_configuration_backup(hass) -> None:
+    """Changing an ordinary option cannot discard the persisted recovery backup."""
+
+    # Arrange - load an entry with an existing configuration backup.
+    backup = {
+        "version": 1,
+        "captured_at": "2026-09-29T08:00:00+00:00",
+        "identity": {"model_number": 10},
+    }
+    entry, _coordinator = _options_entry(hass, configuration_backup=backup)
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "fan_options"}
+    )
+
+    # Act - change the unrelated default fan override duration.
+    completed = await hass.config_entries.options.async_configure(
+        form["flow_id"], {CONF_OVERRIDE_DURATION: 900}
+    )
+
+    # Assert - the new value is merged with, rather than replacing, the backup.
+    assert completed["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert completed["data"][CONF_OVERRIDE_DURATION] == 900
+    assert completed["data"][CONF_CONFIGURATION_BACKUP] == backup
+
+
+@pytest.mark.asyncio
+async def test_configuration_restore_requires_confirmation_and_reports_readback(
+    hass,
+) -> None:
+    """Restore is explicit and reports only after the guarded task completes."""
+
+    # Arrange - expose a persisted backup belonging to the connected identity.
+    backup = {
+        "version": 1,
+        "captured_at": "2026-09-29T08:00:00+00:00",
+        "identity": {
+            "model_number": 10,
+            "firmware": "2.03.08",
+            "hardware": "01.00",
+        },
+    }
+    entry, coordinator = _options_entry(hass, configuration_backup=backup)
+    restore_result = ConfigurationRestoreResult(
+        global_fields_restored=3,
+        silent_hours_restored=1,
+        raw_record_matches=True,
+    )
+    release_restore = asyncio.Event()
+
+    async def restore_configuration() -> ConfigurationRestoreResult:
+        await release_restore.wait()
+        return restore_result
+
+    coordinator.async_restore_configuration_backup.side_effect = restore_configuration
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "configuration_restore"}
+    )
+
+    # Act - reject an unchecked confirmation, then explicitly start restore.
+    rejected = await hass.config_entries.options.async_configure(
+        form["flow_id"], {CONF_CONFIRM_CONFIGURATION_RESTORE: False}
+    )
+    progress = await hass.config_entries.options.async_configure(
+        rejected["flow_id"], {CONF_CONFIRM_CONFIGURATION_RESTORE: True}
+    )
+    flow = hass.config_entries.options._progress[progress["flow_id"]]
+    release_restore.set()
+    if task := flow.async_get_progress_task():
+        await task
+    await hass.async_block_till_done()
+    result = hass.config_entries.options.async_get(progress["flow_id"])
+    if (
+        result.get("step_id") == "configuration_restore_result"
+        and "description_placeholders" not in result
+    ):
+        result = await hass.config_entries.options.async_configure(
+            progress["flow_id"]
+        )
+
+    # Assert - no write starts before confirmation and confirmed counts are surfaced.
+    assert "configuration_restore" in initial["menu_options"]
+    assert rejected["errors"] == {
+        "base": "configuration_restore_confirmation_required"
+    }
+    coordinator.async_restore_configuration_backup.assert_awaited_once_with()
+    assert result["step_id"] == "configuration_restore_result"
+    assert result["description_placeholders"]["outcome"] == "Restore confirmed"
+    assert "3 changed global setting field(s)" in (
+        result["description_placeholders"]["detail"]
+    )
+    assert "1 silent-hours slot(s)" in result["description_placeholders"]["detail"]
 
 
 @pytest.mark.asyncio
@@ -2448,7 +2605,7 @@ async def test_calibration_hidden_for_unvalidated_model(hass) -> None:
 
     # Assert - calibration is absent rather than leading to a dead-end screen.
     assert result["type"] is data_entry_flow.FlowResultType.MENU
-    assert result["menu_options"] == ["fan_options"]
+    assert result["menu_options"] == ["fan_options", "configuration_backup"]
     coordinator.async_calibrate_internal_co2.assert_not_awaited()
 
 
