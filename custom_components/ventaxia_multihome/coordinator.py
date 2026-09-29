@@ -1325,6 +1325,15 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             raise HardResetUnavailableError(
                 f"Hard reset was not dispatched: {err}"
             ) from err
+        except Exception as err:
+            # Snapshot/localization/persistence runs before packet 61 while the
+            # device operation lock is held. Any unexpected exception escaping here
+            # is therefore a definite pre-dispatch failure, not uncertain delivery.
+            self._hard_reset_dispatch_claimed = False
+            await self.device.disconnect()
+            raise HardResetUnavailableError(
+                f"Hard reset prerequisite failed before dispatch: {err}"
+            ) from err
         finally:
             if self._configuration_operation == "hard_reset":
                 self._configuration_operation = None
