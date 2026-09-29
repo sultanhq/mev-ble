@@ -534,11 +534,9 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                     f"Configuration {active_operation} is in progress; "
                     "wait for it to finish before creating a manual backup"
                 )
-            if getattr(self, "_hard_reset_dispatch_claimed", False) or getattr(
-                self, "_hard_reset_recovery_mode", False
-            ):
+            if getattr(self, "_hard_reset_recovery_mode", False):
                 raise ConfigurationBackupUnavailableError(
-                    "Hard reset dispatch or recovery owns the device; "
+                    "Hard reset recovery owns the device; "
                     "wait for recovery before creating a manual backup"
                 )
 
@@ -789,11 +787,9 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
     async def async_restore_configuration_backup(self) -> ConfigurationRestoreResult:
         """Own one complete restore so sibling configuration work cannot interleave."""
 
-        if getattr(self, "_hard_reset_dispatch_claimed", False) or getattr(
-            self, "_hard_reset_recovery_mode", False
-        ):
+        if getattr(self, "_hard_reset_recovery_mode", False):
             raise ConfigurationRestoreError(
-                "Hard reset dispatch or recovery has already been claimed; "
+                "Hard reset recovery owns the device; "
                 "configuration restore cannot start"
             )
         active_operation = getattr(self, "_configuration_operation", None)
