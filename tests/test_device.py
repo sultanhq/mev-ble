@@ -1996,6 +1996,66 @@ async def test_low_temperature_protection_rechecks_fresh_record_before_write() -
     assert device.global_settings_write_ready is False
 
 
+@pytest.mark.asyncio
+async def test_low_temperature_compensation_reopens_write_gate_from_fresh_read(
+) -> None:
+    """Safety compensation can recover field 16 after readiness was invalidated."""
+
+    # Arrange - simulate a failed prior write with the normal write gate closed.
+    current = decode_global_settings(
+        bytes.fromhex(
+            "06082532005101000100000001040f19000a0a0103049600af000f4b01030f4b01030103"
+        )
+    )
+    sent: list[bytes] = []
+    requested: list[bytes] = []
+
+    class ApplyingTransport:
+        name = "test"
+
+        async def send(self, packet: bytes) -> None:
+            nonlocal current
+            sent.append(packet)
+            wrapped = decode_data_object_array(decode_packet(packet).payload)
+            assert wrapped.object_id == GlobalSettingField.LOW_TEMPERATURE_ENABLED
+            current = global_settings_after_update(
+                current,
+                GlobalSettingField.LOW_TEMPERATURE_ENABLED,
+                bool(wrapped.payload[0]),
+            )
+
+        async def request(self, packet: bytes) -> bytes:
+            requested.append(packet)
+            return encode_packet(
+                PacketType.GLOBAL_DATA,
+                Operation.RESPONSE,
+                current.raw_record,
+                timestamp=2,
+            )
+
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    device._client = DeviceClient([])
+    device._transport = ApplyingTransport()
+    device._authenticated = True
+    device._confirmed_global_settings = current
+    device._global_settings_write_ready = False
+
+    # Act - compensate by fresh-reading first, then enabling field 16.
+    result = await device.compensate_low_temperature_protection(
+        object(), enabled=True
+    )
+
+    # Assert - a fresh baseline reopens the gate before exact write/readback.
+    assert len(requested) == 2
+    assert len(sent) == 1
+    assert result.low_temperature_enabled is True
+    assert device.confirmed_global_settings == result
+    assert device.global_settings_write_ready is True
+
+
 @pytest.mark.parametrize(
     ("model", "firmware", "hardware", "supported"),
     [
