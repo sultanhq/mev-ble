@@ -1016,6 +1016,35 @@ async def test_restore_waits_for_reset_recovery_but_is_allowed_after_success() -
 
 
 @pytest.mark.asyncio
+async def test_hard_reset_releases_claim_after_unexpected_snapshot_failure() -> None:
+    """Unexpected prerequisite failures remain definite pre-dispatch failures."""
+
+    # Arrange - fail while producing the fresh snapshot, before packet 61 exists.
+    ble_device = object()
+    device = SimpleNamespace(
+        supports_guarded_hard_reset=True,
+        _snapshot_and_dispatch_hard_reset=AsyncMock(
+            side_effect=RuntimeError("snapshot persistence exploded")
+        ),
+        disconnect=AsyncMock(),
+    )
+    coordinator = _reset_dispatch_coordinator(device, ble_device)
+
+    # Act - attempt the guarded reset.
+    with pytest.raises(
+        HardResetUnavailableError,
+        match="prerequisite failed before dispatch",
+    ):
+        await _dispatch_reset(coordinator)
+
+    # Assert - no recovery is claimed and a later fresh reset may be attempted.
+    assert coordinator._hard_reset_dispatch_claimed is False
+    assert coordinator._configuration_operation is None
+    coordinator._begin_hard_reset_recovery.assert_not_called()
+    device.disconnect.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
 async def test_hard_reset_stops_before_packet_61_when_backup_fails() -> None:
     """A destructive reset cannot proceed without a fresh restorable backup."""
 
