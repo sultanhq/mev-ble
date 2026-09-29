@@ -27,6 +27,20 @@ from homeassistant.exceptions import (
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .bluetooth import TransportError
+from .capabilities import (
+    AIRFLOW_FIELDS,
+    ANALOGUE_INPUT_1_VALIDATION_FIELDS,
+    ANALOGUE_INPUT_2_VALIDATION_FIELDS,
+    BOOST_MINIMUM_FIELDS,
+    COMFORT_MODE_FIELDS,
+    DELAY_OVERRUN_FIELDS,
+    DIGITAL_INPUT_VALIDATION_FIELDS,
+    HUMIDITY_RESPONSE_FIELDS,
+    LOW_TEMPERATURE_PROTECTION_FIELDS,
+    LS_ACTION_VALIDATION_FIELDS,
+    SENSOR_THRESHOLD_FIELDS,
+    TEMPERATURE_VALIDATION_FIELDS,
+)
 from .const import (
     CO2_CALIBRATION_COOLDOWN,
     CONF_CONFIGURATION_BACKUP,
@@ -632,41 +646,20 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 "Current silent-hours state is unavailable; wait for a successful poll"
             )
 
-        restorable_fields = {
-            GlobalSettingField.SPEED_LOW,
-            GlobalSettingField.SPEED_MEDIUM,
-            GlobalSettingField.SPEED_BOOST,
-            GlobalSettingField.SPEED_PURGE,
-            GlobalSettingField.BOOST_MINIMUM,
-            GlobalSettingField.HUMIDITY_THRESHOLD,
-            GlobalSettingField.COMFORT_ENABLED,
-            GlobalSettingField.DELAY_ENABLED,
-            GlobalSettingField.OVERRUN_ENABLED,
-            GlobalSettingField.OVERRUN_TIMEOUT_MINUTES,
-            GlobalSettingField.DELAY_TIMEOUT_MINUTES,
-            GlobalSettingField.LS1_ACTION,
-            GlobalSettingField.LS2_ACTION,
-            GlobalSettingField.LS3_ACTION,
-            GlobalSettingField.RAPID_RESPONSE_ENABLED,
-            GlobalSettingField.AMBIENT_RESPONSE_ENABLED,
-            GlobalSettingField.LOW_TEMPERATURE_ENABLED,
-            GlobalSettingField.LOW_THRESHOLD_ACTION,
-            GlobalSettingField.HIGH_THRESHOLD_ACTION,
-            GlobalSettingField.LOW_TEMPERATURE_THRESHOLD,
-            GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD,
-            GlobalSettingField.CO2_BOOST_THRESHOLD,
-            GlobalSettingField.CO2_PURGE_THRESHOLD,
-            GlobalSettingField.ANALOGUE_INPUT_1_LOW_ACTION,
-            GlobalSettingField.ANALOGUE_INPUT_1_HIGH_ACTION,
-            GlobalSettingField.ANALOGUE_INPUT_1_LOW_VALUE,
-            GlobalSettingField.ANALOGUE_INPUT_1_HIGH_VALUE,
-            GlobalSettingField.ANALOGUE_INPUT_2_LOW_ACTION,
-            GlobalSettingField.ANALOGUE_INPUT_2_HIGH_ACTION,
-            GlobalSettingField.ANALOGUE_INPUT_2_LOW_VALUE,
-            GlobalSettingField.ANALOGUE_INPUT_2_HIGH_VALUE,
-            GlobalSettingField.DIGITAL_INPUT_1_ACTION,
-            GlobalSettingField.DIGITAL_INPUT_2_ACTION,
-        }
+        restorable_fields = (
+            AIRFLOW_FIELDS
+            | BOOST_MINIMUM_FIELDS
+            | SENSOR_THRESHOLD_FIELDS
+            | HUMIDITY_RESPONSE_FIELDS
+            | COMFORT_MODE_FIELDS
+            | DELAY_OVERRUN_FIELDS
+            | LS_ACTION_VALIDATION_FIELDS
+            | TEMPERATURE_VALIDATION_FIELDS
+            | LOW_TEMPERATURE_PROTECTION_FIELDS
+            | ANALOGUE_INPUT_1_VALIDATION_FIELDS
+            | ANALOGUE_INPUT_2_VALIDATION_FIELDS
+            | DIGITAL_INPUT_VALIDATION_FIELDS
+        )
         unsupported = self.device.writable_installer_fields - restorable_fields
         if unsupported:
             ids = ", ".join(str(int(field)) for field in sorted(unsupported))
@@ -681,7 +674,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             for field in self.device.writable_installer_fields
         )
 
-        if (
+        if AIRFLOW_FIELDS <= self.device.writable_installer_fields and (
             initial.speed_low,
             initial.speed_medium,
             initial.speed_boost,
@@ -699,11 +692,14 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 purge=target.speed_purge,
             )
 
-        if self.data.global_settings.boost_minimum != target.boost_minimum:
+        if (
+            BOOST_MINIMUM_FIELDS <= self.device.writable_installer_fields
+            and self.data.global_settings.boost_minimum != target.boost_minimum
+        ):
             await self.async_set_boost_minimum(value=target.boost_minimum)
 
         current = self.data.global_settings
-        if (
+        if SENSOR_THRESHOLD_FIELDS <= self.device.writable_installer_fields and (
             current.humidity_threshold,
             current.co2_boost_threshold,
             current.co2_purge_threshold,
@@ -719,7 +715,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             )
 
         current = self.data.global_settings
-        if (
+        if HUMIDITY_RESPONSE_FIELDS <= self.device.writable_installer_fields and (
             current.rapid_response_enabled,
             current.ambient_response_enabled,
         ) != (
@@ -731,30 +727,38 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 ambient=bool(target.ambient_response_enabled),
             )
 
-        if self.data.global_settings.comfort_enabled != target.comfort_enabled:
+        if (
+            COMFORT_MODE_FIELDS <= self.device.writable_installer_fields
+            and self.data.global_settings.comfort_enabled != target.comfort_enabled
+        ):
             await self.async_set_comfort_mode(enabled=bool(target.comfort_enabled))
 
         current = self.data.global_settings
-        if (
-            current.delay_enabled,
+        if DELAY_OVERRUN_FIELDS <= self.device.writable_installer_fields and (
             current.delay_timeout_minutes,
             current.overrun_enabled,
             current.overrun_timeout_minutes,
         ) != (
-            target.delay_enabled,
             target.delay_timeout_minutes,
             target.overrun_enabled,
             target.overrun_timeout_minutes,
         ):
+            # Field 7 (Delay enabled) remains intentionally unvalidated on this
+            # firmware. Preserve its current value while restoring only fields
+            # 8..10 through the already validated grouped setter.
             await self.async_set_delay_overrun(
-                delay_enabled=bool(target.delay_enabled),
+                delay_enabled=bool(current.delay_enabled),
                 delay_minutes=target.delay_timeout_minutes,
                 overrun_enabled=bool(target.overrun_enabled),
                 overrun_minutes=target.overrun_timeout_minutes,
             )
 
         current = self.data.global_settings
-        if (current.ls1_action, current.ls2_action, current.ls3_action) != (
+        if LS_ACTION_VALIDATION_FIELDS <= self.device.writable_installer_fields and (
+            current.ls1_action,
+            current.ls2_action,
+            current.ls3_action,
+        ) != (
             target.ls1_action,
             target.ls2_action,
             target.ls3_action,
@@ -778,8 +782,19 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             current.low_temperature_threshold,
             current.high_temperature_threshold,
         )
-        if current_temperature != target_temperature:
+        if (
+            TEMPERATURE_VALIDATION_FIELDS <= self.device.writable_installer_fields
+            and current_temperature != target_temperature
+        ):
             if current.low_temperature_enabled is not False:
+                if not (
+                    LOW_TEMPERATURE_PROTECTION_FIELDS
+                    <= self.device.writable_installer_fields
+                ):
+                    raise ConfigurationRestoreError(
+                        "Temperature settings require disabling low-temperature "
+                        "protection, but that field is not validated writable"
+                    )
                 await self.async_set_low_temperature_protection_validation(
                     enabled=False
                 )
@@ -816,7 +831,12 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             target.analogue_input_1_low_value,
             target.analogue_input_1_high_value,
         )
-        for _attempt in range(4):
+        for _attempt in (
+            range(4)
+            if ANALOGUE_INPUT_1_VALIDATION_FIELDS
+            <= self.device.writable_installer_fields
+            else range(0)
+        ):
             current = self.data.global_settings
             current_analogue_1 = (
                 current.analogue_input_1_low_action,
@@ -839,9 +859,10 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 high_threshold=step[3],
             )
         else:
-            raise ConfigurationRestoreError(
-                "Analogue input 1 settings did not converge to the saved profile"
-            )
+            if ANALOGUE_INPUT_1_VALIDATION_FIELDS <= self.device.writable_installer_fields:
+                raise ConfigurationRestoreError(
+                    "Analogue input 1 settings did not converge to the saved profile"
+                )
 
         target_analogue_2 = (
             target.analogue_input_2_low_action,
@@ -849,7 +870,12 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             target.analogue_input_2_low_value,
             target.analogue_input_2_high_value,
         )
-        for _attempt in range(4):
+        for _attempt in (
+            range(4)
+            if ANALOGUE_INPUT_2_VALIDATION_FIELDS
+            <= self.device.writable_installer_fields
+            else range(0)
+        ):
             current = self.data.global_settings
             current_analogue_2 = (
                 current.analogue_input_2_low_action,
@@ -872,15 +898,20 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 high_threshold=step[3],
             )
         else:
-            raise ConfigurationRestoreError(
-                "Analogue input 2 settings did not converge to the saved profile"
-            )
+            if ANALOGUE_INPUT_2_VALIDATION_FIELDS <= self.device.writable_installer_fields:
+                raise ConfigurationRestoreError(
+                    "Analogue input 2 settings did not converge to the saved profile"
+                )
 
         target_digital = (
             target.digital_input_1_action,
             target.digital_input_2_action,
         )
-        for _attempt in range(2):
+        for _attempt in (
+            range(2)
+            if DIGITAL_INPUT_VALIDATION_FIELDS <= self.device.writable_installer_fields
+            else range(0)
+        ):
             current = self.data.global_settings
             current_digital = (
                 current.digital_input_1_action,
@@ -902,12 +933,14 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 digital_input_2_action=step[1],
             )
         else:
-            raise ConfigurationRestoreError(
-                "Digital input settings did not converge to the saved profile"
-            )
+            if DIGITAL_INPUT_VALIDATION_FIELDS <= self.device.writable_installer_fields:
+                raise ConfigurationRestoreError(
+                    "Digital input settings did not converge to the saved profile"
+                )
 
         if (
-            self.data.global_settings.low_temperature_enabled
+            LOW_TEMPERATURE_PROTECTION_FIELDS <= self.device.writable_installer_fields
+            and self.data.global_settings.low_temperature_enabled
             != target.low_temperature_enabled
         ):
             await self.async_set_low_temperature_protection_validation(
