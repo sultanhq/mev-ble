@@ -689,8 +689,9 @@ async def test_temperature_restore_recovers_protection_after_write_gate_closes(
         await coordinator.async_restore_configuration_backup()
 
     # Assert - compensation bypasses the closed normal write gate via a fresh read.
-    coordinator.async_set_low_temperature_protection_validation.assert_awaited_once_with(
-        enabled=False
+    (
+        coordinator.async_set_low_temperature_protection_validation
+        .assert_awaited_once_with(enabled=False)
     )
     device.compensate_low_temperature_protection.assert_awaited_once_with(
         ble_device, enabled=True
