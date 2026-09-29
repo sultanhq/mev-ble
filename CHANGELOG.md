@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.7.0-rc.3] - 2026-09-29
+
+### Added
+
+- Add persistent Home Assistant-side configuration backups containing the complete
+  confirmed packet-137 settings record and all six silent-hours slots.
+- Add explicit **Back up configuration** and confirmed **Restore backed-up
+  configuration** Configure actions, with backups retained across reload/restart.
+- Refresh and persist a complete restorable backup automatically immediately before
+  guarded hard-reset dispatch.
+
+### Changed
+
+- Restore only physically validated writable settings through existing guarded
+  setters with exact readback; raw packet-137 records remain evidence/comparison
+  and are never replayed as speculative BLE writes.
+- Bind restore to the same Bluetooth address, model, firmware, hardware, serial
+  when available, and Home Assistant time zone when silent-hours schedules apply.
+- Add safe one-field profile stepping plus cancellation-safe low-temperature
+  protection compensation for temperature-profile restore.
+- Serialize the fresh pre-reset snapshot with packet 61 under one device operation
+  lock, and sample the recovery advertisement boundary inside that serialized
+  pre-dispatch section.
+- Add coordinator-level configuration ownership so restore, manual backup, and hard
+  reset cannot interleave across transient multi-write restore states.
+
+### Safety
+
+- Refuse packet 61 unless a fresh, complete, validated and restorable configuration
+  backup has been persisted immediately before reset.
+- Prevent manual backup or hard reset from capturing the temporary field-16
+  low-temperature-protection state used during temperature restore.
+- Release configuration/reset ownership on cancellation and definite pre-dispatch
+  failures while retaining the one-shot reset claim after dispatch.
+- No automated test sends packet 61, and no physical reset was performed while
+  implementing or reviewing this release candidate.
+
 ## [0.7.0-rc.2] - 2026-09-28
 
 ### Added
