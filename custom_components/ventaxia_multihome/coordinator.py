@@ -947,11 +947,31 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                     "protection, but that field is not validated writable"
                 )
 
+            disable_may_have_reached_device = False
+            disable_attempt_before = getattr(
+                self.device, "last_global_setting_write_attempt", None
+            )
             try:
                 if original_protection:
-                    await self.async_set_low_temperature_protection_validation(
-                        enabled=False
-                    )
+                    try:
+                        await self.async_set_low_temperature_protection_validation(
+                            enabled=False
+                        )
+                    except BaseException:
+                        disable_attempt = getattr(
+                            self.device,
+                            "last_global_setting_write_attempt",
+                            None,
+                        )
+                        disable_may_have_reached_device = (
+                            disable_attempt is not None
+                            and disable_attempt is not disable_attempt_before
+                            and getattr(disable_attempt, "field_id", None) == 16
+                            and getattr(disable_attempt, "requested_value", None) == 0
+                        )
+                        raise
+                    else:
+                        disable_may_have_reached_device = True
                 for _attempt in range(4):
                     current = self.data.global_settings
                     current_temperature = (
@@ -979,7 +999,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                         "Temperature settings did not converge to the saved profile"
                     )
             except asyncio.CancelledError:
-                if original_protection:
+                if original_protection and disable_may_have_reached_device:
                     try:
                         await (
                             self._async_cancellation_safe_low_temperature_compensation(
@@ -993,7 +1013,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                         )
                 raise
             except Exception as err:
-                if original_protection:
+                if original_protection and disable_may_have_reached_device:
                     try:
                         await (
                             self._async_cancellation_safe_low_temperature_compensation(
