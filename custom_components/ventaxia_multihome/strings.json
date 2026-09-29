@@ -395,7 +395,7 @@
       },
       "configuration_backup": {
         "title": "Back up ventilation configuration",
-        "description": "Device: **{device}**\n\nSave the currently confirmed commissioned settings in Home Assistant before a destructive reset or other installer change. The backup includes the complete packet-137 global-settings record and all six silent-hours slots. It is stored with this integration entry and survives an integration reload or Home Assistant restart.\n\nSelecting Submit only saves a snapshot; it does not write anything to the ventilation unit."
+        "description": "Device: **{device}**\\n\\nSave the currently confirmed commissioned settings in Home Assistant before a destructive reset or other installer change. The backup includes the complete packet-137 global-settings record and all six silent-hours slots. It is stored with this integration entry and survives an integration reload or Home Assistant restart.\\n\\nThe complete record is retained for comparison, but restore will write only fields that have been physically validated as writable for this exact device identity. Unvalidated fields are never written speculatively.\\n\\nSelecting Submit only saves a snapshot; it does not write anything to the ventilation unit."
       },
       "configuration_backup_result": {
         "title": "Configuration backup saved",
@@ -403,7 +403,7 @@
       },
       "configuration_restore": {
         "title": "Restore backed-up configuration",
-        "description": "Device: **{device}**\n\nBackup captured: **{captured_at}**\nModel: **{model}**\nFirmware: **{firmware}**\nHardware: **{hardware}**\n\nHome Assistant will restore only fields validated as writable for this exact device identity. Each setting is sent through the existing guarded setter and must be confirmed by fresh readback before restore continues. Silent hours are restored through the timezone-aware schedule path. Raw update packets are never replayed.\n\nIf any write or readback fails, restore stops at that point so the current state can be inspected.",
+        "description": "Device: **{device}**\\n\\nBackup captured: **{captured_at}**\\nModel: **{model}**\\nFirmware: **{firmware}**\\nHardware: **{hardware}**\\n\\nHome Assistant will restore only fields physically validated as writable for this exact device identity. Each setting is sent through the existing guarded setter and must be confirmed by fresh readback before restore continues. Silent hours are restored through the timezone-aware schedule path. Raw update packets are never replayed.\\n\\nValues present in the backup but not validated writable remain comparison evidence only. If any write or readback fails, restore stops at that point so the current state can be inspected.",
         "data": {
           "confirm_configuration_restore": "I have reviewed the backup identity and want to restore the saved configuration"
         }
