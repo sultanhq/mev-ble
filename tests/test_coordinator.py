@@ -429,6 +429,8 @@ def _reset_dispatch_coordinator(device, ble_device):
         data=_reset_data(),
         last_update_success=True,
         _hard_reset_dispatch_claimed=False,
+        _hard_reset_recovery_mode=False,
+        _configuration_operation=None,
         _hard_reset_baseline_global_settings=None,
         _hard_reset_baseline_silent_hours=None,
         _ble_device=lambda: ble_device,
@@ -909,6 +911,110 @@ async def test_temperature_restore_skips_compensation_after_definite_pre_send_fa
 
 
 @pytest.mark.asyncio
+async def test_restore_ownership_blocks_manual_backup_and_hard_reset() -> None:
+    """A restore owns the whole configuration transaction across its awaits."""
+
+    # Arrange - hold a restore body open after coordinator ownership is claimed.
+    coordinator = object.__new__(VentaxiaMultihomeCoordinator)
+    coordinator._hard_reset_dispatch_claimed = False
+    coordinator._hard_reset_recovery_mode = False
+    coordinator._configuration_operation = None
+    coordinator.device = SimpleNamespace(supports_guarded_hard_reset=True)
+    coordinator.data = object()
+    coordinator.last_update_success = True
+    started = asyncio.Event()
+    release = asyncio.Event()
+    expected = object()
+
+    async def owned_restore():
+        started.set()
+        await release.wait()
+        return expected
+
+    coordinator._async_restore_configuration_backup_owned = AsyncMock(
+        side_effect=owned_restore
+    )
+
+    # Act - start restore, then try sibling backup and reset while it is suspended.
+    task = asyncio.create_task(coordinator.async_restore_configuration_backup())
+    await started.wait()
+    with pytest.raises(
+        ConfigurationBackupUnavailableError,
+        match="Configuration restore is in progress",
+    ):
+        coordinator.save_configuration_backup(reason="manual")
+    with pytest.raises(
+        HardResetUnavailableError,
+        match="Configuration restore is in progress",
+    ):
+        await coordinator.async_dispatch_hard_reset_from_options()
+    release.set()
+    result = await task
+
+    # Assert - neither sibling operation can observe a transient restore state.
+    assert result is expected
+    assert coordinator._configuration_operation is None
+    assert coordinator._hard_reset_dispatch_claimed is False
+
+
+@pytest.mark.asyncio
+async def test_restore_ownership_releases_when_restore_is_cancelled() -> None:
+    """Cancellation cannot leave configuration ownership permanently claimed."""
+
+    # Arrange - suspend the owned restore body indefinitely.
+    coordinator = object.__new__(VentaxiaMultihomeCoordinator)
+    coordinator._hard_reset_dispatch_claimed = False
+    coordinator._hard_reset_recovery_mode = False
+    coordinator._configuration_operation = None
+    started = asyncio.Event()
+
+    async def owned_restore():
+        started.set()
+        await asyncio.Event().wait()
+
+    coordinator._async_restore_configuration_backup_owned = AsyncMock(
+        side_effect=owned_restore
+    )
+
+    # Act - cancel after ownership has been established.
+    task = asyncio.create_task(coordinator.async_restore_configuration_backup())
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    # Assert - the finally path releases coordinator-level ownership.
+    assert coordinator._configuration_operation is None
+
+
+@pytest.mark.asyncio
+async def test_restore_waits_for_reset_recovery_but_is_allowed_after_success() -> None:
+    """A consumed reset claim does not prevent post-recovery configuration restore."""
+
+    # Arrange - retain the one-shot reset claim while recovery still owns the device.
+    coordinator = object.__new__(VentaxiaMultihomeCoordinator)
+    coordinator._hard_reset_dispatch_claimed = True
+    coordinator._hard_reset_recovery_mode = True
+    coordinator._configuration_operation = None
+    expected = object()
+    coordinator._async_restore_configuration_backup_owned = AsyncMock(
+        return_value=expected
+    )
+
+    # Act - restore is refused during recovery, then retried after recovery succeeds.
+    with pytest.raises(ConfigurationRestoreError, match="recovery owns the device"):
+        await coordinator.async_restore_configuration_backup()
+    coordinator._hard_reset_recovery_mode = False
+    result = await coordinator.async_restore_configuration_backup()
+
+    # Assert - reset remains non-repeatable while restore becomes available again.
+    assert result is expected
+    assert coordinator._hard_reset_dispatch_claimed is True
+    assert coordinator._configuration_operation is None
+    coordinator._async_restore_configuration_backup_owned.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
 async def test_hard_reset_stops_before_packet_61_when_backup_fails() -> None:
     """A destructive reset cannot proceed without a fresh restorable backup."""
 
@@ -1110,6 +1216,47 @@ async def _dispatch_reset(coordinator, *, baseline_time: float | None = None):
                 coordinator
             )
         )
+
+@pytest.mark.asyncio
+async def test_hard_reset_captures_advertisement_baseline_inside_reset_ownership(
+) -> None:
+    """Recovery boundary is sampled only after the fresh reset snapshot exists."""
+
+    # Arrange - make the device invoke the snapshot callback under reset ownership.
+    ble_device = object()
+    expected = HardResetDispatchResult(transport="test")
+    coordinator_holder = {}
+    observed: list[str] = []
+
+    async def snapshot_and_dispatch(_ble_device, persist_snapshot):
+        coordinator = coordinator_holder["coordinator"]
+        assert coordinator._configuration_operation == "hard_reset"
+        assert coordinator._hard_reset_baseline_advertisement_time is None
+        observed.append("snapshot")
+        persist_snapshot(_reset_data())
+        observed.append("dispatch")
+        assert coordinator._hard_reset_baseline_advertisement_time == 73.25
+        return expected
+
+    device = SimpleNamespace(
+        supports_guarded_hard_reset=True,
+        _snapshot_and_dispatch_hard_reset=AsyncMock(
+            side_effect=snapshot_and_dispatch
+        ),
+        disconnect=AsyncMock(),
+    )
+    coordinator = _reset_dispatch_coordinator(device, ble_device)
+    coordinator_holder["coordinator"] = coordinator
+
+    # Act - dispatch with a deterministic latest advertisement.
+    result = await _dispatch_reset(coordinator, baseline_time=73.25)
+
+    # Assert - the baseline is captured by the serialized snapshot callback.
+    assert result is expected
+    assert observed == ["snapshot", "dispatch"]
+    assert coordinator._hard_reset_baseline_advertisement_time == 73.25
+    assert coordinator._configuration_operation is None
+
 
 @pytest.mark.asyncio
 async def test_hard_reset_options_dispatch_delegates_once_when_fresh() -> None:
