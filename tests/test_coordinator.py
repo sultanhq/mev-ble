@@ -168,7 +168,6 @@ def test_ble_device_reports_unreachable_without_any_known_path(monkeypatch) -> N
     with pytest.raises(UpdateFailed, match="never seen by any scanner"):
         coordinator._ble_device()
 
-
 @pytest.mark.asyncio
 async def test_initial_bluetooth_uses_cached_connectable_path(monkeypatch) -> None:
     """Startup does not wait when HA already knows a connectable route."""
@@ -199,7 +198,6 @@ async def test_initial_bluetooth_uses_cached_connectable_path(monkeypatch) -> No
     assert coordinator._last_ble_device is ble_device
     scanner_count.assert_not_called()
     process_advertisements.assert_not_awaited()
-
 
 @pytest.mark.asyncio
 async def test_initial_bluetooth_waits_for_saved_address(monkeypatch) -> None:
@@ -238,7 +236,6 @@ async def test_initial_bluetooth_waits_for_saved_address(monkeypatch) -> None:
     assert args[4] == STARTUP_ADVERTISEMENT_TIMEOUT
     assert coordinator._last_ble_device is ble_device
 
-
 @pytest.mark.asyncio
 async def test_initial_bluetooth_defers_without_connectable_scanner(
     monkeypatch,
@@ -273,7 +270,6 @@ async def test_initial_bluetooth_defers_without_connectable_scanner(
     with pytest.raises(ConfigEntryNotReady, match="no connectable scanner"):
         await coordinator.async_wait_for_initial_bluetooth()
     process_advertisements.assert_not_awaited()
-
 
 @pytest.mark.asyncio
 async def test_initial_bluetooth_retries_after_advertisement_timeout(
@@ -316,7 +312,6 @@ async def test_initial_bluetooth_retries_after_advertisement_timeout(
     assert process_advertisements.await_count == 2
     assert coordinator._last_ble_device is ble_device
 
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("coordinator_method", "device_method", "arguments"),
@@ -355,7 +350,6 @@ async def test_control_publishes_only_its_fresh_telemetry(
     coordinator.async_set_updated_data.assert_called_once_with(fresh_data)
     coordinator.async_set_update_error.assert_not_called()
     device.disconnect.assert_not_awaited()
-
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -489,7 +483,6 @@ def test_configuration_backup_persists_confirmed_snapshot() -> None:
         },
     )
 
-
 @pytest.mark.asyncio
 async def test_hard_reset_stops_before_packet_61_when_backup_fails() -> None:
     """A destructive reset cannot proceed without a fresh restorable backup."""
@@ -515,7 +508,6 @@ async def test_hard_reset_stops_before_packet_61_when_backup_fails() -> None:
     coordinator._begin_hard_reset_recovery.assert_not_called()
     assert coordinator._hard_reset_dispatch_claimed is False
 
-
 @pytest.mark.asyncio
 async def test_restore_replays_changed_validated_field_with_readback_state() -> None:
     """Restore uses the existing guarded setter rather than replaying raw packets."""
@@ -532,7 +524,7 @@ async def test_restore_replays_changed_validated_field_with_readback_state() -> 
         "time_zone": "Europe/London",
         "identity": {
             "address": "AA:BB",
-        "model_number": 10,
+            "model_number": 10,
             "serial": "TEST-123",
             "firmware": "2.03.08",
             "hardware": "01.00",
@@ -576,7 +568,6 @@ async def test_restore_replays_changed_validated_field_with_readback_state() -> 
     assert coordinator.data.global_settings.raw_record == target.raw_record
 
 
-
 @pytest.mark.asyncio
 async def test_restore_never_writes_unvalidated_delay_enabled_field() -> None:
     """Backed-up field 7 is comparison evidence, not a speculative restore write."""
@@ -593,7 +584,7 @@ async def test_restore_never_writes_unvalidated_delay_enabled_field() -> None:
         "time_zone": "Europe/London",
         "identity": {
             "address": "AA:BB",
-        "model_number": 10,
+            "model_number": 10,
             "serial": "TEST-123",
             "firmware": "2.03.08",
             "hardware": "01.00",
@@ -636,7 +627,6 @@ async def test_restore_never_writes_unvalidated_delay_enabled_field() -> None:
     assert result.raw_record_matches is False
     assert coordinator.data.global_settings.delay_enabled is False
 
-
 @pytest.mark.asyncio
 async def test_restore_rejects_different_device_identity_before_writes() -> None:
     """A backup from another unit cannot be written to the connected unit."""
@@ -650,7 +640,7 @@ async def test_restore_rejects_different_device_identity_before_writes() -> None
         "time_zone": "Europe/London",
         "identity": {
             "address": "AA:BB",
-        "model_number": 10,
+            "model_number": 10,
             "serial": "OTHER-UNIT",
             "firmware": "2.03.08",
             "hardware": "01.00",
@@ -697,7 +687,6 @@ async def _dispatch_reset(coordinator, *, baseline_time: float | None = None):
             )
         )
 
-
 @pytest.mark.asyncio
 async def test_hard_reset_options_dispatch_delegates_once_when_fresh() -> None:
     """The options-only coordinator path delegates one guarded packet-61 dispatch."""
@@ -725,7 +714,6 @@ async def test_hard_reset_options_dispatch_delegates_once_when_fresh() -> None:
     )
     device.disconnect.assert_not_awaited()
 
-
 @pytest.mark.asyncio
 async def test_hard_reset_options_rejects_unsupported_identity() -> None:
     """Unsupported identities cannot resolve a BLE route for hard reset."""
@@ -748,7 +736,6 @@ async def test_hard_reset_options_rejects_unsupported_identity() -> None:
         await _dispatch_reset(coordinator)
     coordinator._ble_device.assert_not_called()
     device._dispatch_hard_reset.assert_not_awaited()
-
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -781,7 +768,6 @@ async def test_hard_reset_options_requires_fresh_coordinator_state(
         await _dispatch_reset(coordinator)
     coordinator._ble_device.assert_not_called()
     device._dispatch_hard_reset.assert_not_awaited()
-
 
 @pytest.mark.asyncio
 async def test_hard_reset_options_rejects_concurrent_sibling_flow() -> None:
@@ -819,7 +805,6 @@ async def test_hard_reset_options_rejects_concurrent_sibling_flow() -> None:
     device._dispatch_hard_reset.assert_awaited_once_with(ble_device)
     device.disconnect.assert_not_awaited()
 
-
 @pytest.mark.asyncio
 async def test_hard_reset_claim_remains_consumed_after_uncertain_delivery() -> None:
     """An uncertain first dispatch prevents a sibling flow from retrying reset."""
@@ -848,7 +833,6 @@ async def test_hard_reset_claim_remains_consumed_after_uncertain_delivery() -> N
         delivery_uncertain=True
     )
     device.disconnect.assert_not_awaited()
-
 
 @pytest.mark.asyncio
 async def test_hard_reset_claim_releases_after_definite_pre_dispatch_failure() -> None:
@@ -886,7 +870,6 @@ async def test_hard_reset_claim_releases_after_definite_pre_dispatch_failure() -
     )
     device.disconnect.assert_awaited_once_with()
 
-
 @pytest.mark.asyncio
 async def test_hard_reset_options_preserves_uncertain_delivery() -> None:
     """A possible reboot before acknowledgement remains explicitly uncertain."""
@@ -910,7 +893,6 @@ async def test_hard_reset_options_preserves_uncertain_delivery() -> None:
         delivery_uncertain=True
     )
     device.disconnect.assert_not_awaited()
-
 
 @pytest.mark.asyncio
 async def test_hard_reset_cancellation_after_possible_send_starts_recovery() -> None:
@@ -937,7 +919,6 @@ async def test_hard_reset_cancellation_after_possible_send_starts_recovery() -> 
         delivery_uncertain=True
     )
     device.disconnect.assert_not_awaited()
-
 
 @pytest.mark.asyncio
 async def test_hard_reset_recovery_waits_for_fresh_advertisement_and_recovers(
@@ -1008,7 +989,6 @@ async def test_hard_reset_recovery_waits_for_fresh_advertisement_and_recovers(
     coordinator.async_set_updated_data.assert_called_once_with(recovered)
     coordinator.async_set_update_error.assert_not_called()
 
-
 @pytest.mark.asyncio
 async def test_hard_reset_recovery_surfaces_configuration_change(
     monkeypatch,
@@ -1057,7 +1037,6 @@ async def test_hard_reset_recovery_surfaces_configuration_change(
     assert coordinator._hard_reset_recovery_mode is False
     coordinator.async_set_updated_data.assert_called_once_with(recovered)
 
-
 @pytest.mark.asyncio
 async def test_hard_reset_recovery_requires_repair_after_setup_code_rejection(
     monkeypatch,
@@ -1102,7 +1081,6 @@ async def test_hard_reset_recovery_requires_repair_after_setup_code_rejection(
     assert coordinator.device.disconnect.await_count == 2
     coordinator.async_set_updated_data.assert_not_called()
     coordinator.async_set_update_error.assert_called_once()
-
 
 @pytest.mark.asyncio
 async def test_hard_reset_recovery_timeout_is_bounded_and_actionable(
@@ -1150,7 +1128,6 @@ async def test_hard_reset_recovery_timeout_is_bounded_and_actionable(
     coordinator.async_set_updated_data.assert_not_called()
     coordinator.async_set_update_error.assert_called_once()
 
-
 @pytest.mark.asyncio
 async def test_normal_polling_is_suppressed_while_reset_recovery_owns_route() -> None:
     """The 10-second coordinator poll cannot race reset reboot recovery."""
@@ -1168,7 +1145,6 @@ async def test_normal_polling_is_suppressed_while_reset_recovery_owns_route() ->
     coordinator._ble_device.assert_not_called()
     coordinator.device.update.assert_not_awaited()
     coordinator.device.disconnect.assert_not_awaited()
-
 
 @pytest.mark.asyncio
 async def test_hard_reset_shutdown_cancels_recovery_before_disconnect() -> None:
@@ -1194,7 +1170,6 @@ async def test_hard_reset_shutdown_cancels_recovery_before_disconnect() -> None:
     # Assert - recovery is cancelled before the device is disconnected.
     assert task.cancelled()
     coordinator.device.disconnect.assert_awaited_once_with()
-
 
 @pytest.mark.asyncio
 async def test_airflow_profile_publishes_only_confirmed_settings() -> None:
@@ -1240,7 +1215,6 @@ async def test_airflow_profile_publishes_only_confirmed_settings() -> None:
     coordinator.async_set_update_error.assert_not_called()
     device.disconnect.assert_not_awaited()
 
-
 @pytest.mark.asyncio
 async def test_airflow_profile_rejects_unsupported_model_before_bluetooth() -> None:
     """Unknown models cannot reach packet-136 writes through the coordinator."""
@@ -1265,7 +1239,6 @@ async def test_airflow_profile_rejects_unsupported_model_before_bluetooth() -> N
         )
     coordinator._ble_device.assert_not_called()
     device.set_airflow_profile.assert_not_awaited()
-
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -1301,7 +1274,6 @@ async def test_airflow_profile_requires_current_writable_snapshot(
         )
     coordinator._ble_device.assert_not_called()
     device.set_airflow_profile.assert_not_awaited()
-
 
 @pytest.mark.asyncio
 async def test_sensor_thresholds_publish_only_confirmed_settings() -> None:
@@ -1350,7 +1322,6 @@ async def test_sensor_thresholds_publish_only_confirmed_settings() -> None:
     assert published.system is current.system
     coordinator.async_set_update_error.assert_not_called()
 
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("supported", "data", "last_success", "write_ready", "error"),
@@ -1386,7 +1357,6 @@ async def test_sensor_thresholds_reject_unsupported_or_stale_state_before_io(
         )
     coordinator._ble_device.assert_not_called()
     device.set_sensor_thresholds.assert_not_awaited()
-
 
 @pytest.mark.asyncio
 async def test_humidity_response_publishes_only_confirmed_settings() -> None:
@@ -1430,7 +1400,6 @@ async def test_humidity_response_publishes_only_confirmed_settings() -> None:
     assert published.zone is current.zone
     assert published.system is current.system
 
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("supported", "data", "last_success", "write_ready", "error"),
@@ -1473,7 +1442,6 @@ async def test_humidity_response_rejects_unsupported_or_stale_state_before_io(
     coordinator._ble_device.assert_not_called()
     device.set_humidity_response.assert_not_awaited()
 
-
 @pytest.mark.asyncio
 async def test_comfort_mode_publishes_only_confirmed_settings() -> None:
     """A successful Comfort operation publishes its exact readback."""
@@ -1510,7 +1478,6 @@ async def test_comfort_mode_publishes_only_confirmed_settings() -> None:
     published = coordinator.async_set_updated_data.call_args.args[0]
     assert published.global_settings is confirmed
     assert published.zone is current.zone
-
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -1553,7 +1520,6 @@ async def test_comfort_mode_rejects_unsupported_or_stale_state_before_io(
         )
     coordinator._ble_device.assert_not_called()
     device.set_comfort_mode.assert_not_awaited()
-
 
 @pytest.mark.asyncio
 async def test_delay_failure_preserves_confirmed_entity_availability() -> None:
@@ -1632,7 +1598,6 @@ async def test_delay_rejects_unsupported_or_stale_state_before_io(
     coordinator._ble_device.assert_not_called()
     device.set_delay_overrun.assert_not_awaited()
 
-
 @pytest.mark.asyncio
 async def test_temperature_validation_publishes_only_confirmed_settings() -> None:
     """A successful temperature operation publishes its exact readback."""
@@ -1682,7 +1647,6 @@ async def test_temperature_validation_publishes_only_confirmed_settings() -> Non
     assert published.global_settings is confirmed
     assert published.zone is current.zone
 
-
 @pytest.mark.asyncio
 async def test_ls_action_validation_publishes_only_confirmed_settings() -> None:
     """A successful LS operation publishes only its exact readback snapshot."""
@@ -1723,7 +1687,6 @@ async def test_ls_action_validation_publishes_only_confirmed_settings() -> None:
     published = coordinator.async_set_updated_data.call_args.args[0]
     assert published.global_settings is confirmed
     assert published.zone is current.zone
-
 
 @pytest.mark.asyncio
 async def test_analogue_input_1_validation_publishes_only_confirmed_settings() -> None:
@@ -1773,7 +1736,6 @@ async def test_analogue_input_1_validation_publishes_only_confirmed_settings() -
     published = coordinator.async_set_updated_data.call_args.args[0]
     assert published.global_settings is confirmed
     assert published.zone is current.zone
-
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -1869,7 +1831,6 @@ async def test_analogue_input_2_validation_publishes_only_confirmed_settings() -
     assert published.global_settings is confirmed
     assert published.zone is current.zone
 
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("supported", "data", "last_success", "write_ready", "error"),
@@ -1916,7 +1877,6 @@ async def test_analogue_input_2_validation_rejects_stale_state_before_io(
     coordinator._ble_device.assert_not_called()
     device.set_analogue_input_2_validation.assert_not_awaited()
 
-
 @pytest.mark.asyncio
 async def test_digital_input_validation_publishes_only_confirmed_settings() -> None:
     """A successful digital-input write publishes only exact device readback."""
@@ -1962,7 +1922,6 @@ async def test_digital_input_validation_publishes_only_confirmed_settings() -> N
     assert published.global_settings is confirmed
     assert published.zone is current.zone
 
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("supported", "data", "last_success", "write_ready", "error"),
@@ -2000,7 +1959,6 @@ async def test_digital_input_validation_rejects_stale_state_before_io(
         )
     coordinator._ble_device.assert_not_called()
     device.set_digital_input_validation.assert_not_awaited()
-
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -2041,7 +1999,6 @@ async def test_temperature_validation_rejects_unsupported_or_stale_state_before_
         )
     coordinator._ble_device.assert_not_called()
     device.set_temperature_threshold_validation.assert_not_awaited()
-
 
 @pytest.mark.asyncio
 async def test_low_temperature_protection_publishes_confirmed_settings() -> None:
@@ -2085,7 +2042,6 @@ async def test_low_temperature_protection_publishes_confirmed_settings() -> None
     published = coordinator.async_set_updated_data.call_args.args[0]
     assert published.global_settings is confirmed
     assert published.zone is current.zone
-
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
@@ -2149,7 +2105,6 @@ async def test_low_temperature_protection_rejects_stale_state_before_io(
     coordinator._ble_device.assert_not_called()
     device.set_low_temperature_protection_validation.assert_not_awaited()
 
-
 @pytest.mark.asyncio
 async def test_silent_hour_publishes_only_confirmed_full_table() -> None:
     """A successful schedule update replaces only the schedule snapshot."""
@@ -2194,7 +2149,6 @@ async def test_silent_hour_publishes_only_confirmed_full_table() -> None:
     assert published.zone is current.zone
     coordinator.async_set_update_error.assert_not_called()
 
-
 @pytest.mark.asyncio
 async def test_silent_hour_delete_uses_same_guarded_publish_path() -> None:
     """Deletion publishes the complete readback returned by the device."""
@@ -2231,7 +2185,6 @@ async def test_silent_hour_delete_uses_same_guarded_publish_path() -> None:
     device.delete_silent_hour.assert_awaited_once()
     published = coordinator.async_set_updated_data.call_args.args[0]
     assert published.silent_hours is confirmed
-
 
 @pytest.mark.asyncio
 async def test_silent_hours_rejects_unsupported_or_unavailable_before_ble() -> None:
@@ -2276,7 +2229,6 @@ async def test_silent_hours_rejects_unsupported_or_unavailable_before_ble() -> N
     unsupported._ble_device.assert_not_called()
     stale._ble_device.assert_not_called()
 
-
 @pytest.mark.asyncio
 async def test_airflow_profile_maps_device_snapshot_loss_to_unavailable() -> None:
     """A snapshot invalidated inside the serialized operation is not success."""
@@ -2308,7 +2260,6 @@ async def test_airflow_profile_maps_device_snapshot_loss_to_unavailable() -> Non
     coordinator.async_set_update_error.assert_not_called()
     device.disconnect.assert_not_awaited()
 
-
 @pytest.mark.asyncio
 async def test_calibration_uses_validated_device_and_reference(monkeypatch) -> None:
     """A valid calibration command reaches the device exactly once."""
@@ -2339,7 +2290,6 @@ async def test_calibration_uses_validated_device_and_reference(monkeypatch) -> N
     device.calibrate_internal_co2.assert_awaited_once_with(ble_device, 400)
     device.disconnect.assert_not_awaited()
 
-
 @pytest.mark.asyncio
 async def test_calibration_is_rate_limited_before_bluetooth(monkeypatch) -> None:
     """Repeated calibration attempts cannot hammer or restart the sensor."""
@@ -2366,7 +2316,6 @@ async def test_calibration_is_rate_limited_before_bluetooth(monkeypatch) -> None
         )
     device.calibrate_internal_co2.assert_not_awaited()
 
-
 @pytest.mark.asyncio
 async def test_calibration_rejects_unvalidated_model_before_bluetooth() -> None:
     """The coordinator does not guess an internal sensor target."""
@@ -2391,7 +2340,6 @@ async def test_calibration_rejects_unvalidated_model_before_bluetooth() -> None:
             coordinator, 400
         )
     device.calibrate_internal_co2.assert_not_awaited()
-
 
 @pytest.mark.asyncio
 async def test_uncertain_calibration_delivery_retains_cooldown(monkeypatch) -> None:
@@ -2427,7 +2375,6 @@ async def test_uncertain_calibration_delivery_retains_cooldown(monkeypatch) -> N
     device.disconnect.assert_awaited_once()
     device.calibrate_internal_co2.assert_awaited_once()
 
-
 @pytest.mark.asyncio
 async def test_prewrite_calibration_failure_does_not_start_cooldown(
     monkeypatch,
@@ -2462,7 +2409,6 @@ async def test_prewrite_calibration_failure_does_not_start_cooldown(
     assert coordinator._last_calibration_attempt is None
     assert coordinator.last_calibration_outcome == "not_sent"
     device.disconnect.assert_awaited_once()
-
 
 @pytest.mark.asyncio
 async def test_polling_recovers_after_failed_calibration(monkeypatch) -> None:
@@ -2501,7 +2447,6 @@ async def test_polling_recovers_after_failed_calibration(monkeypatch) -> None:
     device.disconnect.assert_awaited_once()
     device.update.assert_awaited_once_with(ble_device)
     assert result is fresh_data
-
 
 @pytest.mark.asyncio
 async def test_polling_continues_after_successful_calibration(monkeypatch) -> None:
