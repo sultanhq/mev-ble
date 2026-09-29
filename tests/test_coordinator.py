@@ -412,6 +412,16 @@ def _reset_data(raw: str = "06082532") -> MultihomeData:
 def _reset_dispatch_coordinator(device, ble_device):
     """Return the coordinator subset used by hard-reset dispatch tests."""
 
+    if not hasattr(device, "_snapshot_and_dispatch_hard_reset"):
+
+        async def snapshot_and_dispatch(_ble_device, persist_snapshot):
+            persist_snapshot(_reset_data())
+            return await device._dispatch_hard_reset(_ble_device)
+
+        device._snapshot_and_dispatch_hard_reset = AsyncMock(
+            side_effect=snapshot_and_dispatch
+        )
+
     return SimpleNamespace(
         hass=object(),
         config_entry=SimpleNamespace(data={CONF_ADDRESS: "AA:BB"}),
@@ -419,6 +429,8 @@ def _reset_dispatch_coordinator(device, ble_device):
         data=_reset_data(),
         last_update_success=True,
         _hard_reset_dispatch_claimed=False,
+        _hard_reset_baseline_global_settings=None,
+        _hard_reset_baseline_silent_hours=None,
         _ble_device=lambda: ble_device,
         save_configuration_backup=Mock(return_value={}),
         _begin_hard_reset_recovery=Mock(),
@@ -808,6 +820,95 @@ async def test_temperature_restore_compensates_before_propagating_cancellation(
     assert coordinator.data.global_settings.low_temperature_enabled is True
 
 @pytest.mark.asyncio
+async def test_temperature_restore_skips_compensation_after_definite_pre_send_failure(
+) -> None:
+    """A rejected disable precondition never reverses another actor's change."""
+
+    # Arrange - field 16 changes concurrently before our disable can be sent.
+    current = _reset_data()
+    current_settings = replace(
+        current.global_settings,
+        low_temperature_enabled=True,
+    )
+    current = replace(current, global_settings=current_settings)
+    target_raw = bytearray(current_settings.raw_record)
+    target_raw[11] = 1
+    target_raw[14] = 16
+    target = decode_global_settings(bytes(target_raw))
+    backup = {
+        "version": 1,
+        "reason": "hard_reset",
+        "captured_at": current.last_successful_update.isoformat(),
+        "time_zone": "Europe/London",
+        "identity": {
+            "address": "AA:BB",
+            "model_number": 10,
+            "serial": "TEST-123",
+            "firmware": "2.03.08",
+            "hardware": "01.00",
+        },
+        "global_settings": target.raw_record.hex(),
+        "silent_hours": [],
+    }
+    previous_attempt = object()
+    device = SimpleNamespace(
+        model_number=10,
+        device_info=SimpleNamespace(
+            serial="TEST-123",
+            firmware="2.03.08",
+            hardware="01.00",
+        ),
+        writable_installer_fields=frozenset(
+            {
+                GlobalSettingField.LOW_TEMPERATURE_ENABLED,
+                GlobalSettingField.LOW_THRESHOLD_ACTION,
+                GlobalSettingField.HIGH_THRESHOLD_ACTION,
+                GlobalSettingField.LOW_TEMPERATURE_THRESHOLD,
+                GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD,
+            }
+        ),
+        global_settings_write_ready=True,
+        supports_silent_hours_management=False,
+        last_global_setting_write_attempt=previous_attempt,
+        compensate_low_temperature_protection=AsyncMock(),
+    )
+    coordinator = object.__new__(VentaxiaMultihomeCoordinator)
+    coordinator.config_entry = SimpleNamespace(
+        data={CONF_ADDRESS: "AA:BB"},
+        options={CONF_CONFIGURATION_BACKUP: backup},
+    )
+    coordinator.device = device
+    coordinator.data = current
+    coordinator.last_update_success = True
+
+    async def reject_disable(*, enabled: bool) -> None:
+        assert enabled is False
+        coordinator.data = replace(
+            coordinator.data,
+            global_settings=replace(
+                coordinator.data.global_settings,
+                low_temperature_enabled=False,
+            ),
+        )
+        raise HomeAssistantError(
+            "global settings changed before the protection write; no update was sent"
+        )
+
+    coordinator.async_set_low_temperature_protection_validation = AsyncMock(
+        side_effect=reject_disable
+    )
+
+    # Act - the guarded disable rejects before creating a field-16 write attempt.
+    with pytest.raises(HomeAssistantError, match="no update was sent"):
+        await coordinator.async_restore_configuration_backup()
+
+    # Assert - our restore does not undo the concurrent confirmed field-16 change.
+    assert device.last_global_setting_write_attempt is previous_attempt
+    device.compensate_low_temperature_protection.assert_not_awaited()
+    assert coordinator.data.global_settings.low_temperature_enabled is False
+
+
+@pytest.mark.asyncio
 async def test_hard_reset_stops_before_packet_61_when_backup_fails() -> None:
     """A destructive reset cannot proceed without a fresh restorable backup."""
 
@@ -1030,7 +1131,10 @@ async def test_hard_reset_options_dispatch_delegates_once_when_fresh() -> None:
     # Assert - dispatch retains the pre-reset advertisement boundary for recovery.
     assert result is expected
     assert coordinator._hard_reset_baseline_advertisement_time == 42.5
-    coordinator.save_configuration_backup.assert_called_once_with(reason="hard_reset")
+    assert coordinator.save_configuration_backup.call_count == 1
+    backup_call = coordinator.save_configuration_backup.call_args
+    assert backup_call.kwargs["reason"] == "hard_reset"
+    assert isinstance(backup_call.kwargs["data"], MultihomeData)
     device._dispatch_hard_reset.assert_awaited_once_with(ble_device)
     coordinator._begin_hard_reset_recovery.assert_called_once_with(
         delivery_uncertain=False
