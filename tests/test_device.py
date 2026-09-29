@@ -730,6 +730,53 @@ async def test_internal_hard_reset_reports_reboot_before_ack_as_uncertain() -> N
 
 
 @pytest.mark.asyncio
+async def test_reset_snapshot_and_packet_61_share_operation_ownership() -> None:
+    """A queued configuration operation cannot land between snapshot and reset."""
+
+    # Arrange - hold the device operation lock as if a settings write is in flight.
+    device = MultihomeDevice("AA", "MEV", 1234)
+    device.device_info = MultihomeDeviceInfo(
+        model="10", firmware="2.03.08", hardware="01.00"
+    )
+    ble_device = object()
+    snapshot = object()
+    expected = HardResetDispatchResult(transport="test")
+    device.connect = AsyncMock()
+    device._read_data = AsyncMock(return_value=snapshot)
+    device._reconcile_override_remaining = Mock(side_effect=lambda data: data)
+    callback_lock_states: list[bool] = []
+
+    def persist_snapshot(data) -> None:
+        assert data is snapshot
+        callback_lock_states.append(device._operation_lock.locked())
+
+    async def dispatch_locked() -> HardResetDispatchResult:
+        assert device._operation_lock.locked()
+        return expected
+
+    device._dispatch_hard_reset_locked = AsyncMock(side_effect=dispatch_locked)
+    await device._operation_lock.acquire()
+
+    # Act - reset queues behind the existing operation, then snapshots and dispatches.
+    task = asyncio.create_task(
+        device._snapshot_and_dispatch_hard_reset(
+            ble_device,
+            persist_snapshot,
+        )
+    )
+    await asyncio.sleep(0)
+    device._read_data.assert_not_awaited()
+    device._operation_lock.release()
+    result = await task
+
+    # Assert - both the persisted snapshot and packet 61 execute under the same lock.
+    assert result is expected
+    assert callback_lock_states == [True]
+    device._read_data.assert_awaited_once_with()
+    device._dispatch_hard_reset_locked.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
 async def test_internal_hard_reset_cancellation_invalidates_then_propagates() -> None:
     """Cancellation after reset write invalidates state without hiding cancellation."""
 
