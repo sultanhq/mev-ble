@@ -27,6 +27,7 @@ from custom_components.ventaxia_multihome.device import (
     DeviceError,
     GlobalSettingsUnavailableError,
     GlobalSettingUpdateError,
+    HardResetDispatchResult,
     HardResetDispatchUncertainError,
     MultihomeDevice,
     MultihomeDeviceInfo,
