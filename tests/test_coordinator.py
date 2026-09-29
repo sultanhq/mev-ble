@@ -574,6 +574,66 @@ async def test_restore_replays_changed_validated_field_with_readback_state() -> 
     assert coordinator.data.global_settings.raw_record == target.raw_record
 
 
+
+@pytest.mark.asyncio
+async def test_restore_never_writes_unvalidated_delay_enabled_field() -> None:
+    """Backed-up field 7 is comparison evidence, not a speculative restore write."""
+
+    # Arrange - change only field 7 while exposing validated timer fields 8..10.
+    current = _reset_data()
+    target_raw = bytearray(current.global_settings.raw_record)
+    target_raw[7] = 1
+    target = decode_global_settings(bytes(target_raw))
+    backup = {
+        "version": 1,
+        "reason": "hard_reset",
+        "captured_at": current.last_successful_update.isoformat(),
+        "time_zone": "Europe/London",
+        "identity": {
+            "model_number": 10,
+            "serial": "TEST-123",
+            "firmware": "2.03.08",
+            "hardware": "01.00",
+        },
+        "global_settings": target.raw_record.hex(),
+        "silent_hours": [],
+    }
+    coordinator = object.__new__(VentaxiaMultihomeCoordinator)
+    coordinator.config_entry = SimpleNamespace(
+        data={CONF_ADDRESS: "AA:BB"},
+        options={CONF_CONFIGURATION_BACKUP: backup},
+    )
+    coordinator.device = SimpleNamespace(
+        model_number=10,
+        device_info=SimpleNamespace(
+            serial="TEST-123",
+            firmware="2.03.08",
+            hardware="01.00",
+        ),
+        writable_installer_fields=frozenset(
+            {
+                GlobalSettingField.OVERRUN_ENABLED,
+                GlobalSettingField.OVERRUN_TIMEOUT_MINUTES,
+                GlobalSettingField.DELAY_TIMEOUT_MINUTES,
+            }
+        ),
+        global_settings_write_ready=True,
+        supports_silent_hours_management=False,
+    )
+    coordinator.data = current
+    coordinator.last_update_success = True
+    coordinator.async_set_delay_overrun = AsyncMock()
+
+    # Act - restore against a backup whose only difference is unvalidated field 7.
+    result = await coordinator.async_restore_configuration_backup()
+
+    # Assert - field 7 is not written; the raw mismatch remains visible to recovery.
+    coordinator.async_set_delay_overrun.assert_not_awaited()
+    assert result.global_fields_restored == 0
+    assert result.raw_record_matches is False
+    assert coordinator.data.global_settings.delay_enabled is False
+
+
 @pytest.mark.asyncio
 async def test_restore_rejects_different_device_identity_before_writes() -> None:
     """A backup from another unit cannot be written to the connected unit."""
