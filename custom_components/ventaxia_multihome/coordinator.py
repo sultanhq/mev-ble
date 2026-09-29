@@ -70,7 +70,6 @@ from .protocol import (
     MAX_CO2_CALIBRATION_REFERENCE,
     MIN_CO2_CALIBRATION_REFERENCE,
     AirflowPreset,
-    GlobalSettingField,
     GlobalSettings,
     ProtocolError,
     SilentHour,
