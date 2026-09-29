@@ -56,7 +56,9 @@
           "analogue_input_1_validation": "Configure analogue input 1",
           "analogue_input_2_validation": "Configure analogue input 2",
           "digital_input_validation": "Configure digital input actions",
-          "hard_reset": "Hard reset ventilation unit"
+          "hard_reset": "Hard reset ventilation unit",
+          "configuration_backup": "Back up configuration",
+          "configuration_restore": "Restore backed-up configuration"
         }
       },
       "fan_options": {
@@ -390,11 +392,31 @@
       "hard_reset_recovery_result": {
         "title": "Hard reset recovery result",
         "description": "Device: **{device}**\n\nRecovery result: **{outcome}**\n\n{detail}\n\n{delivery_status}\n\nDo not resend the reset from this flow. If recovery requires pairing, reload/re-authenticate only after putting the unit into physical pairing mode."
+      },
+      "configuration_backup": {
+        "title": "Back up ventilation configuration",
+        "description": "Device: **{device}**\n\nSave the currently confirmed commissioned settings in Home Assistant before a destructive reset or other installer change. The backup includes the complete packet-137 global-settings record and all six silent-hours slots. It is stored with this integration entry and survives an integration reload or Home Assistant restart.\n\nSelecting Submit only saves a snapshot; it does not write anything to the ventilation unit."
+      },
+      "configuration_backup_result": {
+        "title": "Configuration backup saved",
+        "description": "A restorable snapshot for **{device}** is now stored in Home Assistant.\n\nCaptured: **{captured_at}**\nModel: **{model}**\nFirmware: **{firmware}**\nHardware: **{hardware}**\n\nA guarded hard reset will refresh this backup again immediately before packet 61 is sent."
+      },
+      "configuration_restore": {
+        "title": "Restore backed-up configuration",
+        "description": "Device: **{device}**\n\nBackup captured: **{captured_at}**\nModel: **{model}**\nFirmware: **{firmware}**\nHardware: **{hardware}**\n\nHome Assistant will restore only fields validated as writable for this exact device identity. Each setting is sent through the existing guarded setter and must be confirmed by fresh readback before restore continues. Silent hours are restored through the timezone-aware schedule path. Raw update packets are never replayed.\n\nIf any write or readback fails, restore stops at that point so the current state can be inspected.",
+        "data": {
+          "confirm_configuration_restore": "I have reviewed the backup identity and want to restore the saved configuration"
+        }
+      },
+      "configuration_restore_result": {
+        "title": "Configuration restore result",
+        "description": "Device: **{device}**\n\nResult: **{outcome}**\n\n{detail}"
       }
     },
     "progress": {
       "calibration_sampling": "At 100%, the sampling period has elapsed and this screen can be closed",
-      "hard_reset_recovery": "Waiting for a fresh Bluetooth advertisement and one controlled reconnect. Do not retry the reset."
+      "hard_reset_recovery": "Waiting for a fresh Bluetooth advertisement and one controlled reconnect. Do not retry the reset.",
+      "configuration_restore": "Restoring validated settings with exact readback after each change. Do not change installer settings until this completes."
     },
     "error": {
       "calibration_failed": "The calibration command failed unexpectedly. No success was recorded.",
@@ -478,7 +500,8 @@
       "digital_input_validation_unavailable": "Digital input validation requires a fresh record containing recognised actions. No setting was changed.",
       "digital_input_validation_update_failed": "The one-field digital input update or its exact readback failed. Reopen the flow and inspect both current actions.",
       "hard_reset_warning_required": "Acknowledge the destructive reset and recovery warning before continuing.",
-      "hard_reset_phrase_mismatch": "The confirmation phrase does not match exactly. No reset was sent."
+      "hard_reset_phrase_mismatch": "The confirmation phrase does not match exactly. No reset was sent.",
+      "configuration_restore_confirmation_required": "Confirm that you want to write the backed-up commissioned configuration to the unit."
     },
     "abort": {
       "airflow_not_supported": "Airflow configuration is not validated for this model, firmware, and hardware. No setting was changed.",
@@ -507,7 +530,9 @@
       "digital_input_validation_unavailable": "Digital input validation requires recognised current values and a fresh settings record. No setting was changed.",
       "hard_reset_not_supported": "Hard reset is not enabled for this exact model, firmware, and hardware. No reset was sent.",
       "hard_reset_unavailable": "Current device state is unavailable or stale. No reset was sent. Wait for a successful update and start a new Configure flow.",
-      "hard_reset_confirmation_consumed": "This one-time reset confirmation has already been consumed. No additional reset was sent; start a new Configure flow only if another reset is genuinely required."
+      "hard_reset_confirmation_consumed": "This one-time reset confirmation has already been consumed. No additional reset was sent; start a new Configure flow only if another reset is genuinely required.",
+      "configuration_backup_unavailable": "A complete restorable snapshot could not be captured from the currently confirmed device state. Wait for a successful poll and try again.",
+      "configuration_backup_missing": "No persisted configuration backup is available for this integration entry."
     }
   },
   "selector": {
