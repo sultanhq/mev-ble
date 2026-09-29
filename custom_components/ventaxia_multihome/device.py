@@ -1261,6 +1261,48 @@ class MultihomeDevice:
             )
             return await self._set_global_setting_locked(field, value)
 
+    async def compensate_low_temperature_protection(
+        self,
+        ble_device: BLEDevice,
+        *,
+        enabled: bool,
+    ) -> GlobalSettings:
+        """Fresh-read and recover field 16 after prior write readiness was lost."""
+
+        if not self.supports_low_temperature_protection_validation:
+            raise DeviceError(
+                "low-temperature protection validation is not enabled for this "
+                "model, firmware, and hardware"
+            )
+        if not isinstance(enabled, bool):
+            raise ProtocolError("low-temperature protection requires a boolean value")
+
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            fresh = decode_global_settings(
+                (
+                    await self._request(
+                        PacketType.GLOBAL_DATA,
+                        Operation.DATA_REQUEST,
+                    )
+                ).payload
+            )
+            if fresh.low_temperature_enabled is None:
+                self._global_settings_write_ready = False
+                raise GlobalSettingUpdateError(
+                    "fresh low-temperature protection state is unavailable"
+                )
+
+            self._confirmed_global_settings = fresh
+            self._global_settings_write_ready = True
+            if fresh.low_temperature_enabled == enabled:
+                return fresh
+
+            field, value = plan_low_temperature_protection_validation_update(
+                fresh, enabled=enabled
+            )
+            return await self._set_global_setting_locked(field, value)
+
     async def set_airflow_profile(
         self,
         ble_device: BLEDevice,
