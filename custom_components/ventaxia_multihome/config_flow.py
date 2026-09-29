@@ -752,7 +752,8 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                 if result.raw_record_matches
                 else (
                     "All validated writable fields match the backup. One or more "
-                    "non-writable/reserved packet-137 bytes differ and were not replayed."
+                    "non-writable/reserved packet-137 bytes differ and were not "
+                    "replayed."
                 )
             )
             detail = (
