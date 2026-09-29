@@ -514,7 +514,11 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
                 or (
                     coordinator.device.silent_hours_write_ready
                     and len(coordinator.data.silent_hours) == 6
-                    and all(slot.is_known for slot in coordinator.data.silent_hours)
+                    and all(
+                        slot.is_known
+                        and (slot.record is None or slot.record.is_valid)
+                        for slot in coordinator.data.silent_hours
+                    )
                 )
             )
         ):
