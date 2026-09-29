@@ -610,10 +610,13 @@ async def test_temperature_restore_reenables_protection_when_profile_write_fails
         await coordinator.async_restore_configuration_backup()
 
     # Assert - restore disables only temporarily, then puts protection back on.
-    assert coordinator.async_set_low_temperature_protection_validation.await_args_list == [
-        call(enabled=False),
-        call(enabled=True),
-    ]
+    assert (
+        coordinator.async_set_low_temperature_protection_validation.await_args_list
+        == [
+            call(enabled=False),
+            call(enabled=True),
+        ]
+    )
     assert coordinator.data.global_settings.low_temperature_enabled is True
 
 @pytest.mark.asyncio
