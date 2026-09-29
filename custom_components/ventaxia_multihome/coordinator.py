@@ -536,7 +536,9 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 "cannot be guaranteed restorable"
             )
         try:
-            self._validate_restorable_global_settings(settings)
+            VentaxiaMultihomeCoordinator._validate_restorable_global_settings(
+                self, settings
+            )
         except ProtocolError as err:
             raise ConfigurationBackupUnavailableError(
                 f"Current global settings are not safely restorable: {err}"
@@ -660,7 +662,9 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 "The stored global-settings record contains unsupported boolean values"
             )
         try:
-            self._validate_restorable_global_settings(target_settings)
+            VentaxiaMultihomeCoordinator._validate_restorable_global_settings(
+                self, target_settings
+            )
         except ProtocolError as err:
             raise ConfigurationRestoreError(
                 f"The stored global-settings record is not safely restorable: {err}"
