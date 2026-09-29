@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, call, patch
@@ -17,6 +18,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 from custom_components.ventaxia_multihome import coordinator as coordinator_module
 from custom_components.ventaxia_multihome.bluetooth import TransactionTimeoutError
 from custom_components.ventaxia_multihome.const import (
+    CONF_CONFIGURATION_BACKUP,
     CONF_LAST_CO2_CALIBRATION_ATTEMPT,
     HARD_RESET_RECOVERY_TIMEOUT,
     STARTUP_ADVERTISEMENT_TIMEOUT,
@@ -32,6 +34,8 @@ from custom_components.ventaxia_multihome.coordinator import (
     CalibrationDeliveryUncertainError,
     CalibrationNotSupportedError,
     CalibrationRateLimitedError,
+    ConfigurationBackupUnavailableError,
+    ConfigurationRestoreError,
     ComfortModeConfigurationNotSupportedError,
     ComfortModeConfigurationUnavailableError,
     DelayOverrunConfigurationNotSupportedError,
@@ -66,6 +70,7 @@ from custom_components.ventaxia_multihome.device import (
 )
 from custom_components.ventaxia_multihome.protocol import (
     AirflowPreset,
+    GlobalSettingField,
     ProtocolError,
     decode_global_settings,
     decode_silent_hour,
@@ -423,8 +428,192 @@ def _reset_dispatch_coordinator(device, ble_device):
         last_update_success=True,
         _hard_reset_dispatch_claimed=False,
         _ble_device=lambda: ble_device,
+        save_configuration_backup=Mock(return_value={}),
         _begin_hard_reset_recovery=Mock(),
     )
+
+
+
+def test_configuration_backup_persists_confirmed_snapshot() -> None:
+    """A backup stores the complete confirmed settings and schedule table."""
+
+    # Arrange - expose one fresh, write-ready validated unit and HA storage hook.
+    update_entry = Mock()
+    hass = SimpleNamespace(
+        config=SimpleNamespace(time_zone="Europe/London"),
+        config_entries=SimpleNamespace(async_update_entry=update_entry),
+    )
+    entry = SimpleNamespace(data={CONF_ADDRESS: "AA:BB"}, options={"existing": True})
+    device = SimpleNamespace(
+        model_number=10,
+        device_info=SimpleNamespace(
+            serial="TEST-123",
+            firmware="2.03.08",
+            hardware="01.00",
+        ),
+        global_settings_write_ready=True,
+        supports_silent_hours_management=True,
+        silent_hours_write_ready=True,
+    )
+    coordinator = SimpleNamespace(
+        hass=hass,
+        config_entry=entry,
+        device=device,
+        data=_reset_data(),
+        last_update_success=True,
+    )
+
+    # Act - capture the current confirmed configuration.
+    backup = VentaxiaMultihomeCoordinator.save_configuration_backup(
+        coordinator, reason="manual"
+    )
+
+    # Assert - JSON-safe settings evidence is persisted without touching the unit.
+    assert backup["version"] == 1
+    assert backup["reason"] == "manual"
+    assert backup["time_zone"] == "Europe/London"
+    assert backup["identity"] == {
+        "model_number": 10,
+        "serial": "TEST-123",
+        "firmware": "2.03.08",
+        "hardware": "01.00",
+    }
+    assert backup["global_settings"] == _settings().raw_record.hex()
+    assert backup["silent_hours"] == [None] * 6
+    update_entry.assert_called_once_with(
+        entry,
+        options={
+            "existing": True,
+            CONF_CONFIGURATION_BACKUP: backup,
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_stops_before_packet_61_when_backup_fails() -> None:
+    """A destructive reset cannot proceed without a fresh restorable backup."""
+
+    # Arrange - expose a supported unit but make pre-reset persistence unavailable.
+    ble_device = object()
+    device = SimpleNamespace(
+        supports_guarded_hard_reset=True,
+        _dispatch_hard_reset=AsyncMock(),
+        disconnect=AsyncMock(),
+    )
+    coordinator = _reset_dispatch_coordinator(device, ble_device)
+    coordinator.save_configuration_backup.side_effect = (
+        ConfigurationBackupUnavailableError("silent hours unavailable")
+    )
+
+    # Act - try to dispatch the guarded reset.
+    with pytest.raises(HardResetUnavailableError, match="requires a fresh"):
+        await _dispatch_reset(coordinator)
+
+    # Assert - packet 61 is never attempted and recovery is not claimed.
+    device._dispatch_hard_reset.assert_not_awaited()
+    coordinator._begin_hard_reset_recovery.assert_not_called()
+    assert coordinator._hard_reset_dispatch_claimed is False
+
+
+@pytest.mark.asyncio
+async def test_restore_replays_changed_validated_field_with_readback_state() -> None:
+    """Restore uses the existing guarded setter rather than replaying raw packets."""
+
+    # Arrange - save a target differing only in validated Boost minimum field 4.
+    current = _reset_data()
+    target_raw = bytearray(current.global_settings.raw_record)
+    target_raw[4] = 1
+    target = decode_global_settings(bytes(target_raw))
+    backup = {
+        "version": 1,
+        "reason": "manual",
+        "captured_at": current.last_successful_update.isoformat(),
+        "time_zone": "Europe/London",
+        "identity": {
+            "model_number": 10,
+            "serial": "TEST-123",
+            "firmware": "2.03.08",
+            "hardware": "01.00",
+        },
+        "global_settings": target.raw_record.hex(),
+        "silent_hours": [],
+    }
+    coordinator = object.__new__(VentaxiaMultihomeCoordinator)
+    coordinator.config_entry = SimpleNamespace(
+        data={CONF_ADDRESS: "AA:BB"},
+        options={CONF_CONFIGURATION_BACKUP: backup},
+    )
+    coordinator.device = SimpleNamespace(
+        model_number=10,
+        device_info=SimpleNamespace(
+            serial="TEST-123",
+            firmware="2.03.08",
+            hardware="01.00",
+        ),
+        writable_installer_fields=frozenset({GlobalSettingField.BOOST_MINIMUM}),
+        global_settings_write_ready=True,
+        supports_silent_hours_management=False,
+    )
+    coordinator.data = current
+    coordinator.last_update_success = True
+
+    async def set_boost_minimum(*, value: int) -> None:
+        assert value == 1
+        coordinator.data = replace(coordinator.data, global_settings=target)
+
+    coordinator.async_set_boost_minimum = AsyncMock(side_effect=set_boost_minimum)
+
+    # Act - restore the persisted target.
+    result = await coordinator.async_restore_configuration_backup()
+
+    # Assert - one guarded field path ran and the confirmed snapshot matches backup.
+    coordinator.async_set_boost_minimum.assert_awaited_once_with(value=1)
+    assert result.global_fields_restored == 1
+    assert result.silent_hours_restored == 0
+    assert result.raw_record_matches is True
+    assert coordinator.data.global_settings.raw_record == target.raw_record
+
+
+@pytest.mark.asyncio
+async def test_restore_rejects_different_device_identity_before_writes() -> None:
+    """A backup from another unit cannot be written to the connected unit."""
+
+    # Arrange - attach a valid-looking backup to a different serial number.
+    current = _reset_data()
+    backup = {
+        "version": 1,
+        "reason": "manual",
+        "captured_at": current.last_successful_update.isoformat(),
+        "time_zone": "Europe/London",
+        "identity": {
+            "model_number": 10,
+            "serial": "OTHER-UNIT",
+            "firmware": "2.03.08",
+            "hardware": "01.00",
+        },
+        "global_settings": current.global_settings.raw_record.hex(),
+        "silent_hours": [],
+    }
+    coordinator = object.__new__(VentaxiaMultihomeCoordinator)
+    coordinator.config_entry = SimpleNamespace(
+        data={CONF_ADDRESS: "AA:BB"},
+        options={CONF_CONFIGURATION_BACKUP: backup},
+    )
+    coordinator.device = SimpleNamespace(
+        model_number=10,
+        device_info=SimpleNamespace(
+            serial="THIS-UNIT",
+            firmware="2.03.08",
+            hardware="01.00",
+        ),
+    )
+
+    # Act - validate the backup before any restore operation can start.
+    with pytest.raises(ConfigurationRestoreError, match="different serial number"):
+        coordinator._load_configuration_backup()
+
+    # Assert - validation fails before a Bluetooth write path is even available.
+    assert coordinator.device.device_info.serial == "THIS-UNIT"
 
 
 async def _dispatch_reset(coordinator, *, baseline_time: float | None = None):
@@ -465,6 +654,7 @@ async def test_hard_reset_options_dispatch_delegates_once_when_fresh() -> None:
     # Assert - dispatch retains the pre-reset advertisement boundary for recovery.
     assert result is expected
     assert coordinator._hard_reset_baseline_advertisement_time == 42.5
+    coordinator.save_configuration_backup.assert_called_once_with(reason="hard_reset")
     device._dispatch_hard_reset.assert_awaited_once_with(ble_device)
     coordinator._begin_hard_reset_recovery.assert_called_once_with(
         delivery_uncertain=False
