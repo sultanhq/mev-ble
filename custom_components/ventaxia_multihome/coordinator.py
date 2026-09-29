@@ -480,10 +480,15 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             if (
                 not self.device.silent_hours_write_ready
                 or len(self.data.silent_hours) != 6
-                or not all(slot.is_known for slot in self.data.silent_hours)
+                or not all(
+                    slot.is_known
+                    and (slot.record is None or slot.record.is_valid)
+                    for slot in self.data.silent_hours
+                )
             ):
                 raise ConfigurationBackupUnavailableError(
-                    "The complete six-slot silent-hours table is unavailable"
+                    "The complete six-slot silent-hours table is unavailable "
+                    "or contains invalid records"
                 )
             silent_hours = [
                 slot.record.raw_record.hex() if slot.record is not None else None
@@ -603,9 +608,10 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 if raw_record is None:
                     decoded_silent_hours.append(None)
                 elif isinstance(raw_record, str):
-                    decoded_silent_hours.append(
-                        decode_silent_hour(bytes.fromhex(raw_record))
-                    )
+                    decoded_record = decode_silent_hour(bytes.fromhex(raw_record))
+                    if not decoded_record.is_valid:
+                        raise ValueError("invalid silent-hours record")
+                    decoded_silent_hours.append(decoded_record)
                 else:
                     raise ValueError("invalid silent-hours slot")
         except (ValueError, ProtocolError) as err:
@@ -804,44 +810,73 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             TEMPERATURE_VALIDATION_FIELDS <= self.device.writable_installer_fields
             and current_temperature != target_temperature
         ):
-            if current.low_temperature_enabled is not False:
-                if not (
-                    LOW_TEMPERATURE_PROTECTION_FIELDS
-                    <= self.device.writable_installer_fields
-                ):
-                    raise ConfigurationRestoreError(
-                        "Temperature settings require disabling low-temperature "
-                        "protection, but that field is not validated writable"
-                    )
-                await self.async_set_low_temperature_protection_validation(
-                    enabled=False
-                )
-            for _attempt in range(4):
-                current = self.data.global_settings
-                current_temperature = (
-                    current.low_threshold_action,
-                    current.high_threshold_action,
-                    current.low_temperature_threshold,
-                    current.high_temperature_threshold,
-                )
-                if current_temperature == target_temperature:
-                    break
-                step = self._next_valid_profile_step(
-                    current_temperature,
-                    target_temperature,
-                    validate_temperature_threshold_profile,
-                    name="temperature",
-                )
-                await self.async_set_temperature_threshold_validation(
-                    low_action=step[0],
-                    high_action=step[1],
-                    low_threshold=step[2],
-                    high_threshold=step[3],
-                )
-            else:
+            original_protection = current.low_temperature_enabled
+            if original_protection is None:
                 raise ConfigurationRestoreError(
-                    "Temperature settings did not converge to the saved profile"
+                    "Current low-temperature protection state is unavailable"
                 )
+            if original_protection and not (
+                LOW_TEMPERATURE_PROTECTION_FIELDS
+                <= self.device.writable_installer_fields
+            ):
+                raise ConfigurationRestoreError(
+                    "Temperature settings require disabling low-temperature "
+                    "protection, but that field is not validated writable"
+                )
+
+            try:
+                if original_protection:
+                    await self.async_set_low_temperature_protection_validation(
+                        enabled=False
+                    )
+                for _attempt in range(4):
+                    current = self.data.global_settings
+                    current_temperature = (
+                        current.low_threshold_action,
+                        current.high_threshold_action,
+                        current.low_temperature_threshold,
+                        current.high_temperature_threshold,
+                    )
+                    if current_temperature == target_temperature:
+                        break
+                    step = self._next_valid_profile_step(
+                        current_temperature,
+                        target_temperature,
+                        validate_temperature_threshold_profile,
+                        name="temperature",
+                    )
+                    await self.async_set_temperature_threshold_validation(
+                        low_action=step[0],
+                        high_action=step[1],
+                        low_threshold=step[2],
+                        high_threshold=step[3],
+                    )
+                else:
+                    raise ConfigurationRestoreError(
+                        "Temperature settings did not converge to the saved profile"
+                    )
+            except Exception as err:
+                if original_protection:
+                    try:
+                        await self.async_set_low_temperature_protection_validation(
+                            enabled=True
+                        )
+                    except Exception as rollback_err:
+                        raise ConfigurationRestoreError(
+                            "Temperature restore failed and low-temperature "
+                            "protection could not be restored: "
+                            f"{rollback_err}"
+                        ) from err
+                raise
+
+        if (
+            LOW_TEMPERATURE_PROTECTION_FIELDS <= self.device.writable_installer_fields
+            and self.data.global_settings.low_temperature_enabled
+            != target.low_temperature_enabled
+        ):
+            await self.async_set_low_temperature_protection_validation(
+                enabled=bool(target.low_temperature_enabled)
+            )
 
         target_analogue_1 = (
             target.analogue_input_1_low_action,
@@ -947,15 +982,6 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 raise ConfigurationRestoreError(
                     "Digital input settings did not converge to the saved profile"
                 )
-
-        if (
-            LOW_TEMPERATURE_PROTECTION_FIELDS <= self.device.writable_installer_fields
-            and self.data.global_settings.low_temperature_enabled
-            != target.low_temperature_enabled
-        ):
-            await self.async_set_low_temperature_protection_validation(
-                enabled=bool(target.low_temperature_enabled)
-            )
 
         silent_hours_restored = 0
         if self.device.supports_silent_hours_management:
