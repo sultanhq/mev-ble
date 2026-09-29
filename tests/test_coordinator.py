@@ -17,6 +17,7 @@ from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from custom_components.ventaxia_multihome import coordinator as coordinator_module
 from custom_components.ventaxia_multihome.bluetooth import TransactionTimeoutError
+from custom_components.ventaxia_multihome.capabilities import installer_writable_fields
 from custom_components.ventaxia_multihome.const import (
     CONF_CONFIGURATION_BACKUP,
     CONF_LAST_CO2_CALIBRATION_ATTEMPT,
@@ -103,7 +104,6 @@ def _coordinator() -> VentaxiaMultihomeCoordinator:
     coordinator.last_hard_reset_recovery_result = None
     return coordinator
 
-
 def test_ble_device_retains_last_connectable_path(monkeypatch) -> None:
     """A reconnect can reuse the path hidden from scanners during connection."""
 
@@ -125,7 +125,6 @@ def test_ble_device_retains_last_connectable_path(monkeypatch) -> None:
     assert first is ble_device
     assert reconnect is ble_device
 
-
 def test_ble_device_uses_newly_discovered_path(monkeypatch) -> None:
     """A fresh scanner result replaces a previously retained path."""
 
@@ -146,7 +145,6 @@ def test_ble_device_uses_newly_discovered_path(monkeypatch) -> None:
     # Assert - current discovery wins and refreshes the retained path.
     assert result is new_device
     assert coordinator._last_ble_device is new_device
-
 
 def test_ble_device_reports_unreachable_without_any_known_path(monkeypatch) -> None:
     """A never-seen device retains Home Assistant's reachability diagnostics."""
@@ -426,7 +424,6 @@ def _reset_dispatch_coordinator(device, ble_device):
         _begin_hard_reset_recovery=Mock(),
     )
 
-
 def test_configuration_backup_persists_confirmed_snapshot() -> None:
     """A backup stores the complete confirmed settings and schedule table."""
 
@@ -447,6 +444,9 @@ def test_configuration_backup_persists_confirmed_snapshot() -> None:
         global_settings_write_ready=True,
         supports_silent_hours_management=True,
         silent_hours_write_ready=True,
+        writable_installer_fields=installer_writable_fields(
+            10, "2.03.08", "01.00"
+        ),
     )
     coordinator = SimpleNamespace(
         hass=hass,
@@ -482,6 +482,54 @@ def test_configuration_backup_persists_confirmed_snapshot() -> None:
         },
     )
 
+def test_configuration_backup_rejects_invalid_writable_profile() -> None:
+    """A reset backup is refused when a writable profile cannot be restored."""
+
+    # Arrange - expose an unknown LS action in an otherwise confirmed record.
+    update_entry = Mock()
+    hass = SimpleNamespace(
+        config=SimpleNamespace(time_zone="Europe/London"),
+        config_entries=SimpleNamespace(async_update_entry=update_entry),
+    )
+    current = _reset_data()
+    invalid_settings = replace(current.global_settings, ls1_action=0xFF)
+    device = SimpleNamespace(
+        model_number=10,
+        device_info=SimpleNamespace(
+            serial="TEST-123",
+            firmware="2.03.08",
+            hardware="01.00",
+        ),
+        global_settings_write_ready=True,
+        supports_silent_hours_management=True,
+        silent_hours_write_ready=True,
+        writable_installer_fields=installer_writable_fields(
+            10, "2.03.08", "01.00"
+        ),
+    )
+    coordinator = SimpleNamespace(
+        hass=hass,
+        config_entry=SimpleNamespace(
+            data={CONF_ADDRESS: "AA:BB"},
+            options={},
+        ),
+        device=device,
+        data=replace(current, global_settings=invalid_settings),
+        last_update_success=True,
+    )
+
+    # Act - attempt to persist a snapshot that guarded LS restore would reject.
+    with pytest.raises(
+        ConfigurationBackupUnavailableError,
+        match="not safely restorable",
+    ):
+        VentaxiaMultihomeCoordinator.save_configuration_backup(
+            coordinator, reason="hard_reset"
+        )
+
+    # Assert - packet 61 can never be authorized by this invalid snapshot.
+    update_entry.assert_not_called()
+
 def test_configuration_backup_rejects_invalid_silent_hour_snapshot() -> None:
     """Invalid schedule data cannot qualify as a restorable reset backup."""
 
@@ -509,6 +557,9 @@ def test_configuration_backup_rejects_invalid_silent_hour_snapshot() -> None:
         global_settings_write_ready=True,
         supports_silent_hours_management=True,
         silent_hours_write_ready=True,
+        writable_installer_fields=installer_writable_fields(
+            10, "2.03.08", "01.00"
+        ),
     )
     coordinator = SimpleNamespace(
         hass=hass,
@@ -534,11 +585,11 @@ def test_configuration_backup_rejects_invalid_silent_hour_snapshot() -> None:
     update_entry.assert_not_called()
 
 @pytest.mark.asyncio
-async def test_temperature_restore_reenables_protection_when_profile_write_fails(
+async def test_temperature_restore_recovers_protection_after_write_gate_closes(
 ) -> None:
-    """A failed temperature restore puts enabled low-temperature protection back."""
+    """A failed temperature write refreshes state before restoring protection."""
 
-    # Arrange - require a temperature change while protection starts and ends enabled.
+    # Arrange - fail a profile write after field 16 was confirmed disabled.
     current = _reset_data()
     current_settings = replace(
         current.global_settings,
@@ -564,12 +615,8 @@ async def test_temperature_restore_reenables_protection_when_profile_write_fails
         "global_settings": target.raw_record.hex(),
         "silent_hours": [],
     }
-    coordinator = object.__new__(VentaxiaMultihomeCoordinator)
-    coordinator.config_entry = SimpleNamespace(
-        data={CONF_ADDRESS: "AA:BB"},
-        options={CONF_CONFIGURATION_BACKUP: backup},
-    )
-    coordinator.device = SimpleNamespace(
+    ble_device = object()
+    device = SimpleNamespace(
         model_number=10,
         device_info=SimpleNamespace(
             serial="TEST-123",
@@ -587,9 +634,25 @@ async def test_temperature_restore_reenables_protection_when_profile_write_fails
         ),
         global_settings_write_ready=True,
         supports_silent_hours_management=False,
+        compensate_low_temperature_protection=AsyncMock(),
+        disconnect=AsyncMock(),
     )
+    coordinator = object.__new__(VentaxiaMultihomeCoordinator)
+    coordinator.config_entry = SimpleNamespace(
+        data={CONF_ADDRESS: "AA:BB"},
+        options={CONF_CONFIGURATION_BACKUP: backup},
+    )
+    coordinator.device = device
     coordinator.data = current
     coordinator.last_update_success = True
+    coordinator._ble_device = lambda: ble_device
+
+    def publish(data: MultihomeData) -> None:
+        coordinator.data = data
+        coordinator.last_update_success = True
+
+    coordinator.async_set_updated_data = Mock(side_effect=publish)
+    coordinator.async_set_update_error = Mock()
 
     async def set_protection(*, enabled: bool) -> None:
         settings = replace(
@@ -598,24 +661,148 @@ async def test_temperature_restore_reenables_protection_when_profile_write_fails
         )
         coordinator.data = replace(coordinator.data, global_settings=settings)
 
+    async def fail_temperature_write(**_kwargs) -> None:
+        device.global_settings_write_ready = False
+        coordinator.last_update_success = False
+        raise HomeAssistantError("temperature write failed")
+
+    async def compensate(_ble_device, *, enabled: bool):
+        assert _ble_device is ble_device
+        assert enabled is True
+        assert device.global_settings_write_ready is False
+        device.global_settings_write_ready = True
+        return replace(
+            coordinator.data.global_settings,
+            low_temperature_enabled=True,
+        )
+
     coordinator.async_set_low_temperature_protection_validation = AsyncMock(
         side_effect=set_protection
     )
     coordinator.async_set_temperature_threshold_validation = AsyncMock(
-        side_effect=HomeAssistantError("temperature write failed")
+        side_effect=fail_temperature_write
     )
+    device.compensate_low_temperature_protection.side_effect = compensate
 
-    # Act - fail the first guarded temperature-profile write after protection is off.
+    # Act - fail after the device has invalidated normal write readiness.
     with pytest.raises(HomeAssistantError, match="temperature write failed"):
         await coordinator.async_restore_configuration_backup()
 
-    # Assert - restore disables only temporarily, then puts protection back on.
-    assert (
-        coordinator.async_set_low_temperature_protection_validation.await_args_list
-        == [
-            call(enabled=False),
-            call(enabled=True),
-        ]
+    # Assert - compensation bypasses the closed normal write gate via a fresh read.
+    coordinator.async_set_low_temperature_protection_validation.assert_awaited_once_with(
+        enabled=False
+    )
+    device.compensate_low_temperature_protection.assert_awaited_once_with(
+        ble_device, enabled=True
+    )
+    assert device.global_settings_write_ready is True
+    assert coordinator.data.global_settings.low_temperature_enabled is True
+
+@pytest.mark.asyncio
+async def test_temperature_restore_compensates_before_propagating_cancellation(
+) -> None:
+    """Cancellation after disabling protection waits for compensation first."""
+
+    # Arrange - use the same enabled protection target and cancel during profile I/O.
+    current = _reset_data()
+    current_settings = replace(
+        current.global_settings,
+        low_temperature_enabled=True,
+    )
+    current = replace(current, global_settings=current_settings)
+    target_raw = bytearray(current_settings.raw_record)
+    target_raw[11] = 1
+    target_raw[14] = 16
+    target = decode_global_settings(bytes(target_raw))
+    backup = {
+        "version": 1,
+        "reason": "hard_reset",
+        "captured_at": current.last_successful_update.isoformat(),
+        "time_zone": "Europe/London",
+        "identity": {
+            "address": "AA:BB",
+            "model_number": 10,
+            "serial": "TEST-123",
+            "firmware": "2.03.08",
+            "hardware": "01.00",
+        },
+        "global_settings": target.raw_record.hex(),
+        "silent_hours": [],
+    }
+    ble_device = object()
+    device = SimpleNamespace(
+        model_number=10,
+        device_info=SimpleNamespace(
+            serial="TEST-123",
+            firmware="2.03.08",
+            hardware="01.00",
+        ),
+        writable_installer_fields=frozenset(
+            {
+                GlobalSettingField.LOW_TEMPERATURE_ENABLED,
+                GlobalSettingField.LOW_THRESHOLD_ACTION,
+                GlobalSettingField.HIGH_THRESHOLD_ACTION,
+                GlobalSettingField.LOW_TEMPERATURE_THRESHOLD,
+                GlobalSettingField.HIGH_TEMPERATURE_THRESHOLD,
+            }
+        ),
+        global_settings_write_ready=True,
+        supports_silent_hours_management=False,
+        compensate_low_temperature_protection=AsyncMock(),
+        disconnect=AsyncMock(),
+    )
+    coordinator = object.__new__(VentaxiaMultihomeCoordinator)
+    coordinator.config_entry = SimpleNamespace(
+        data={CONF_ADDRESS: "AA:BB"},
+        options={CONF_CONFIGURATION_BACKUP: backup},
+    )
+    coordinator.device = device
+    coordinator.data = current
+    coordinator.last_update_success = True
+    coordinator._ble_device = lambda: ble_device
+
+    def publish(data: MultihomeData) -> None:
+        coordinator.data = data
+        coordinator.last_update_success = True
+
+    coordinator.async_set_updated_data = Mock(side_effect=publish)
+    coordinator.async_set_update_error = Mock()
+
+    async def set_protection(*, enabled: bool) -> None:
+        settings = replace(
+            coordinator.data.global_settings,
+            low_temperature_enabled=enabled,
+        )
+        coordinator.data = replace(coordinator.data, global_settings=settings)
+
+    async def cancel_temperature_write(**_kwargs) -> None:
+        device.global_settings_write_ready = False
+        raise asyncio.CancelledError
+
+    async def compensate(_ble_device, *, enabled: bool):
+        assert _ble_device is ble_device
+        assert enabled is True
+        device.global_settings_write_ready = True
+        return replace(
+            coordinator.data.global_settings,
+            low_temperature_enabled=True,
+        )
+
+    coordinator.async_set_low_temperature_protection_validation = AsyncMock(
+        side_effect=set_protection
+    )
+    coordinator.async_set_temperature_threshold_validation = AsyncMock(
+        side_effect=cancel_temperature_write
+    )
+    device.compensate_low_temperature_protection.side_effect = compensate
+
+    # Act - cancellation arrives while protection is temporarily disabled.
+    with pytest.raises(asyncio.CancelledError):
+        await coordinator.async_restore_configuration_backup()
+
+    # Assert - cancellation propagates only after field 16 is confirmed enabled again.
+    device.compensate_low_temperature_protection.assert_awaited_once_with(
+        ble_device, enabled=True
     )
     assert coordinator.data.global_settings.low_temperature_enabled is True
 
@@ -2615,7 +2802,6 @@ async def test_polling_continues_after_successful_calibration(monkeypatch) -> No
     device.disconnect.assert_not_awaited()
     device.update.assert_awaited_once_with(ble_device)
     assert result is fresh_data
-
 
 def test_calibration_cooldown_is_persisted_and_restored() -> None:
     """A reload or restart cannot bypass the five-minute safety guard."""
