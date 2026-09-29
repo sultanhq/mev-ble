@@ -496,6 +496,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             "captured_at": self.data.last_successful_update.isoformat(),
             "time_zone": self.hass.config.time_zone,
             "identity": {
+                "address": self.config_entry.data[CONF_ADDRESS],
                 "model_number": self.device.model_number,
                 "serial": self.device.device_info.serial,
                 "firmware": self.device.device_info.firmware,
@@ -529,6 +530,15 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         identity = backup.get("identity")
         if not isinstance(identity, dict):
             raise ConfigurationRestoreError("The stored backup has no device identity")
+        saved_address = identity.get("address")
+        if (
+            not isinstance(saved_address, str)
+            or saved_address != self.config_entry.data[CONF_ADDRESS]
+        ):
+            raise ConfigurationRestoreError(
+                "The stored backup belongs to a different Bluetooth address"
+            )
+
         expected_identity = (
             identity.get("model_number"),
             identity.get("firmware"),
