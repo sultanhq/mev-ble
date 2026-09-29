@@ -75,8 +75,13 @@ from .protocol import (
     SilentHour,
     decode_global_settings,
     decode_silent_hour,
+    encode_global_setting_value,
+    validate_airflow_profile,
     validate_analogue_input_1_profile,
     validate_analogue_input_2_profile,
+    validate_digital_input_profile,
+    validate_ls_action_profile,
+    validate_sensor_thresholds,
     validate_temperature_threshold_profile,
 )
 from .schedule_time import (
@@ -450,6 +455,62 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             VentaxiaMultihomeCoordinator._localize_data(self, data)
         )
 
+    def _validate_restorable_global_settings(
+        self, settings: GlobalSettings
+    ) -> None:
+        """Validate every field/profile that this identity may restore."""
+
+        writable = self.device.writable_installer_fields
+        for field in writable:
+            spec = GLOBAL_SETTING_FIELD_SPECS[field]
+            encode_global_setting_value(field, getattr(settings, spec.attribute))
+
+        if AIRFLOW_FIELDS <= writable:
+            validate_airflow_profile(
+                settings.speed_low,
+                settings.speed_medium,
+                settings.speed_boost,
+                settings.speed_purge,
+            )
+        if SENSOR_THRESHOLD_FIELDS <= writable:
+            validate_sensor_thresholds(
+                settings.humidity_threshold,
+                settings.co2_boost_threshold,
+                settings.co2_purge_threshold,
+            )
+        if LS_ACTION_VALIDATION_FIELDS <= writable:
+            validate_ls_action_profile(
+                settings.ls1_action,
+                settings.ls2_action,
+                settings.ls3_action,
+            )
+        if TEMPERATURE_VALIDATION_FIELDS <= writable:
+            validate_temperature_threshold_profile(
+                settings.low_threshold_action,
+                settings.high_threshold_action,
+                settings.low_temperature_threshold,
+                settings.high_temperature_threshold,
+            )
+        if ANALOGUE_INPUT_1_VALIDATION_FIELDS <= writable:
+            validate_analogue_input_1_profile(
+                settings.analogue_input_1_low_action,
+                settings.analogue_input_1_high_action,
+                settings.analogue_input_1_low_value,
+                settings.analogue_input_1_high_value,
+            )
+        if ANALOGUE_INPUT_2_VALIDATION_FIELDS <= writable:
+            validate_analogue_input_2_profile(
+                settings.analogue_input_2_low_action,
+                settings.analogue_input_2_high_action,
+                settings.analogue_input_2_low_value,
+                settings.analogue_input_2_high_value,
+            )
+        if DIGITAL_INPUT_VALIDATION_FIELDS <= writable:
+            validate_digital_input_profile(
+                settings.digital_input_1_action,
+                settings.digital_input_2_action,
+            )
+
     @property
     def configuration_backup(self) -> dict[str, object] | None:
         """Return the persisted configuration backup, if one is available."""
@@ -474,6 +535,12 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 "Current global settings contain unsupported boolean values and "
                 "cannot be guaranteed restorable"
             )
+        try:
+            self._validate_restorable_global_settings(settings)
+        except ProtocolError as err:
+            raise ConfigurationBackupUnavailableError(
+                f"Current global settings are not safely restorable: {err}"
+            ) from err
 
         silent_hours: list[str | None] = []
         if self.device.supports_silent_hours_management:
@@ -592,6 +659,12 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             raise ConfigurationRestoreError(
                 "The stored global-settings record contains unsupported boolean values"
             )
+        try:
+            self._validate_restorable_global_settings(target_settings)
+        except ProtocolError as err:
+            raise ConfigurationRestoreError(
+                f"The stored global-settings record is not safely restorable: {err}"
+            ) from err
 
         raw_silent_hours = backup.get("silent_hours")
         if not isinstance(raw_silent_hours, list):
@@ -620,6 +693,46 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             ) from err
 
         return backup, target_settings, tuple(decoded_silent_hours)
+
+    async def _async_compensate_low_temperature_protection(
+        self, *, enabled: bool
+    ) -> None:
+        """Fresh-read and compensate field 16 after an uncertain restore write."""
+
+        try:
+            settings = await self.device.compensate_low_temperature_protection(
+                self._ble_device(), enabled=enabled
+            )
+        except (
+            BleakError,
+            TransportError,
+            DeviceError,
+            ProtocolError,
+            TimeoutError,
+        ) as err:
+            await self.device.disconnect()
+            self.async_set_update_error(err)
+            raise HomeAssistantError(
+                "Unable to recover Multihome low-temperature protection after "
+                f"a failed restore: {err}"
+            ) from err
+        self.async_set_updated_data(replace(self.data, global_settings=settings))
+
+    async def _async_cancellation_safe_low_temperature_compensation(
+        self, *, enabled: bool
+    ) -> None:
+        """Finish safety compensation before allowing cancellation to propagate."""
+
+        task = asyncio.create_task(
+            self._async_compensate_low_temperature_protection(enabled=enabled),
+            name="Vent-Axia Multihome low-temperature restore compensation",
+        )
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                continue
+        task.result()
 
     @staticmethod
     def _next_valid_profile_step(
@@ -855,11 +968,27 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                     raise ConfigurationRestoreError(
                         "Temperature settings did not converge to the saved profile"
                     )
+            except asyncio.CancelledError:
+                if original_protection:
+                    try:
+                        await (
+                            self._async_cancellation_safe_low_temperature_compensation(
+                                enabled=True
+                            )
+                        )
+                    except Exception:
+                        _LOGGER.exception(
+                            "Low-temperature protection compensation failed while "
+                            "the configuration restore was being cancelled"
+                        )
+                raise
             except Exception as err:
                 if original_protection:
                     try:
-                        await self.async_set_low_temperature_protection_validation(
-                            enabled=True
+                        await (
+                            self._async_cancellation_safe_low_temperature_compensation(
+                                enabled=True
+                            )
                         )
                     except Exception as rollback_err:
                         raise ConfigurationRestoreError(
