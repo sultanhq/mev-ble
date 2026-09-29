@@ -89,6 +89,7 @@ from custom_components.ventaxia_multihome.config_flow import (
     SILENT_HOUR_ACTION_EDIT,
 )
 from custom_components.ventaxia_multihome.const import (
+    CONF_CONFIGURATION_BACKUP,
     CONF_OVERRIDE_DURATION,
     CONF_SETUP_CODE,
     DOMAIN,
@@ -230,7 +231,14 @@ def _options_entry(
             CONF_ADDRESS: "70:B3:D5:68:78:D0",
             CONF_SETUP_CODE: 123456,
         },
-        options={CONF_OVERRIDE_DURATION: 1800},
+        options={
+            CONF_OVERRIDE_DURATION: 1800,
+            **(
+                {CONF_CONFIGURATION_BACKUP: configuration_backup}
+                if configuration_backup is not None
+                else {}
+            ),
+        },
         unique_id="70b3d56878d0",
     )
     entry.runtime_data = coordinator
@@ -494,6 +502,34 @@ async def test_configuration_backup_menu_and_capture(hass) -> None:
     coordinator.save_configuration_backup.assert_called_once_with(reason="manual")
     assert result["step_id"] == "configuration_backup_result"
     assert result["description_placeholders"]["firmware"] == "2.03.08"
+
+
+
+@pytest.mark.asyncio
+async def test_fan_options_preserve_configuration_backup(hass) -> None:
+    """Changing an ordinary option cannot discard the persisted recovery backup."""
+
+    # Arrange - load an entry with an existing configuration backup.
+    backup = {
+        "version": 1,
+        "captured_at": "2026-09-29T08:00:00+00:00",
+        "identity": {"model_number": 10},
+    }
+    entry, _coordinator = _options_entry(hass, configuration_backup=backup)
+    initial = await hass.config_entries.options.async_init(entry.entry_id)
+    form = await hass.config_entries.options.async_configure(
+        initial["flow_id"], {"next_step_id": "fan_options"}
+    )
+
+    # Act - change the unrelated default fan override duration.
+    completed = await hass.config_entries.options.async_configure(
+        form["flow_id"], {CONF_OVERRIDE_DURATION: 900}
+    )
+
+    # Assert - the new value is merged with, rather than replacing, the backup.
+    assert completed["type"] is data_entry_flow.FlowResultType.CREATE_ENTRY
+    assert completed["data"][CONF_OVERRIDE_DURATION] == 900
+    assert completed["data"][CONF_CONFIGURATION_BACKUP] == backup
 
 
 @pytest.mark.asyncio
