@@ -52,9 +52,9 @@ from .device import (
     SilentHoursUnavailableError,
 )
 from .protocol import (
+    GLOBAL_SETTING_FIELD_SPECS,
     MAX_CO2_CALIBRATION_REFERENCE,
     MIN_CO2_CALIBRATION_REFERENCE,
-    GLOBAL_SETTING_FIELD_SPECS,
     AirflowPreset,
     GlobalSettingField,
     GlobalSettings,
@@ -509,7 +509,9 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         if backup is None:
             raise ConfigurationRestoreError("No configuration backup is stored")
         if backup.get("version") != 1:
-            raise ConfigurationRestoreError("The stored configuration backup is unsupported")
+            raise ConfigurationRestoreError(
+                "The stored configuration backup is unsupported"
+            )
 
         identity = backup.get("identity")
         if not isinstance(identity, dict):
@@ -904,7 +906,10 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 "Digital input settings did not converge to the saved profile"
             )
 
-        if self.data.global_settings.low_temperature_enabled != target.low_temperature_enabled:
+        if (
+            self.data.global_settings.low_temperature_enabled
+            != target.low_temperature_enabled
+        ):
             await self.async_set_low_temperature_protection_validation(
                 enabled=bool(target.low_temperature_enabled)
             )
@@ -959,7 +964,9 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         return ConfigurationRestoreResult(
             global_fields_restored=global_fields_restored,
             silent_hours_restored=silent_hours_restored,
-            raw_record_matches=self.data.global_settings.raw_record == target.raw_record,
+            raw_record_matches=(
+                self.data.global_settings.raw_record == target.raw_record
+            ),
         )
 
     async def async_dispatch_hard_reset_from_options(
