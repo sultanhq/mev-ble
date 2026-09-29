@@ -549,13 +549,18 @@ async def test_configuration_restore_requires_confirmation_and_reports_readback(
         },
     }
     entry, coordinator = _options_entry(hass, configuration_backup=backup)
-    coordinator.async_restore_configuration_backup.return_value = (
-        ConfigurationRestoreResult(
-            global_fields_restored=3,
-            silent_hours_restored=1,
-            raw_record_matches=True,
-        )
+    restore_result = ConfigurationRestoreResult(
+        global_fields_restored=3,
+        silent_hours_restored=1,
+        raw_record_matches=True,
     )
+    release_restore = asyncio.Event()
+
+    async def restore_configuration() -> ConfigurationRestoreResult:
+        await release_restore.wait()
+        return restore_result
+
+    coordinator.async_restore_configuration_backup.side_effect = restore_configuration
     initial = await hass.config_entries.options.async_init(entry.entry_id)
     form = await hass.config_entries.options.async_configure(
         initial["flow_id"], {"next_step_id": "configuration_restore"}
@@ -569,6 +574,7 @@ async def test_configuration_restore_requires_confirmation_and_reports_readback(
         rejected["flow_id"], {CONF_CONFIRM_CONFIGURATION_RESTORE: True}
     )
     flow = hass.config_entries.options._progress[progress["flow_id"]]
+    release_restore.set()
     if task := flow.async_get_progress_task():
         await task
     await hass.async_block_till_done()
