@@ -473,6 +473,7 @@ def test_configuration_backup_persists_confirmed_snapshot() -> None:
     assert backup["reason"] == "manual"
     assert backup["time_zone"] == "Europe/London"
     assert backup["identity"] == {
+        "address": "AA:BB",
         "model_number": 10,
         "serial": "TEST-123",
         "firmware": "2.03.08",
@@ -530,7 +531,8 @@ async def test_restore_replays_changed_validated_field_with_readback_state() -> 
         "captured_at": current.last_successful_update.isoformat(),
         "time_zone": "Europe/London",
         "identity": {
-            "model_number": 10,
+            "address": "AA:BB",
+        "model_number": 10,
             "serial": "TEST-123",
             "firmware": "2.03.08",
             "hardware": "01.00",
@@ -590,7 +592,8 @@ async def test_restore_never_writes_unvalidated_delay_enabled_field() -> None:
         "captured_at": current.last_successful_update.isoformat(),
         "time_zone": "Europe/London",
         "identity": {
-            "model_number": 10,
+            "address": "AA:BB",
+        "model_number": 10,
             "serial": "TEST-123",
             "firmware": "2.03.08",
             "hardware": "01.00",
@@ -646,7 +649,8 @@ async def test_restore_rejects_different_device_identity_before_writes() -> None
         "captured_at": current.last_successful_update.isoformat(),
         "time_zone": "Europe/London",
         "identity": {
-            "model_number": 10,
+            "address": "AA:BB",
+        "model_number": 10,
             "serial": "OTHER-UNIT",
             "firmware": "2.03.08",
             "hardware": "01.00",
