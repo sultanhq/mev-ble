@@ -518,18 +518,24 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         backup = self.config_entry.options.get(CONF_CONFIGURATION_BACKUP)
         return dict(backup) if isinstance(backup, dict) else None
 
-    def save_configuration_backup(self, *, reason: str) -> dict[str, object]:
+    def save_configuration_backup(
+        self,
+        *,
+        reason: str,
+        data: MultihomeData | None = None,
+    ) -> dict[str, object]:
         """Persist a complete, currently confirmed configuration snapshot."""
 
+        snapshot = self.data if data is None else data
         if (
-            self.data is None
+            snapshot is None
             or not self.last_update_success
             or not self.device.global_settings_write_ready
         ):
             raise ConfigurationBackupUnavailableError(
                 "Current global settings are unavailable; wait for a successful poll"
             )
-        settings = self.data.global_settings
+        settings = snapshot.global_settings
         if settings.invalid_boolean_fields:
             raise ConfigurationBackupUnavailableError(
                 "Current global settings contain unsupported boolean values and "
@@ -548,11 +554,11 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         if self.device.supports_silent_hours_management:
             if (
                 not self.device.silent_hours_write_ready
-                or len(self.data.silent_hours) != 6
+                or len(snapshot.silent_hours) != 6
                 or not all(
                     slot.is_known
                     and (slot.record is None or slot.record.is_valid)
-                    for slot in self.data.silent_hours
+                    for slot in snapshot.silent_hours
                 )
             ):
                 raise ConfigurationBackupUnavailableError(
@@ -561,13 +567,13 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 )
             silent_hours = [
                 slot.record.raw_record.hex() if slot.record is not None else None
-                for slot in self.data.silent_hours
+                for slot in snapshot.silent_hours
             ]
 
         backup: dict[str, object] = {
             "version": 1,
             "reason": reason,
-            "captured_at": self.data.last_successful_update.isoformat(),
+            "captured_at": snapshot.last_successful_update.isoformat(),
             "time_zone": self.hass.config.time_zone,
             "identity": {
                 "address": self.config_entry.data[CONF_ADDRESS],
@@ -1195,15 +1201,6 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         except UpdateFailed as err:
             raise HardResetUnavailableError(str(err)) from err
 
-        try:
-            self.save_configuration_backup(reason="hard_reset")
-        except ConfigurationBackupUnavailableError as err:
-            raise HardResetUnavailableError(
-                f"Hard reset requires a fresh restorable configuration backup: {err}"
-            ) from err
-
-        self._hard_reset_baseline_global_settings = self.data.global_settings.raw_record
-        self._hard_reset_baseline_silent_hours = tuple(self.data.silent_hours)
         baseline_advertisement = bluetooth.async_last_service_info(
             self.hass,
             self.config_entry.data[CONF_ADDRESS],
@@ -1217,8 +1214,30 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         # share this coordinator, so a sibling flow cannot queue a second packet 61.
         self._hard_reset_dispatch_claimed = True
 
+        def persist_reset_snapshot(raw_snapshot: MultihomeData) -> None:
+            snapshot = VentaxiaMultihomeCoordinator._localize_data(
+                self, raw_snapshot
+            )
+            self.save_configuration_backup(
+                reason="hard_reset",
+                data=snapshot,
+            )
+            self._hard_reset_baseline_global_settings = (
+                snapshot.global_settings.raw_record
+            )
+            self._hard_reset_baseline_silent_hours = tuple(snapshot.silent_hours)
+
         try:
-            result = await self.device._dispatch_hard_reset(ble_device)
+            result = await self.device._snapshot_and_dispatch_hard_reset(
+                ble_device,
+                persist_reset_snapshot,
+            )
+        except ConfigurationBackupUnavailableError as err:
+            self._hard_reset_dispatch_claimed = False
+            raise HardResetUnavailableError(
+                "Hard reset requires a fresh restorable configuration backup: "
+                f"{err}"
+            ) from err
         except asyncio.CancelledError:
             if self.device.hard_reset_recovery_pending:
                 self._begin_hard_reset_recovery(delivery_uncertain=True)
