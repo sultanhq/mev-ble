@@ -831,35 +831,33 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             target.analogue_input_1_low_value,
             target.analogue_input_1_high_value,
         )
-        for _attempt in (
-            range(4)
-            if ANALOGUE_INPUT_1_VALIDATION_FIELDS
+        if (
+            ANALOGUE_INPUT_1_VALIDATION_FIELDS
             <= self.device.writable_installer_fields
-            else range(0)
         ):
-            current = self.data.global_settings
-            current_analogue_1 = (
-                current.analogue_input_1_low_action,
-                current.analogue_input_1_high_action,
-                current.analogue_input_1_low_value,
-                current.analogue_input_1_high_value,
-            )
-            if current_analogue_1 == target_analogue_1:
-                break
-            step = self._next_valid_profile_step(
-                current_analogue_1,
-                target_analogue_1,
-                validate_analogue_input_1_profile,
-                name="analogue input 1",
-            )
-            await self.async_set_analogue_input_1_validation(
-                low_action=step[0],
-                high_action=step[1],
-                low_threshold=step[2],
-                high_threshold=step[3],
-            )
-        else:
-            if ANALOGUE_INPUT_1_VALIDATION_FIELDS <= self.device.writable_installer_fields:
+            for _attempt in range(4):
+                current = self.data.global_settings
+                current_analogue_1 = (
+                    current.analogue_input_1_low_action,
+                    current.analogue_input_1_high_action,
+                    current.analogue_input_1_low_value,
+                    current.analogue_input_1_high_value,
+                )
+                if current_analogue_1 == target_analogue_1:
+                    break
+                step = self._next_valid_profile_step(
+                    current_analogue_1,
+                    target_analogue_1,
+                    validate_analogue_input_1_profile,
+                    name="analogue input 1",
+                )
+                await self.async_set_analogue_input_1_validation(
+                    low_action=step[0],
+                    high_action=step[1],
+                    low_threshold=step[2],
+                    high_threshold=step[3],
+                )
+            else:
                 raise ConfigurationRestoreError(
                     "Analogue input 1 settings did not converge to the saved profile"
                 )
@@ -870,35 +868,33 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             target.analogue_input_2_low_value,
             target.analogue_input_2_high_value,
         )
-        for _attempt in (
-            range(4)
-            if ANALOGUE_INPUT_2_VALIDATION_FIELDS
+        if (
+            ANALOGUE_INPUT_2_VALIDATION_FIELDS
             <= self.device.writable_installer_fields
-            else range(0)
         ):
-            current = self.data.global_settings
-            current_analogue_2 = (
-                current.analogue_input_2_low_action,
-                current.analogue_input_2_high_action,
-                current.analogue_input_2_low_value,
-                current.analogue_input_2_high_value,
-            )
-            if current_analogue_2 == target_analogue_2:
-                break
-            step = self._next_valid_profile_step(
-                current_analogue_2,
-                target_analogue_2,
-                validate_analogue_input_2_profile,
-                name="analogue input 2",
-            )
-            await self.async_set_analogue_input_2_validation(
-                low_action=step[0],
-                high_action=step[1],
-                low_threshold=step[2],
-                high_threshold=step[3],
-            )
-        else:
-            if ANALOGUE_INPUT_2_VALIDATION_FIELDS <= self.device.writable_installer_fields:
+            for _attempt in range(4):
+                current = self.data.global_settings
+                current_analogue_2 = (
+                    current.analogue_input_2_low_action,
+                    current.analogue_input_2_high_action,
+                    current.analogue_input_2_low_value,
+                    current.analogue_input_2_high_value,
+                )
+                if current_analogue_2 == target_analogue_2:
+                    break
+                step = self._next_valid_profile_step(
+                    current_analogue_2,
+                    target_analogue_2,
+                    validate_analogue_input_2_profile,
+                    name="analogue input 2",
+                )
+                await self.async_set_analogue_input_2_validation(
+                    low_action=step[0],
+                    high_action=step[1],
+                    low_threshold=step[2],
+                    high_threshold=step[3],
+                )
+            else:
                 raise ConfigurationRestoreError(
                     "Analogue input 2 settings did not converge to the saved profile"
                 )
@@ -907,33 +903,29 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             target.digital_input_1_action,
             target.digital_input_2_action,
         )
-        for _attempt in (
-            range(2)
-            if DIGITAL_INPUT_VALIDATION_FIELDS <= self.device.writable_installer_fields
-            else range(0)
-        ):
-            current = self.data.global_settings
-            current_digital = (
-                current.digital_input_1_action,
-                current.digital_input_2_action,
-            )
-            if current_digital == target_digital:
-                break
-            step = list(current_digital)
-            index = next(
-                index
-                for index, values in enumerate(
-                    zip(current_digital, target_digital, strict=True)
+        if DIGITAL_INPUT_VALIDATION_FIELDS <= self.device.writable_installer_fields:
+            for _attempt in range(2):
+                current = self.data.global_settings
+                current_digital = (
+                    current.digital_input_1_action,
+                    current.digital_input_2_action,
                 )
-                if values[0] != values[1]
-            )
-            step[index] = target_digital[index]
-            await self.async_set_digital_input_validation(
-                digital_input_1_action=step[0],
-                digital_input_2_action=step[1],
-            )
-        else:
-            if DIGITAL_INPUT_VALIDATION_FIELDS <= self.device.writable_installer_fields:
+                if current_digital == target_digital:
+                    break
+                step = list(current_digital)
+                index = next(
+                    index
+                    for index, values in enumerate(
+                        zip(current_digital, target_digital, strict=True)
+                    )
+                    if values[0] != values[1]
+                )
+                step[index] = target_digital[index]
+                await self.async_set_digital_input_validation(
+                    digital_input_1_action=step[0],
+                    digital_input_2_action=step[1],
+                )
+            else:
                 raise ConfigurationRestoreError(
                     "Digital input settings did not converge to the saved profile"
                 )
