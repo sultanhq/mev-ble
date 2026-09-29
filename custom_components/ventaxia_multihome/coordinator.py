@@ -287,6 +287,7 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         self._hard_reset_baseline_silent_hours: tuple[object, ...] | None = None
         self._hard_reset_baseline_advertisement_time: float | None = None
         self.last_hard_reset_recovery_result: HardResetRecoveryResult | None = None
+        self._configuration_operation: str | None = None
 
     @staticmethod
     def _stored_calibration_attempt(entry: ConfigEntry) -> float | None:
@@ -525,6 +526,21 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         data: MultihomeData | None = None,
     ) -> dict[str, object]:
         """Persist a complete, currently confirmed configuration snapshot."""
+
+        if reason == "manual":
+            active_operation = getattr(self, "_configuration_operation", None)
+            if active_operation is not None:
+                raise ConfigurationBackupUnavailableError(
+                    f"Configuration {active_operation} is in progress; "
+                    "wait for it to finish before creating a manual backup"
+                )
+            if getattr(self, "_hard_reset_dispatch_claimed", False) or getattr(
+                self, "_hard_reset_recovery_mode", False
+            ):
+                raise ConfigurationBackupUnavailableError(
+                    "Hard reset dispatch or recovery owns the device; "
+                    "wait for recovery before creating a manual backup"
+                )
 
         snapshot = self.data if data is None else data
         if (
@@ -771,7 +787,32 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         )
 
     async def async_restore_configuration_backup(self) -> ConfigurationRestoreResult:
-        """Restore the saved configuration through validated, readback-checked paths."""
+        """Own one complete restore so sibling configuration work cannot interleave."""
+
+        if getattr(self, "_hard_reset_dispatch_claimed", False) or getattr(
+            self, "_hard_reset_recovery_mode", False
+        ):
+            raise ConfigurationRestoreError(
+                "Hard reset dispatch or recovery has already been claimed; "
+                "configuration restore cannot start"
+            )
+        active_operation = getattr(self, "_configuration_operation", None)
+        if active_operation is not None:
+            raise ConfigurationRestoreError(
+                f"Configuration {active_operation} is already in progress"
+            )
+
+        self._configuration_operation = "restore"
+        try:
+            return await self._async_restore_configuration_backup_owned()
+        finally:
+            if self._configuration_operation == "restore":
+                self._configuration_operation = None
+
+    async def _async_restore_configuration_backup_owned(
+        self,
+    ) -> ConfigurationRestoreResult:
+        """Restore the backup while coordinator-level restore ownership is held."""
 
         _backup, target, target_silent_hours = self._load_configuration_backup()
         if (
@@ -1210,6 +1251,12 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             raise HardResetUnavailableError(
                 "Current device state is unavailable; wait for a successful poll"
             )
+        active_operation = getattr(self, "_configuration_operation", None)
+        if active_operation is not None:
+            raise HardResetUnavailableError(
+                f"Configuration {active_operation} is in progress; "
+                "hard reset cannot start"
+            )
         if self._hard_reset_dispatch_claimed:
             raise HardResetUnavailableError(
                 "A hard reset has already been claimed for this device session; "
@@ -1221,18 +1268,10 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         except UpdateFailed as err:
             raise HardResetUnavailableError(str(err)) from err
 
-        baseline_advertisement = bluetooth.async_last_service_info(
-            self.hass,
-            self.config_entry.data[CONF_ADDRESS],
-            connectable=True,
-        )
-        self._hard_reset_baseline_advertisement_time = (
-            baseline_advertisement.time if baseline_advertisement else None
-        )
-
         # Claim synchronously before the first await. Separate options-flow instances
         # share this coordinator, so a sibling flow cannot queue a second packet 61.
         self._hard_reset_dispatch_claimed = True
+        self._configuration_operation = "hard_reset"
 
         def persist_reset_snapshot(raw_snapshot: MultihomeData) -> None:
             snapshot = VentaxiaMultihomeCoordinator._localize_data(
@@ -1246,6 +1285,14 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 snapshot.global_settings.raw_record
             )
             self._hard_reset_baseline_silent_hours = tuple(snapshot.silent_hours)
+            baseline_advertisement = bluetooth.async_last_service_info(
+                self.hass,
+                self.config_entry.data[CONF_ADDRESS],
+                connectable=True,
+            )
+            self._hard_reset_baseline_advertisement_time = (
+                baseline_advertisement.time if baseline_advertisement else None
+            )
 
         try:
             result = await self.device._snapshot_and_dispatch_hard_reset(
@@ -1282,6 +1329,9 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             raise HardResetUnavailableError(
                 f"Hard reset was not dispatched: {err}"
             ) from err
+        finally:
+            if self._configuration_operation == "hard_reset":
+                self._configuration_operation = None
 
         self._begin_hard_reset_recovery(delivery_uncertain=False)
         return result
