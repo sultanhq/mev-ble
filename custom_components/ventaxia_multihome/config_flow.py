@@ -969,7 +969,10 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
         """Configure the default duration used by fan preset calls."""
 
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            return self.async_create_entry(
+                title="",
+                data={**self.config_entry.options, **user_input},
+            )
         return self.async_show_form(
             step_id="fan_options",
             data_schema=vol.Schema(
