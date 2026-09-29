@@ -553,6 +553,15 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 "The stored backup belongs to a different serial number"
             )
 
+        saved_time_zone = backup.get("time_zone")
+        if (
+            self.device.supports_silent_hours_management
+            and saved_time_zone != self.hass.config.time_zone
+        ):
+            raise ConfigurationRestoreError(
+                "The stored backup uses a different Home Assistant time zone"
+            )
+
         raw_settings = backup.get("global_settings")
         if not isinstance(raw_settings, str):
             raise ConfigurationRestoreError(
