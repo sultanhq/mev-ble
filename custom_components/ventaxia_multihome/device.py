@@ -579,13 +579,18 @@ class MultihomeDevice:
     async def _dispatch_hard_reset(
         self, ble_device: BLEDevice
     ) -> HardResetDispatchResult:
-        """Dispatch packet 61 internally without waiting for a protocol response.
+        """Dispatch packet 61 internally without waiting for a protocol response."""
 
-        This primitive is intentionally private until the typed destructive-action
-        flow and recovery handling in #30-#31 are complete. A reboot can happen
-        before fragmented transport acknowledgement is observed, so a transport
-        error after dispatch is reported as uncertain rather than as a safe failure.
-        """
+        async with self._operation_lock:
+            await self.connect(ble_device)
+            return await self._dispatch_hard_reset_locked()
+
+    async def _snapshot_and_dispatch_hard_reset(
+        self,
+        ble_device: BLEDevice,
+        persist_snapshot: Callable[[MultihomeData], None],
+    ) -> HardResetDispatchResult:
+        """Persist a fresh snapshot and dispatch reset under one operation lock."""
 
         async with self._operation_lock:
             await self.connect(ble_device)
@@ -595,28 +600,41 @@ class MultihomeDevice:
                     "2.03.08 / hardware 01.00 validation identity"
                 )
 
-            transport_name = self.transport_name
-            if transport_name is None:
-                raise DeviceError("hard reset requires an active protocol transport")
+            snapshot = self._reconcile_override_remaining(await self._read_data())
+            persist_snapshot(snapshot)
+            return await self._dispatch_hard_reset_locked()
 
-            try:
-                await self._send(
-                    PacketType.HARD_RESET,
-                    Operation.NONE,
-                    encode_hard_reset(),
-                )
-            except asyncio.CancelledError:
-                self._invalidate_after_hard_reset_dispatch()
-                raise
-            except Exception as err:
-                self._invalidate_after_hard_reset_dispatch()
-                raise HardResetDispatchUncertainError(
-                    "hard-reset dispatch is uncertain; the unit may have rebooted "
-                    "before transport acknowledgement completed"
-                ) from err
+    async def _dispatch_hard_reset_locked(self) -> HardResetDispatchResult:
+        """Send packet 61 while the caller owns the device operation lock."""
 
+        if not self.supports_guarded_hard_reset:
+            raise DeviceError(
+                "hard reset is limited to the designated model 10 / firmware "
+                "2.03.08 / hardware 01.00 validation identity"
+            )
+
+        transport_name = self.transport_name
+        if transport_name is None:
+            raise DeviceError("hard reset requires an active protocol transport")
+
+        try:
+            await self._send(
+                PacketType.HARD_RESET,
+                Operation.NONE,
+                encode_hard_reset(),
+            )
+        except asyncio.CancelledError:
             self._invalidate_after_hard_reset_dispatch()
-            return HardResetDispatchResult(transport=transport_name)
+            raise
+        except Exception as err:
+            self._invalidate_after_hard_reset_dispatch()
+            raise HardResetDispatchUncertainError(
+                "hard-reset dispatch is uncertain; the unit may have rebooted "
+                "before transport acknowledgement completed"
+            ) from err
+
+        self._invalidate_after_hard_reset_dispatch()
+        return HardResetDispatchResult(transport=transport_name)
 
     def _invalidate_after_hard_reset_dispatch(self) -> None:
         """Discard every cached state that cannot be trusted across a reset."""
