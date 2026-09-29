@@ -433,6 +433,7 @@ def _reset_dispatch_coordinator(device, ble_device):
         _configuration_operation=None,
         _hard_reset_baseline_global_settings=None,
         _hard_reset_baseline_silent_hours=None,
+        _hard_reset_baseline_advertisement_time=None,
         _ble_device=lambda: ble_device,
         save_configuration_backup=Mock(return_value={}),
         _begin_hard_reset_recovery=Mock(),
@@ -1368,7 +1369,10 @@ async def test_hard_reset_options_rejects_concurrent_sibling_flow() -> None:
     # Act - start one flow, then submit a sibling flow while the first is in flight.
     first = asyncio.create_task(_dispatch_reset(coordinator))
     await started.wait()
-    with pytest.raises(HardResetUnavailableError, match="already been claimed"):
+    with pytest.raises(
+        HardResetUnavailableError,
+        match="Configuration hard_reset is in progress",
+    ):
         await _dispatch_reset(coordinator)
     release.set()
     result = await first
