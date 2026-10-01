@@ -1647,6 +1647,51 @@ async def test_hard_reset_recovery_surfaces_configuration_change(
     coordinator.async_set_updated_data.assert_called_once_with(recovered)
 
 @pytest.mark.asyncio
+async def test_hard_reset_recovery_bounds_reconnect_after_fresh_advertisement(
+    monkeypatch,
+) -> None:
+    """A reconnect/read timeout produces an actionable result instead of hanging."""
+
+    # Arrange - accept a fresh advertisement, then make the reconnect time out.
+    coordinator = _coordinator()
+    coordinator.device = SimpleNamespace(
+        recover_after_hard_reset=AsyncMock(side_effect=TimeoutError("slow reconnect")),
+        disconnect=AsyncMock(),
+    )
+    coordinator._hard_reset_recovery_mode = True
+    coordinator.async_set_updated_data = Mock()
+    coordinator.async_set_update_error = Mock()
+    monkeypatch.setattr(
+        coordinator_module.bluetooth, "async_scanner_count", Mock(return_value=1)
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_process_advertisements",
+        AsyncMock(return_value=SimpleNamespace(time=101.0)),
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_ble_device_from_address",
+        Mock(return_value=object()),
+    )
+
+    # Act - run the single bounded reconnect/read.
+    result = await VentaxiaMultihomeCoordinator._async_recover_after_hard_reset(
+        coordinator, delivery_uncertain=False
+    )
+
+    # Assert - reconnect failure is bounded and never becomes an endless progress step.
+    assert result.outcome == "reconnect_failed"
+    assert f"{HARD_RESET_RECONNECT_TIMEOUT}-second bounded" in result.detail
+    assert "Do not resend reset" in result.detail
+    coordinator.device.recover_after_hard_reset.assert_awaited_once()
+    assert coordinator.device.disconnect.await_count == 2
+    coordinator.async_set_updated_data.assert_not_called()
+    coordinator.async_update_listeners.assert_called_once()
+    coordinator.async_set_update_error.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_hard_reset_recovery_requires_repair_after_setup_code_rejection(
     monkeypatch,
 ) -> None:
