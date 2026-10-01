@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.7.0-rc.4] - 2026-10-01
+
+### Added
+
+- Add packet-61 recovery diagnostics that distinguish no post-reset Bluetooth
+  advertisements from matching advertisements rejected as stale against the
+  pre-reset freshness baseline.
+- Include matching-advertisement counts, stale counts, baseline time and newest
+  candidate time in actionable recovery-timeout results.
+- Add explicit packet-61 dispatch lifecycle and recovery-route logging.
+
+### Changed
+
+- Bound the single authenticated post-advertisement reconnect/settings read to
+  60 seconds so the recovery progress flow cannot wait indefinitely after a fresh
+  Bluetooth advertisement is accepted.
+- Keep scheduled coordinator polling quiet while hard-reset recovery owns the
+  Bluetooth route, while entities remain explicitly unavailable until recovery
+  completes or the integration is reloaded.
+- Hide the Hard reset action while recovery still owns the device.
+
+### Safety
+
+- Recovery still never retries packet 61 automatically.
+- A timeout/failure keeps recovery ownership and instructs the operator to reload
+  after the unit is advertising again rather than sending another reset.
+- RC4 is diagnostic/recovery hardening based on designated-hardware RC3 testing:
+  one reset returned with changed configuration, while a later dispatch timed out
+  waiting for a qualifying fresh advertisement and subsequently reconnected after
+  reload with its pre-reset configuration intact.
+- No additional physical packet-61 reset was performed while implementing RC4.
+
 ## [0.7.0-rc.3] - 2026-09-29
 
 ### Added
