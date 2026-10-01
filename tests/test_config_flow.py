@@ -192,6 +192,7 @@ def _options_entry(
             else None
         ),
         last_update_success=airflow_available and schedules_available,
+        hard_reset_recovery_active=False,
         configuration_backup=configuration_backup,
         save_configuration_backup=Mock(return_value=configuration_backup or {}),
         async_restore_configuration_backup=AsyncMock(
@@ -599,6 +600,21 @@ async def test_configuration_restore_requires_confirmation_and_reports_readback(
         result["description_placeholders"]["detail"]
     )
     assert "1 silent-hours slot(s)" in result["description_placeholders"]["detail"]
+
+
+@pytest.mark.asyncio
+async def test_hard_reset_menu_is_hidden_while_recovery_owns_device(hass) -> None:
+    """A timed-out/in-flight recovery cannot expose another destructive reset."""
+
+    # Arrange - create a supported device whose reset recovery still owns Bluetooth.
+    entry, coordinator = _options_entry(hass, supports_hard_reset=True)
+    coordinator.hard_reset_recovery_active = True
+
+    # Act - open the top-level Configure menu.
+    menu = await hass.config_entries.options.async_init(entry.entry_id)
+
+    # Assert - the one-shot reset action is not offered during recovery ownership.
+    assert "hard_reset" not in menu["menu_options"]
 
 
 @pytest.mark.asyncio
