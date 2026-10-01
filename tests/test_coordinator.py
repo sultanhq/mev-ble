@@ -21,8 +21,8 @@ from custom_components.ventaxia_multihome.capabilities import installer_writable
 from custom_components.ventaxia_multihome.const import (
     CONF_CONFIGURATION_BACKUP,
     CONF_LAST_CO2_CALIBRATION_ATTEMPT,
-    HARD_RESET_RECOVERY_TIMEOUT,
     HARD_RESET_RECONNECT_TIMEOUT,
+    HARD_RESET_RECOVERY_TIMEOUT,
     STARTUP_ADVERTISEMENT_TIMEOUT,
 )
 from custom_components.ventaxia_multihome.coordinator import (
