@@ -22,6 +22,7 @@ from custom_components.ventaxia_multihome.const import (
     CONF_CONFIGURATION_BACKUP,
     CONF_LAST_CO2_CALIBRATION_ATTEMPT,
     HARD_RESET_RECOVERY_TIMEOUT,
+    HARD_RESET_RECONNECT_TIMEOUT,
     STARTUP_ADVERTISEMENT_TIMEOUT,
 )
 from custom_components.ventaxia_multihome.coordinator import (
@@ -102,6 +103,7 @@ def _coordinator() -> VentaxiaMultihomeCoordinator:
     coordinator._hard_reset_baseline_silent_hours = None
     coordinator._hard_reset_baseline_advertisement_time = None
     coordinator.last_hard_reset_recovery_result = None
+    coordinator.async_update_listeners = Mock()
     return coordinator
 
 def test_ble_device_retains_last_connectable_path(monkeypatch) -> None:
@@ -1687,7 +1689,8 @@ async def test_hard_reset_recovery_requires_repair_after_setup_code_rejection(
     coordinator.device.recover_after_hard_reset.assert_awaited_once()
     assert coordinator.device.disconnect.await_count == 2
     coordinator.async_set_updated_data.assert_not_called()
-    coordinator.async_set_update_error.assert_called_once()
+    coordinator.async_update_listeners.assert_called_once()
+    coordinator.async_set_update_error.assert_not_called()
 
 @pytest.mark.asyncio
 async def test_hard_reset_recovery_timeout_is_bounded_and_actionable(
@@ -1733,22 +1736,83 @@ async def test_hard_reset_recovery_timeout_is_bounded_and_actionable(
     coordinator.device.recover_after_hard_reset.assert_not_awaited()
     lookup.assert_not_called()
     coordinator.async_set_updated_data.assert_not_called()
-    coordinator.async_set_update_error.assert_called_once()
+    coordinator.async_update_listeners.assert_called_once()
+    coordinator.async_set_update_error.assert_not_called()
+
+@pytest.mark.asyncio
+async def test_hard_reset_recovery_timeout_reports_stale_advertisement_evidence(
+    monkeypatch,
+) -> None:
+    """Timeout diagnostics distinguish stale cached advertisements from silence."""
+
+    # Arrange - feed only advertisements at or before the pre-reset baseline.
+    coordinator = _coordinator()
+    coordinator.device = SimpleNamespace(
+        recover_after_hard_reset=AsyncMock(),
+        disconnect=AsyncMock(),
+    )
+    coordinator._hard_reset_recovery_mode = True
+    coordinator._hard_reset_baseline_advertisement_time = 100.0
+    coordinator.async_set_updated_data = Mock()
+    coordinator.async_set_update_error = Mock()
+
+    async def process_advertisements(
+        _hass, predicate, _filters, _mode, _timeout
+    ):
+        assert predicate(SimpleNamespace(time=99.0)) is False
+        assert predicate(SimpleNamespace(time=100.0)) is False
+        assert predicate(SimpleNamespace(time=98.0)) is False
+        raise TimeoutError
+
+    monkeypatch.setattr(
+        coordinator_module.bluetooth, "async_scanner_count", Mock(return_value=1)
+    )
+    monkeypatch.setattr(
+        coordinator_module.bluetooth,
+        "async_process_advertisements",
+        AsyncMock(side_effect=process_advertisements),
+    )
+    lookup = Mock()
+    monkeypatch.setattr(
+        coordinator_module.bluetooth, "async_ble_device_from_address", lookup
+    )
+
+    # Act - expire the bounded freshness window.
+    result = await VentaxiaMultihomeCoordinator._async_recover_after_hard_reset(
+        coordinator, delivery_uncertain=False
+    )
+
+    # Assert - the result tells us advertisements existed but were rejected as stale.
+    assert result.outcome == "timed_out"
+    assert "Observed 3 matching connectable advertisement(s)" in result.detail
+    assert "3 were not newer" in result.detail
+    assert "baseline=100.0" in result.detail
+    assert "newest_candidate=100.0" in result.detail
+    coordinator.device.recover_after_hard_reset.assert_not_awaited()
+    lookup.assert_not_called()
+    coordinator.async_update_listeners.assert_called_once()
+
 
 @pytest.mark.asyncio
 async def test_normal_polling_is_suppressed_while_reset_recovery_owns_route() -> None:
     """The 10-second coordinator poll cannot race reset reboot recovery."""
 
     # Arrange - make every Bluetooth path fail the test if normal polling reaches it.
+    cached = _reset_data()
     coordinator = SimpleNamespace(
         _hard_reset_recovery_mode=True,
+        data=cached,
+        config_entry=SimpleNamespace(data={CONF_ADDRESS: "AA:BB"}),
         _ble_device=Mock(),
         device=SimpleNamespace(update=AsyncMock(), disconnect=AsyncMock()),
     )
 
-    # Act / Assert - polling reports unavailable before any Bluetooth lookup.
-    with pytest.raises(UpdateFailed, match="recovery owns the Bluetooth route"):
-        await VentaxiaMultihomeCoordinator._async_update_data(coordinator)
+    # Act - scheduled polling retains cached state without touching BLE or logging
+    # a normal coordinator update failure.
+    result = await VentaxiaMultihomeCoordinator._async_update_data(coordinator)
+
+    # Assert - recovery exclusively owns BLE while the last confirmed snapshot remains.
+    assert result is cached
     coordinator._ble_device.assert_not_called()
     coordinator.device.update.assert_not_awaited()
     coordinator.device.disconnect.assert_not_awaited()
