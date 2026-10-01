@@ -7,7 +7,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from math import ceil, isfinite
-from time import time
+from time import monotonic, time
 from typing import TYPE_CHECKING
 
 from bleak.exc import BleakError
@@ -48,6 +48,7 @@ from .const import (
     CONF_OVERRIDE_DURATION,
     DEFAULT_OVERRIDE_DURATION,
     HARD_RESET_RECOVERY_TIMEOUT,
+    HARD_RESET_RECONNECT_TIMEOUT,
     MAX_OVERRIDE_DURATION,
     MIN_OVERRIDE_DURATION,
     STARTUP_ADVERTISEMENT_TIMEOUT,
@@ -316,6 +317,12 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         )
 
     @property
+    def hard_reset_recovery_active(self) -> bool:
+        """Return whether reset recovery currently owns the Bluetooth route."""
+
+        return self._hard_reset_recovery_mode
+
+    @property
     def override_duration(self) -> int:
         """Return the configured default override duration."""
 
@@ -382,10 +389,15 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         """Fetch zone telemetry and system status."""
 
         if self._hard_reset_recovery_mode:
-            raise UpdateFailed(
-                "Hard reset recovery owns the Bluetooth route; waiting for a fresh "
-                "device advertisement before reconnecting"
+            # Recovery owns the Bluetooth route. Keep scheduled refreshes quiet and
+            # retain the last confirmed snapshot; entity availability is suppressed
+            # explicitly while recovery mode is active.
+            assert self.data is not None
+            _LOGGER.debug(
+                "Skipping normal poll for %s while hard-reset recovery owns the route",
+                self.config_entry.data[CONF_ADDRESS],
             )
+            return self.data
 
         ble_device = self._ble_device()
         try:
@@ -1349,10 +1361,16 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
 
         self._hard_reset_recovery_mode = True
         self._last_ble_device = None
-        self.async_set_update_error(
-            UpdateFailed(
-                "Hard reset dispatched; waiting for a fresh Bluetooth advertisement"
-            )
+        self.async_update_listeners()
+        _LOGGER.info(
+            "Hard reset recovery started for %s: baseline_advertisement_time=%s, "
+            "advertisement_timeout=%ss, reconnect_timeout=%ss, "
+            "delivery_uncertain=%s",
+            self.config_entry.data[CONF_ADDRESS],
+            self._hard_reset_baseline_advertisement_time,
+            HARD_RESET_RECOVERY_TIMEOUT,
+            HARD_RESET_RECONNECT_TIMEOUT,
+            delivery_uncertain,
         )
         self._hard_reset_recovery_task = self.hass.async_create_task(
             self._async_recover_after_hard_reset(
@@ -1389,29 +1407,83 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 delivery_uncertain=delivery_uncertain,
             )
 
+        baseline_time = self._hard_reset_baseline_advertisement_time
+        candidate_count = 0
+        stale_candidate_count = 0
+        newest_candidate_time: float | None = None
+        recovery_started = monotonic()
+
+        def is_fresh_advertisement(service_info: object) -> bool:
+            """Record matching candidates and accept only post-reset advertisements."""
+
+            nonlocal candidate_count, stale_candidate_count, newest_candidate_time
+            candidate_count += 1
+            candidate_time = float(getattr(service_info, "time"))
+            newest_candidate_time = (
+                candidate_time
+                if newest_candidate_time is None
+                else max(newest_candidate_time, candidate_time)
+            )
+            fresh = baseline_time is None or candidate_time > baseline_time
+            if not fresh:
+                stale_candidate_count += 1
+            _LOGGER.debug(
+                "Hard reset recovery advertisement for %s: candidate_time=%s, "
+                "baseline_time=%s, fresh=%s, candidate_count=%s",
+                address,
+                candidate_time,
+                baseline_time,
+                fresh,
+                candidate_count,
+            )
+            return fresh
+
         try:
-            await bluetooth.async_process_advertisements(
+            fresh_service_info = await bluetooth.async_process_advertisements(
                 self.hass,
-                lambda service_info: (
-                    self._hard_reset_baseline_advertisement_time is None
-                    or service_info.time
-                    > self._hard_reset_baseline_advertisement_time
-                ),
+                is_fresh_advertisement,
                 {"address": address, "connectable": True},
                 BluetoothScanningMode.ACTIVE,
                 HARD_RESET_RECOVERY_TIMEOUT,
             )
         except TimeoutError:
+            elapsed = monotonic() - recovery_started
+            diagnostic = (
+                "No matching connectable advertisements were observed."
+                if candidate_count == 0
+                else (
+                    f"Observed {candidate_count} matching connectable advertisement(s), "
+                    f"{stale_candidate_count} were not newer than the pre-reset "
+                    f"baseline; baseline={baseline_time}, "
+                    f"newest_candidate={newest_candidate_time}."
+                )
+            )
+            _LOGGER.warning(
+                "Hard reset recovery advertisement timeout for %s after %.1fs: %s",
+                address,
+                elapsed,
+                diagnostic,
+            )
             return self._finish_hard_reset_recovery_failure(
                 outcome="timed_out",
                 detail=(
                     "The unit did not produce a fresh connectable advertisement within "
-                    f"{HARD_RESET_RECOVERY_TIMEOUT} seconds. Check power, Bluetooth "
-                    "range, and the unit state; reload the integration after it is "
-                    "advertising again. Do not resend the reset."
+                    f"{HARD_RESET_RECOVERY_TIMEOUT} seconds. {diagnostic} Check power, "
+                    "Bluetooth range, and the unit state; reload the integration after "
+                    "it is advertising again. Do not resend the reset."
                 ),
                 delivery_uncertain=delivery_uncertain,
             )
+
+        _LOGGER.info(
+            "Hard reset recovery accepted a fresh advertisement for %s: "
+            "candidate_time=%s, baseline_time=%s, candidates_seen=%s, elapsed=%.1fs",
+            address,
+            getattr(fresh_service_info, "time", None),
+            baseline_time,
+            candidate_count,
+            monotonic() - recovery_started,
+        )
 
         ble_device = bluetooth.async_ble_device_from_address(
             self.hass, address, connectable=True
@@ -1428,8 +1500,17 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             )
 
         self._last_ble_device = ble_device
+        _LOGGER.info(
+            "Hard reset recovery resolved a connectable route for %s; "
+            "starting one authenticated reconnect/read",
+            address,
+        )
+        reconnect_started = monotonic()
         try:
-            data = await self.device.recover_after_hard_reset(ble_device)
+            data = await asyncio.wait_for(
+                self.device.recover_after_hard_reset(ble_device),
+                timeout=HARD_RESET_RECONNECT_TIMEOUT,
+            )
         except SetupCodeRejectedError:
             await self.device.disconnect()
             return self._finish_hard_reset_recovery_failure(
@@ -1449,16 +1530,28 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             TimeoutError,
         ) as err:
             await self.device.disconnect()
+            _LOGGER.warning(
+                "Hard reset recovery reconnect/read failed for %s after %.1fs: %s",
+                address,
+                monotonic() - reconnect_started,
+                err,
+            )
             return self._finish_hard_reset_recovery_failure(
                 outcome="reconnect_failed",
                 detail=(
                     "The unit advertised again but the single controlled reconnect "
-                    f"failed: {err}. Wait for the unit to settle, then reload the "
-                    "integration. Do not resend reset."
+                    f"failed within the {HARD_RESET_RECONNECT_TIMEOUT}-second bounded "
+                    f"recovery window: {err}. Wait for the unit to settle, then reload "
+                    "the integration. Do not resend reset."
                 ),
                 delivery_uncertain=delivery_uncertain,
             )
 
+        _LOGGER.info(
+            "Hard reset recovery reconnect/read completed for %s in %.1fs",
+            address,
+            monotonic() - reconnect_started,
+        )
         localized = VentaxiaMultihomeCoordinator._localize_data(self, data)
         configuration_changed = bool(
             (
@@ -1514,7 +1607,13 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
             delivery_uncertain=delivery_uncertain,
         )
         self.last_hard_reset_recovery_result = result
-        self.async_set_update_error(UpdateFailed(detail))
+        _LOGGER.warning(
+            "Hard reset recovery ended unavailable for %s: outcome=%s; %s",
+            self.config_entry.data[CONF_ADDRESS],
+            outcome,
+            detail,
+        )
+        self.async_update_listeners()
         return result
 
     async def async_shutdown(self) -> None:
