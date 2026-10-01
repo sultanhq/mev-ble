@@ -33,6 +33,12 @@ class VentaxiaMultihomeEntity(CoordinatorEntity[VentaxiaMultihomeCoordinator]):
         self._attr_unique_id = f"{format_identifier(entry.data[CONF_ADDRESS])}_{key}"
 
     @property
+    def available(self) -> bool:
+        """Keep entities unavailable while guarded hard-reset recovery owns BLE."""
+
+        return super().available and not self.coordinator.hard_reset_recovery_active
+
+    @property
     def device_info(self) -> DeviceInfo:
         """Return Home Assistant device registry information."""
 
