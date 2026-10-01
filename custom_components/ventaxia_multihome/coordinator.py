@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from math import ceil, isfinite
 from time import monotonic, time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from bleak.exc import BleakError
 from homeassistant.components import bluetooth
@@ -47,8 +47,8 @@ from .const import (
     CONF_LAST_CO2_CALIBRATION_ATTEMPT,
     CONF_OVERRIDE_DURATION,
     DEFAULT_OVERRIDE_DURATION,
-    HARD_RESET_RECOVERY_TIMEOUT,
     HARD_RESET_RECONNECT_TIMEOUT,
+    HARD_RESET_RECOVERY_TIMEOUT,
     MAX_OVERRIDE_DURATION,
     MIN_OVERRIDE_DURATION,
     STARTUP_ADVERTISEMENT_TIMEOUT,
@@ -1413,12 +1413,12 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
         newest_candidate_time: float | None = None
         recovery_started = monotonic()
 
-        def is_fresh_advertisement(service_info: object) -> bool:
+        def is_fresh_advertisement(service_info: Any) -> bool:
             """Record matching candidates and accept only post-reset advertisements."""
 
             nonlocal candidate_count, stale_candidate_count, newest_candidate_time
             candidate_count += 1
-            candidate_time = float(getattr(service_info, "time"))
+            candidate_time = float(service_info.time)
             newest_candidate_time = (
                 candidate_time
                 if newest_candidate_time is None
@@ -1452,7 +1452,8 @@ class VentaxiaMultihomeCoordinator(DataUpdateCoordinator[MultihomeData]):
                 "No matching connectable advertisements were observed."
                 if candidate_count == 0
                 else (
-                    f"Observed {candidate_count} matching connectable advertisement(s), "
+                    f"Observed {candidate_count} matching connectable "
+                    "advertisement(s), "
                     f"{stale_candidate_count} were not newer than the pre-reset "
                     f"baseline; baseline={baseline_time}, "
                     f"newest_candidate={newest_candidate_time}."
