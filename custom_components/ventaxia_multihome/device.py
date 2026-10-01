@@ -617,6 +617,11 @@ class MultihomeDevice:
         if transport_name is None:
             raise DeviceError("hard reset requires an active protocol transport")
 
+        _LOGGER.info(
+            "Dispatching guarded packet 61 hard reset to %s via %s",
+            self.address,
+            transport_name,
+        )
         try:
             await self._send(
                 PacketType.HARD_RESET,
@@ -624,15 +629,31 @@ class MultihomeDevice:
                 encode_hard_reset(),
             )
         except asyncio.CancelledError:
+            _LOGGER.warning(
+                "Packet 61 dispatch for %s was cancelled after send became possible; "
+                "treating delivery as uncertain",
+                self.address,
+            )
             self._invalidate_after_hard_reset_dispatch()
             raise
         except Exception as err:
+            _LOGGER.warning(
+                "Packet 61 dispatch for %s lost transport acknowledgement; "
+                "delivery is uncertain: %s",
+                self.address,
+                err,
+            )
             self._invalidate_after_hard_reset_dispatch()
             raise HardResetDispatchUncertainError(
                 "hard-reset dispatch is uncertain; the unit may have rebooted "
                 "before transport acknowledgement completed"
             ) from err
 
+        _LOGGER.info(
+            "Packet 61 hard reset dispatch completed for %s via %s",
+            self.address,
+            transport_name,
+        )
         self._invalidate_after_hard_reset_dispatch()
         return HardResetDispatchResult(transport=transport_name)
 

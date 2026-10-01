@@ -605,6 +605,7 @@ class VentaxiaMultihomeOptionsFlow(OptionsFlow):
             coordinator.device.supports_guarded_hard_reset
             and coordinator.data is not None
             and coordinator.last_update_success
+            and not coordinator.hard_reset_recovery_active
         ):
             menu_options.append("hard_reset")
         if self.config_entry.runtime_data.device.supports_internal_co2_calibration:
